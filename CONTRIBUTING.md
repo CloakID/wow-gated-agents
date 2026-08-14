@@ -1,6 +1,6 @@
 # Contributing / giving feedback
 
-This repo is a process design under active review (DRAFT v0.4, pre-pilot). The most valuable contribution right now is **criticism of the design**, especially with field experience behind it.
+This repo is a process design under active review (DRAFT v0.5.0, pre-pilot). The most valuable contribution right now is **criticism of the design**, especially with field experience behind it.
 
 ## Where feedback helps most
 

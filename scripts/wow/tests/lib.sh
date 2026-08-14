@@ -6,10 +6,15 @@
 #
 # Each test also runs a POSITIVE fixture, so a gate that rejects everything
 # unconditionally fails too — rejecting all input is as useless as rejecting none.
+#
+# These tests call gates.sh directly, so they prove gate LOGIC. Gate WIRING —
+# that something actually calls each gate, in a repo configured the way real
+# repos are — is a separate claim, proved by test-install.sh.
 set -uo pipefail
 WOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PKG_DIR="$(cd "$WOW_DIR/../.." && pwd)"
 GATES="$WOW_DIR/gates.sh"
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0
 
 setup_fixture_repo() {
   FIX="$(mktemp -d)"
@@ -56,8 +61,26 @@ assert_accepts() {
   fi
 }
 
+# assert_output <label> <workdir> <expected-substring> <args...> — for checks
+# whose point is what the gate SAYS, not whether it blocks (GATE-5's advisory
+# half is the case: unmodified-doc drift must be reported and must not block).
+assert_output() {
+  local label="$1"; shift; local dir="$1"; shift; local expect="$1"; shift
+  local out
+  out="$( cd "$dir" && "$dir/scripts/wow/gates.sh" "$@" 2>&1 )"
+  if printf '%s' "$out" | grep -qF -- "$expect"; then
+    echo "  ok   reported:  $label"; PASS=$((PASS+1))
+  else
+    echo "  FAIL not reported: $label"
+    echo "       expected: $expect"; echo "$out" | sed 's/^/       /'; FAIL=$((FAIL+1))
+  fi
+}
+
+skip() { echo "  SKIP $1"; SKIP=$((SKIP+1)); }
+
 finish() {
   [ -n "${FIX:-}" ] && rm -rf "$FIX"
-  if [ "$FAIL" -gt 0 ]; then echo "  -> $PASS passed, $FAIL FAILED"; exit 1; fi
-  echo "  -> $PASS passed"; exit 0
+  local tail=""; [ "$SKIP" -gt 0 ] && tail=", $SKIP skipped"
+  if [ "$FAIL" -gt 0 ]; then echo "  -> $PASS passed, $FAIL FAILED$tail"; exit 1; fi
+  echo "  -> $PASS passed$tail"; exit 0
 }

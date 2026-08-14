@@ -159,4 +159,104 @@ autonomy: park on cross-unit
 | AC-2 | 260813-x-r1.T02 |
 P
 assert_accepts "well-formed plan" "$FIX" gate-8 --run 260813-x-r1
+
+# The premise check: totality was measured against ACs parsed from spec tables.
+# A spec that states its ACs as bullets yielded an empty AC set, and "every AC
+# mapped" was then vacuously true.
+printf '# SPEC\n\n## Acceptance criteria\n- AC-1: the thing works\n- AC-2: the other thing\n' \
+  > "$FIX/docs/spec/SPEC-y-v1.md"
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-y-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | a works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+P
+assert_rejects "spec declares no parseable ACs" "$FIX" "declares no parseable AC rows" \
+  gate-8 --run 260813-x-r1
+
+# ...and the verify column was read by position, so a plan that ordered its
+# columns differently shipped tasks with an empty Verify cell.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Done-means | Verify |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | it works | |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "empty Verify column, columns not in schema order" "$FIX" "has no verify command" \
+  gate-8 --run 260813-x-r1
+
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: enormous
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | a works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "tier outside the schema enum" "$FIX" "is not one of" gate-8 --run 260813-x-r1
+
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | a works |
+P
+assert_rejects "PLAN missing required sections" "$FIX" "required_sections" gate-8 --run 260813-x-r1
 finish

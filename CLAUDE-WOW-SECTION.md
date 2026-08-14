@@ -1,4 +1,4 @@
-# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.4
+# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.5.0
 
 > Drop this section into your repo's CLAUDE.md (or equivalent agent memory file). Target ≤60 lines resident; everything else loads on phase entry.
 
@@ -25,12 +25,12 @@ Each `/wow-*` command loads its playbook from `docs/process/`. Do not execute a 
 3. **Evidence discipline.** Enforced: completion-class statuses and done-words carry `ev:` citations (GATE-3). Convention (reviewed, not gated): FACT/ASSUMPTION/INFERENCE labels on load-bearing claims per `docs/process/FORMATS.md`.
 4. **Park, don't ask.** During runs: in-contract deviations are decided and logged (`DEV-U<n>-<nn>`); cross-unit, AC-touching, or irreversible actions are parked (`PARK-U<n>-<nn>`). No mid-run questions, no silent improvisation. Cascades are computed by the ORCH at wave boundaries, never by executors.
 5. **PO gates leave a record.** G1/G2/G4 close = Jira transition + mirrored `signed: <date> ev:jira{…}` line in the governing artifact (GATE-9). Gate failures: fix-forward ≤2 attempts, then park (FORMATS §7). Gates are never bypassed or weakened mid-run.
-6. **A rule that matters is a gate, not a sentence.** Mechanical rules live once in `scripts/wow/GATES-SPEC.md` + `formats.json` (consumed by gates.sh **and** status.mjs); each gate ships with its non-vacuity proof.
+6. **A rule that matters is a gate, not a sentence.** Mechanical rules live once in `scripts/wow/GATES-SPEC.md` + `formats.json` (consumed by gates.sh **and** status.mjs); each gate ships with its non-vacuity proof, and the gate set ships with a wiring test that commits through the real hooks.
 7. **INVESTIGATE-THEN-ASK.** Findings are investigated (facts + impact captured), classified by the PO, then scoped — in that order.
 
 ### Paths
 
-`docs/spec/SPEC-<feature>-vN.md` · `docs/process/` (P0–P5, LANES, FORMATS) · `runs/<YYMMDD>-<slug>-r<N>/` (main; `reports/` per agent) · `runs/quick/`, `runs/debug/` · `scripts/wow/` (gates.sh, status.mjs, formats.json, wow.config.json, permissions-policy.json) · branches `wow/<run-id>/{base,U<n>,int}` (merge rules: P3).
+`docs/spec/SPEC-<feature>-vN.md` · `docs/process/` (P0–P5, LANES, FORMATS) · `runs/<YYMMDD>-<slug>-r<N>/` (main; `reports/` per agent) · `runs/quick/`, `runs/debug/` · `scripts/wow/` (gates.sh + gates.py, status.mjs, formats.json, wow.config.json, permissions-policy.json, tests/) · branches `wow/<run-id>/{base,U<n>,int}` (merge rules: P3).
 
 ### Jira
 

@@ -6,10 +6,10 @@ FIX="$(setup_fixture_repo)"
 echo "GATE-7"
 
 mkdir -p "$FIX/runs/260813-x-r1"
-printf -- '- [ ] transition CLOAKID-1 to Done\n' > "$FIX/runs/260813-x-r1/jira-queue.md"
+printf -- '- [ ] transition ABC-1 to Done\n' > "$FIX/runs/260813-x-r1/jira-queue.md"
 assert_rejects "unresolved queued Jira op" "$FIX" "unresolved queued op" gate-7
 
-printf -- '- [x] transition CLOAKID-1 to Done\n' > "$FIX/runs/260813-x-r1/jira-queue.md"
+printf -- '- [x] transition ABC-1 to Done\n' > "$FIX/runs/260813-x-r1/jira-queue.md"
 assert_accepts "all queued ops applied" "$FIX" gate-7
 
 mkdir -p "$FIX/runs/quick/260701-old-thing"

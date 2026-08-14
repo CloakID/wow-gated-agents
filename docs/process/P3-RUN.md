@@ -1,4 +1,4 @@
-# P3 — RUN — DRAFT v0.4
+# P3 — RUN — DRAFT v0.5.0
 Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits · No human in the loop by design.
 
 ## [ORCH] — branch & merge model (the parallel-execution contract)

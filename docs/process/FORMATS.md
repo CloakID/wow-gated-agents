@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.4
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.5.0
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -22,11 +22,13 @@ Apply to load-bearing claims in specs and reports; quality is a review judgment.
 
 Format: `ev:<type>{<locator>}`:
 - `ev:cmd{<command> => <exit|summary> @<ISO8601>}` · `ev:file{<path>#<anchor>}` (content anchors preferred; `file:line` must pass GATE-5) · `ev:commit{<sha≥7>}` · `ev:jira{<KEY-123>}` · `ev:url{<https://…>}`
-**Enforced rule:** any row/claim using a completion-class status token (§4) or *done / verified / deployed / fixed* as a status carries an `ev:` citation in the same row/sentence. Nothing else is citation-gated.
+**Enforced rule (GATE-3):** any row/claim using an evidence-required status token (§4: `COMPLETED`, `FAILED`) or *done / verified / deployed / fixed* as a status carries an `ev:` citation in the same row/sentence — and the citation must match its own type's shape above. `ev:cmd{it worked}` is not a citation; `ev:cmd{pytest -q => 0 @2026-08-14}` is. Reference-class statuses (`BLOCKED`/`PARKED`/`DEFERRED`) carry their §4 reference in the same row: an `ev:` citation or a stable id (`PARK-U2-01`, `DEV-U1-03`, `VF-…`, `DEF-plan-…`, `CV-…`); the row's own subject id does not count as a reference to anything. Nothing else is citation-gated.
 
 ## 4. Status vocabulary (report rows, requirement rows)
 
 `COMPLETED` (ev required) · `FAILED` (ev of failure) · `BLOCKED` (blocker ref; cascade form `BLOCKED(cascade:<source-id>)`) · `PARKED` (park record ref) · `DEFERRED` (successor + discharge) · `OPEN`. No synonyms (gates reject status-like words outside this vocabulary).
+
+Where a scanned table has a header row naming a **Status / State / Result** column, only that column is status-checked; a table with no header is checked in full. Otherwise an ordinary `OK` in a *Done-means* or *Verify* cell reads as a forbidden synonym, and a gate that cries wolf is a gate someone disables.
 
 ## 5. Cannot-validate record
 
@@ -46,6 +48,10 @@ paths: ["src/auth/**", "helm/auth/**"]
 ---
 ```
 **Fresh ⇔ `git log <verified_against>..HEAD -- <paths>` is empty.** No calendar component. Stale map + main-lane work in the area ⇒ P0 required.
+
+**Plan linkage:** unit plans declare an `areas:` list naming the codebase areas the unit touches — that is GATE-6(a)'s input. Without it the gate depends on the operator remembering `--area`, and a gate that only runs when someone remembers a flag is not a gate.
+
+**No map yet?** The ORCH records the P0 outcome in the run's HANDOFF as `p0-record: <area> = fresh | not-required | updated`, and GATE-6 honours it. It is a format like any other — the machine home is `codebase_frontmatter.p0_record` in formats.json.
 
 ## 7. Gate-failure recovery
 
@@ -73,3 +79,26 @@ Expected-consistent pairs (out-of-mapping = divergence → classify, never silen
 | DEFERRED | Deferred / Backlog |
 
 Divergence classification at gate open: **git wrong** (update git, cite) · **Jira wrong** (transition Jira, cite) · **real gap** (actionable item → P4 classification). Sign-off records: Jira transition is authoritative; the governing git artifact mirrors it as `signed: <date> ev:jira{KEY-nn}` (GATE-9).
+
+The diff lives in `runs/<run-id>/divergence-<gate>.md` as a table with **Item | Git | Jira | Classification** columns; GATE-10 reads the verdict from the Classification column, not from anywhere in the row. An empty diff is written as *"No divergences"* **plus an `ev:` citation of the query that produced it** — an unevidenced empty diff is an assertion, not a check. If the tracker was unreachable, say so in the record and leave an open `- [ ] gate-10 …` item in `jira-queue.md`; a deferral recorded nowhere is not a deferral.
+
+## 11. External-dependency maps (`docs/deps/<name>.md`) — added v0.4.1, from pilot feedback PF-01
+
+Facts about third-party surfaces (external APIs, SaaS platforms, vendor services) live in `docs/deps/<name>.md` — **not** `docs/codebase/`, because git-based freshness (§6) is meaningless for surfaces you don't version. Front-matter:
+
+```yaml
+---
+dependency: payments-api
+kind: external-api   # external-api | saas | vendor-lib | service
+verified: 2026-08-13
+probe: curl -s https://api.vendor.example/v2/openapi.json | sha256sum
+verified_against_hash: <sha256 of probe output at verification time>
+max_age_days: 30     # fallback when no probe surface exists
+---
+```
+
+**Freshness rule:** fresh ⇔ the probe's current output hash equals `verified_against_hash`. If no probe surface is definable, fresh ⇔ `verified` within `max_age_days` — the calendar fallback is legitimate here precisely because git is unavailable (unlike §6, where it was dropped for the better git rule). A changed hash does not mean the map's claims are wrong; it means *the vendor surface moved since verification — re-verify* — the exact external analogue of commits touching mapped paths.
+
+Good probe surfaces, in preference order: published OpenAPI/schema document · version/changelog endpoint · docs-page content hash. Pick the narrowest surface that would change when your capability claims could be invalidated.
+
+**Plan linkage:** unit plans declare a `deps:` list naming the external dependencies they rely on; GATE-6 covers both map kinds (codebase areas via §6's `areas:`, declared deps via this section's `deps:`).

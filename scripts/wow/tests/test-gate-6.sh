@@ -29,7 +29,15 @@ dep() { cat > "$FIX/docs/deps/vendor-api.md"; }
 assert_rejects "declared dep with no map" "$FIX" "no dependency map" gate-6 --deps vendor-api
 
 # The probe emits the vendor surface; the gate hashes its stdout.
-HASH="$(printf 'surface-v1' | shasum -a 256 | cut -d" " -f1)"
+# Portable sha256: coreutils ships sha256sum, macOS ships shasum, and python3 is
+# a prerequisite anyway. Hardcoding one of them made the suite OS-specific.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d" " -f1
+  elif command -v shasum   >/dev/null 2>&1; then shasum -a 256 | cut -d" " -f1
+  else python3 -c "import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())"
+  fi
+}
+HASH="$(printf 'surface-v1' | sha256)"
 
 dep <<D
 ---
@@ -115,4 +123,29 @@ mkdir -p "$FIX/runs/260814-x-r1"
 printf 'spec: s.md\n\n### U1 — a\nowns:\n- src/a\ndeps:\n- vendor-api\ntier: mid\nwave: 1\nautonomy: x\n' \
   > "$FIX/runs/260814-x-r1/PLAN.md"
 assert_rejects "plan-declared dep is stale" "$FIX" "STALE" gate-6 --run 260814-x-r1
+
+# ---- FORMATS §6 plan linkage: the areas half needs a machine input ----------
+# The premise check: GATE-6(a) used to run only when the operator remembered
+# --area, and no playbook, command stub or hook ever passed it. A plan that
+# declares no areas: gave the gate nothing to check, and it said PASS.
+mkdir -p "$FIX/runs/260815-x-r1"
+printf 'spec: s.md\n\n## Units\n\n### U1 — a\nowns:\n- src/a\ntier: mid\nwave: 1\nautonomy: x\n' \
+  > "$FIX/runs/260815-x-r1/PLAN.md"
+assert_rejects "plan declares no areas: for GATE-6(a) to check" "$FIX" "declares no 'areas:'" \
+  gate-6 --run 260815-x-r1
+
+printf 'spec: s.md\n\n## Units\n\n### U1 — a\nowns:\n- src/a\nareas:\n- auth\ntier: mid\nwave: 1\nautonomy: x\n' \
+  > "$FIX/runs/260815-x-r1/PLAN.md"
+# re-verify the map against the commit that made it stale, as P0 would
+NOW="$( cd "$FIX" && git rev-parse HEAD )"
+printf -- '---\narea: auth\nverified_against: %s\npaths: ["src/auth/**"]\n---\n# map\n' "$NOW" \
+  > "$FIX/docs/codebase/auth.md"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "re-verify map [WOW:publish]" )
+assert_accepts "plan-declared area resolves to a fresh map" "$FIX" gate-6 --run 260815-x-r1
+
+printf 'changed again\n' > "$FIX/src/auth/thing.txt"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "touch auth again [WOW:publish]" )
+assert_rejects "plan-declared area is stale" "$FIX" "STALE" gate-6 --run 260815-x-r1
+
+assert_rejects "invoked with no scope at all" "$FIX" "nothing to check" gate-6
 finish
