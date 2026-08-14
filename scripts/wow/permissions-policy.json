@@ -1,0 +1,23 @@
+{
+  "$comment": "Designed permission policy for this repo. .claude/settings.local.json is REGENERATED from this file at every P5 (P5 step 5) — entries that accreted during runs are dropped. Add a permission here deliberately, or lose it at the next publish.",
+  "version": "0.4-draft",
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+      "Bash(git branch:*)", "Bash(git ls-files:*)", "Bash(git rev-parse:*)",
+      "Bash(git worktree list:*)",
+      "Bash(./scripts/wow/gates.sh:*)", "Bash(scripts/wow/gates.sh:*)",
+      "Bash(node scripts/wow/status.mjs:*)",
+      "Bash(bash scripts/wow/tests/run-all.sh:*)",
+      "Bash(ls:*)", "Bash(find:*)", "Bash(grep:*)", "Bash(rg:*)", "Bash(wc:*)",
+      "Read(//Users/**)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push:*)",
+      "Read(./.env)", "Read(./.env.*)", "Read(./**/*credentials*)", "Read(./**/*secret*)"
+    ],
+    "ask": []
+  },
+  "$deny_comment": "Push is deny-by-default: P3 forbids executors pushing shared branches, and only the ORCH merges. Credential paths are deny-read so a probe run cannot leak a key into a transcript."
+}

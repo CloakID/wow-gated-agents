@@ -1,0 +1,216 @@
+{
+  "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect.",
+  "version": "0.4-draft",
+
+  "ids": {
+    "run":                 "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*$",
+    "unit":                "^U[1-9][0-9]*$",
+    "task":                "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*\\.T[0-9]{2}$",
+    "deviation":           "^DEV-U[1-9][0-9]*-[0-9]{2}$",
+    "park":                "^PARK-U[1-9][0-9]*-[0-9]{2}$",
+    "verifier_finding":    "^VF-U[1-9][0-9]*-[0-9]{2}$",
+    "plan_defect":         "^DEF-plan-[0-9]{2}$",
+    "cannot_validate":     "^CV-[0-9]{6}-[a-z0-9-]+-r[1-9][0-9]*-[0-9]{2}$",
+    "requirement":         "^REQ-[0-9]{3}$",
+    "assumption":          "^A-[0-9]{2}$",
+    "acceptance_criterion":"^AC-[0-9]{1,3}$",
+    "adr_file":            "^[0-9]{3}-[a-z0-9-]+\\.md$",
+    "spec_file":           "^SPEC-[a-z0-9-]{1,24}-v[1-9][0-9]*\\.md$",
+    "quick_dir":           "^[0-9]{6}-[a-z0-9][a-z0-9-]*$",
+    "debug_file":          "^[a-z0-9][a-z0-9-]*\\.md$"
+  },
+
+  "commit_trailers": {
+    "$comment": "GATE-1. Exactly one must appear in a commit message. Each names a lane whose path must exist.",
+    "exactly_one": true,
+    "kinds": {
+      "task":    { "pattern": "\\[T:([0-9]{6}-[a-z0-9-]+-r[0-9]+\\.T[0-9]{2})\\]",  "resolves": "task_in_plan" },
+      "quick":   { "pattern": "\\[Q:(runs/quick/[0-9]{6}-[a-z0-9-]+)\\]",           "resolves": "dir_exists" },
+      "debug":   { "pattern": "\\[D:([a-z0-9-]+)\\]",                               "resolves": "debug_file_exists" },
+      "publish": { "pattern": "(\\[WOW:publish\\])",                                "resolves": "none" }
+    }
+  },
+
+  "branch_patterns": {
+    "base":        "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/base$",
+    "unit":        "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/U[1-9][0-9]*$",
+    "integration": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/int$"
+  },
+
+  "status_vocab": {
+    "$comment": "FORMATS §4. No synonyms. completion_class members require an ev: citation in the same row or sentence (GATE-3).",
+    "allowed": ["COMPLETED", "FAILED", "BLOCKED", "PARKED", "DEFERRED", "OPEN"],
+    "completion_class": ["COMPLETED"],
+    "cascade_form": "^BLOCKED\\(cascade:[A-Za-z0-9._-]+\\)$",
+    "forbidden_synonyms": [
+      "DONE", "FINISHED", "COMPLETE", "SUCCESS", "SUCCEEDED", "PASSED", "PASS",
+      "OK", "WORKING", "WONTFIX", "WON'T FIX", "IN PROGRESS", "TODO", "TO DO",
+      "CLOSED", "RESOLVED", "SHIPPED", "LIVE", "READY", "ABANDONED", "CANCELLED"
+    ],
+    "done_words": ["done", "verified", "deployed", "fixed"],
+    "$done_words_comment": "GATE-3. Used as a STATUS. Prose use is not gated; the check requires the word to head a table cell or follow a status colon."
+  },
+
+  "claim_labels": {
+    "$comment": "FORMATS §2. CONVENTION, reviewed at gates, NOT gated. Listed so status.mjs can report density; gates.sh must never reject on these.",
+    "gated": false,
+    "patterns": {
+      "fact":       "\\[FACT\\|ev:[^\\]]+\\]",
+      "assumption": "\\[ASSUMPTION\\|A-[0-9]{2}\\|owner=(PO|run)\\]",
+      "inference":  "\\[INFERENCE\\|from=[^\\]]+\\]"
+    }
+  },
+
+  "evidence": {
+    "$comment": "FORMATS §3. ENFORCED subset — GATE-3 requires one of these alongside a completion-class status or done-word.",
+    "any": "ev:(cmd|file|commit|jira|url)\\{[^}]+\\}",
+    "types": {
+      "cmd":    "ev:cmd\\{.+?=>.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}[^}]*\\}",
+      "file":   "ev:file\\{[^}]+\\}",
+      "commit": "ev:commit\\{[0-9a-f]{7,40}\\}",
+      "jira":   "ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
+      "url":    "ev:url\\{https?://[^}]+\\}"
+    },
+    "file_line_citation": "ev:file\\{([^#}]+):([0-9]+)\\}",
+    "$file_line_comment": "GATE-5 preflight target. Content anchors (path#anchor) are preferred and are not line-checked."
+  },
+
+  "citation_scan_exclude": [
+    "scripts/wow/tests/**",
+    "**/fixtures/**",
+    "**/testdata/**"
+  ],
+  "$citation_scan_exclude_comment": "GATE-3 and GATE-5 skip these. Negative-test fixtures contain deliberately broken citations and deliberately wrong statuses — that is their job. Scanning them makes every commit fail, and a gate that cries wolf is a gate someone disables.",
+
+  "codebase_frontmatter": {
+    "$comment": "FORMATS §6, GATE-6. Freshness is git-only: fresh iff `git log <verified_against>..HEAD -- <paths>` is empty. No calendar component.",
+    "required": ["area", "verified_against", "paths"],
+    "types": { "area": "string", "verified_against": "git-sha", "paths": "list-of-glob" }
+  },
+
+  "dep_frontmatter": {
+    "$comment": "FORMATS §11 (v0.4.1). External-dependency maps live in docs/deps/<name>.md — NOT docs/codebase/, because §6's git freshness rule is meaningless for a surface you do not version. Fresh iff the probe's current output hash equals verified_against_hash; where no probe surface is definable, fresh iff verified is within max_age_days. A changed hash does not mean the map is wrong — it means the vendor surface moved since verification, so re-verify.",
+    "dir": "docs/deps",
+    "required": ["dependency", "kind", "verified"],
+    "kinds": ["external-api", "saas", "vendor-lib", "service"],
+    "freshness": {
+      "primary": "probe_hash",
+      "fallback": "max_age_days",
+      "hash_algorithm": "sha256",
+      "default_max_age_days": 30,
+      "$hash_comment": "gates.sh hashes the probe's stdout. A probe that itself ends in a digest command still works — it hashes a hash, deterministically — but emitting the raw surface content is preferred, so verified_against_hash stays reproducible with a single tool.",
+      "$probe_trust_comment": "The probe is a shell command read from a repo file and executed by the gate. That is the same trust level as a git hook or a Makefile target, and it is why --no-probe exists: freshness then degrades to the max_age_days fallback rather than silently passing."
+    },
+    "blocking": true
+  },
+
+  "plan_schema": {
+    "$comment": "GATE-8. PLAN.md must parse against this.",
+    "required_sections": ["Units", "Coverage matrix"],
+    "unit_heading": "^###\\s+(U[1-9][0-9]*)\\s+—\\s+(.+)$",
+    "unit_fields": {
+      "owns":     { "required": true,  "kind": "path-list" },
+      "tier":     { "required": true,  "kind": "enum", "values": ["top", "mid", "low"] },
+      "wave":     { "required": true,  "kind": "integer" },
+      "autonomy": { "required": true,  "kind": "text" },
+      "contracts":{ "required": false, "kind": "text-list" },
+      "deps":     { "required": false, "kind": "text-list" }
+    },
+    "task_table_columns": ["Task", "Action", "Verify", "Done-means"],
+    "task_verify_required": true,
+    "task_verify_exempt_marker": "MANUAL",
+    "$deps_comment": "FORMATS §11 plan linkage: a unit names the external dependencies it relies on. GATE-6 requires a fresh docs/deps/<name>.md for each before the plan may proceed.",
+    "$task_verify_comment": "Every auto task needs a verify command. A task whose Verify cell begins with MANUAL: is a manual check and must name an owner.",
+    "coverage_matrix_columns": ["AC", "Tasks"],
+    "coverage_must_be_total": true,
+    "orch_owned_paths": [
+      "runs/*/PLAN.md",
+      "runs/*/RUN-REPORT.md",
+      "runs/*/HANDOFF.md",
+      "runs/*/jira-queue.md"
+    ],
+    "agent_writable_paths": [
+      "runs/*/reports/U*.md",
+      "runs/*/reports/U*-verify.md"
+    ]
+  },
+
+  "report_row_schema": {
+    "$comment": "RUN-REPORT.md and reports/*.md rows. One line per row.",
+    "sections": ["completed", "failed", "blocked", "parked", "deviations", "defects", "new-gaps"],
+    "row": "^\\|\\s*(?P<id>[^|]+?)\\s*\\|\\s*(?P<status>[A-Z][A-Z()a-z:._-]*)\\s*\\|\\s*(?P<detail>.*)\\|$",
+    "evidence_required_for": ["COMPLETED"]
+  },
+
+  "requirements_row_schema": {
+    "$comment": "docs/REQUIREMENTS.md. Technical status, evidence-backed.",
+    "file": "docs/REQUIREMENTS.md",
+    "row": "^\\|\\s*(?P<req>REQ-[0-9]{3})\\s*\\|(?P<rest>.*)\\|$",
+    "status_column_vocab": "status_vocab.allowed",
+    "evidence_required_for": ["COMPLETED"]
+  },
+
+  "jira_mapping": {
+    "$comment": "FORMATS §10, GATE-10. Expected-consistent pairs. Out-of-mapping = divergence, classified never merged.",
+    "artifact_types": { "spec": "Epic", "unit": "Story", "task": "Task", "defect": "Bug" },
+    "expected": {
+      "OPEN":      ["To Do", "Intake", "Ready", "In Progress"],
+      "COMPLETED": ["In Review", "Accepted", "Done"],
+      "FAILED":    ["In Progress", "Blocked"],
+      "BLOCKED":   ["In Progress", "Blocked"],
+      "PARKED":    ["In Progress", "Blocked"],
+      "DEFERRED":  ["Deferred", "Backlog"]
+    },
+    "classifications": ["git-wrong", "jira-wrong", "real-gap"],
+    "divergence_record": "runs/{run_id}/divergence-{gate}.md",
+    "$divergence_comment": "gates.sh cannot call the Atlassian MCP. GATE-10 therefore checks that the ORCH produced a divergence record for the gate and that every row in it carries one of the classifications above. Producing it is an MCP action; verifying it is complete is mechanical.",
+    "signoff_record": "^signed:\\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\\s+ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
+    "signed_status_token": "^status:.*\\bSIGNED\\b",
+    "$signed_status_comment": "Case-SENSITIVE and deliberately so. Matching case-insensitively made GATE-9 read the prose 'not signable, not signed' in a blocked draft's header as a sign-off claim. A gate that fires on prose is as useless as one that never fires."
+  },
+
+  "runs_layout": {
+    "main":    "runs/{run_id}/",
+    "reports": "runs/{run_id}/reports/",
+    "quick":   "runs/quick/{slug}/NOTE.md",
+    "debug":   "runs/debug/{slug}.md",
+    "debug_resolved": "runs/debug/resolved/{slug}.md",
+    "archive": "runs/archive/{run_id}/",
+    "orch_owned": ["PLAN.md", "RUN-REPORT.md", "HANDOFF.md", "jira-queue.md"],
+    "handoff_max_lines": 80,
+    "quick_note_sections": ["what", "why", "verify", "result"],
+    "quick_stale_days": 7
+  },
+
+  "gate_failure_recovery": {
+    "$comment": "FORMATS §7.",
+    "max_fix_forward_attempts": 2,
+    "then": "PARK + escalate at next gate",
+    "bypass_allowed": false
+  },
+
+  "audit_triggers": {
+    "$comment": "P4. Counters derived by status.mjs; any hit schedules an audit phase before new feature work.",
+    "AT-1": { "metric": "mocks_fixtures_added_this_run",        "threshold": 3, "comparator": ">" },
+    "AT-2": { "metric": "remediation_cycles_since_last_audit",  "threshold": 5, "comparator": ">" },
+    "AT-3": { "metric": "blockers_this_run",                    "threshold": 1, "comparator": ">" },
+    "AT-4": { "metric": "stale_file_line_refs_unmodified_docs", "threshold": 3, "comparator": ">=" },
+    "AT-5": { "metric": "ac_passed_for_wrong_reason",           "threshold": 1, "comparator": ">=" }
+  },
+
+  "gates": {
+    "GATE-1":  { "where": "commit-msg",            "blocks": "commit",       "inert_when": null },
+    "GATE-2":  { "where": "sweep",                 "blocks": "gate",         "inert_when": null },
+    "GATE-3":  { "where": "sweep",                 "blocks": "gate",         "inert_when": null },
+    "GATE-4":  { "where": "sweep",                 "blocks": "gate",         "inert_when": null },
+    "GATE-5":  { "where": "pre-commit+sweep",      "blocks": "commit/gate",  "inert_when": null },
+    "GATE-6":  { "where": "wow-plan",              "blocks": "plan",         "inert_when": null,
+                 "covers": ["codebase-map freshness (FORMATS §6, git rule)",
+                            "external-dep freshness (FORMATS §11, probe-hash rule, max_age_days fallback)"] },
+    "GATE-7":  { "where": "P5",                    "blocks": "publish",      "inert_when": null },
+    "GATE-8":  { "where": "G2 pre-review",         "blocks": "review",       "inert_when": null },
+    "GATE-9":  { "where": "sweep",                 "blocks": "gate-close",   "inert_when": null },
+    "GATE-10": { "where": "gate-open",             "blocks": "gate-close",   "inert_when": null },
+    "GATE-11": { "where": "pre-commit",            "blocks": "commit",       "inert_when": "wow.config.json migrated_from_gsd != true" }
+  }
+}
