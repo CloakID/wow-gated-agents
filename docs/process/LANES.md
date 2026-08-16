@@ -1,4 +1,4 @@
-# LANES — quick & debug playbooks + precedence — DRAFT v0.5.0
+# LANES — quick & debug playbooks + precedence — DRAFT v0.5.2
 
 ## Precedence rules **[ORCH]**
 
@@ -6,6 +6,7 @@
 2. Debug exits only through classification (INVESTIGATE-THEN-ASK): facts + impact captured → **PO classifies** → routine + all quick criteria hold → quick lane, NOTE.md references the debug file; otherwise → main lane (fix iteration `r<N+1>` on the affected spec, or `/wow-spec` if the spec itself is wrong).
 3. Quick lane is only for changes whose **scope is known at start**. Scope grows past any quick criterion mid-work → stop, park the diff, reroute to main lane.
 4. Read-only work needs no lane. Any change landing in git needs a lane (GATE-1 enforces).
+5. **Recording a finding outside a run is quick-lane work** (added v0.5.2, PF-03): a gap, obligation, or feedback item discovered between runs goes into its durable home (GAPS.md, REQUIREMENTS, dep map) via `/wow-quick` — the framework should prompt this, not rely on someone thinking to ask.
 
 ## Quick lane **[ORCH]**
 

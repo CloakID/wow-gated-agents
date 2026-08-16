@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.5.0
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.5.2
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -102,3 +102,13 @@ max_age_days: 30     # fallback when no probe surface exists
 Good probe surfaces, in preference order: published OpenAPI/schema document · version/changelog endpoint · docs-page content hash. Pick the narrowest surface that would change when your capability claims could be invalidated.
 
 **Plan linkage:** unit plans declare a `deps:` list naming the external dependencies they rely on; GATE-6 covers both map kinds (codebase areas via §6's `areas:`, declared deps via this section's `deps:`).
+
+## 12. Obligations — "X must happen before Y" (added v0.5.2, pilot feedback PF-03/F-6)
+
+The framework has single homes for facts, decisions and routes; obligations get one too — and it is **not a new artifact**: `docs/GAPS.md` is the obligation registry. An obligation is a gap record whose discharge is future work (an owed audit, a mandated follow-up, a precondition for the next feature). It survives run archival because GAPS.md is durable — nothing that must outlive a run may live only in `runs/` (GATE-7 escrow check).
+
+Record fields (schema in formats.json `gap_row`): id · taxonomy tag · **owner** (who discharges) · **effect** — controlled vocabulary: `advisory` | `blocks-new-feature-work` · successor · discharge condition · `ev:` on creation and on discharge.
+
+`effect: blocks-new-feature-work` is machine-consequential: GATE-12 refuses `/wow-spec` for a **new feature** while one is open. Exempt (they are how obligations get discharged): audit specs, fix iterations (`r>1`), and probes, when they reference the blocking obligation's id. Keep `effect` separate from `owner` — who discharges and what it blocks are different facts; conflating them in one field re-creates the drift class this framework exists to kill.
+
+**Derivation, not narrative:** status.mjs reads GAPS.md (and REQUIREMENTS) — it answers *what does the current state require next*, not only *what is the state*. Audit-trigger counters derive from durable homes, never from archived RUN-REPORTs. Between-run continuity comes from derivation over durable records — HANDOFF stays per-run and retired at P5; no persistent narrative state returns through this door.

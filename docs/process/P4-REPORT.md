@@ -1,4 +1,4 @@
-# P4 — REPORT & RECONCILE — DRAFT v0.5.0
+# P4 — REPORT & RECONCILE — DRAFT v0.5.2
 Entry: `/wow-report <run-id>` · Output: SPEC v<N+1> (reconciled) + classified next actions · Gate: **G4 (PO sign-off)** → Jira bugs/transitions.
 Load: RUN-REPORT, SPEC, `docs/GAPS.md`, `docs/TRACEABILITY.md`, status.mjs trigger counters.
 
@@ -13,6 +13,7 @@ Load: RUN-REPORT, SPEC, `docs/GAPS.md`, `docs/TRACEABILITY.md`, status.mjs trigg
    - AT-3: BLOCKERs **>1 this run**
    - AT-4: stale `file:line` refs found by sweep **in docs not modified this run** ≥3 (commit-time drift is GATE-5's job — no double role)
    - AT-5: **any** AC that passed for the wrong reason
+   **The trigger outcome is an obligation, not a report line:** any hit is recorded at P4 as a GAPS.md record (FORMATS §12) — typically `effect: blocks-new-feature-work`, discharge = the audit phase completing — so it survives run archival and GATE-12 enforces it. The RUN-REPORT row merely cites the record.
    Any hit → schedule an audit phase before new feature work.
 
 ## [PO] — G4 sign-off checklist
