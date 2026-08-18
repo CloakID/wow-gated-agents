@@ -13,11 +13,24 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 
 - **[CLAUDE-WOW-SECTION.md](CLAUDE-WOW-SECTION.md)** — the ~60-line resident router (lanes, non-negotiables, paths) that goes in your agent memory file. Everything else loads on phase entry.
 - **[docs/process/](docs/process/)** — phase playbooks **P0 GROUND → P1 SPEC → P2 PLAN → P3 RUN → P4 REPORT & RECONCILE → P5 PUBLISH**, plus [LANES.md](docs/process/LANES.md) (quick/debug lanes and precedence) and [FORMATS.md](docs/process/FORMATS.md) (IDs, evidence citations, status vocabulary, git/tracker ownership split). Every section is audience-tagged `[PO]` / `[ORCH]` / `[AGENT]` so subagents are never shown duties they can't perform.
-- **[GATES-SPEC.md](GATES-SPEC.md)** — the eleven mechanical gates (commit-msg + pre-commit hooks + gate sweeps), each required to ship with a **non-vacuity proof**: the negative test that shows the gate can actually fail.
+- **[GATES-SPEC.md](GATES-SPEC.md)** — the twelve mechanical gates plus the layer-parity check (commit-msg + pre-commit hooks + gate sweeps), each required to ship with a **non-vacuity proof**: the negative test that shows the gate can actually fail.
 - **[scripts/wow/](scripts/wow/)** — the reference implementation: `gates.sh` (+ its engine `gates.py`), `formats.json` (the single machine home for every pattern, path and vocabulary), `status.mjs` (derived status), and `tests/` — one negative test per gate plus `test-install.sh`, which drives real commits through the real hooks to prove the gates are *wired*, not merely correct.
 - **[install.sh](install.sh)** — per-repo installer. Idempotent, writes only repo-scoped files, preserves an existing hook by chaining to it, and `--check` reports drift against the canonical package.
 - **[INSTALL.md](INSTALL.md)** — packaging, the three-layer entry-reliability model, and a migration path from GSD's `.planning/`.
+- **[docs/GAPS.md](docs/GAPS.md)** — the package's own obligation registry: every known debt as a structured row with an `effect` the engine consumes (`blocks-new-feature-work` refuses new specs; `blocks-install` refuses distribution). This repo eats its own cooking — it has blocked its own feature work and its own installer when the registry said so.
+- **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
+
+## What's new in v0.6.0-draft
+
+v0.5.0 shipped the engine; **v0.6.0 makes the framework govern itself** — and was built under its own rules.
+
+- **Obligations are machinery now.** `docs/GAPS.md` rows carry a closed `effect` vocabulary the engine consumes: GATE-12 refuses a new-feature spec while a `blocks-new-feature-work` row is open (audit/fix/probe specs referencing the obligation are the discharge path); `install.sh` refuses to distribute while a scope-matched `blocks-install` row is open — the package has used this on itself. GATE-7 gained an escrow check (nothing obligation-shaped may live only in an archivable run), and `status.mjs` now answers *what does this state require next*, not just *what is the state*.
+- **The layer-parity check runs first in every sweep**: the GATES-SPEC table, the engine registry and `formats.json` are three declarations of one set, and they must agree — a spec-only gate needs a `DESIGNED-NOT-IMPLEMENTED` marker naming an *open* obligation, version stamps must match the CHANGELOG authority, and doc headers are checked against the commit that actually last modified them.
+- **A registry the schema can't read fails loudly** instead of parsing as empty — found when a pilot's legacy gap table made GATE-12 report "nothing blocks" with 17 real rows on the page. Same principle applied to the installer: a package missing its own manifest files refuses to install (exit 5) rather than shipping dangling stubs.
+- **Migration got honest mechanics**: a `[WOW:migrate]` lane ref valid only while `.planning/` exists and the freeze is unflipped; a named pre-freeze risk window; the vacuity report as a written artifact; a documented rollback recipe.
+- **Two independent reviews are folded in** ([docs/reviews/](docs/reviews/)) — each reviewer ran this engine against a real consuming repo (one greenfield pilot, one brownfield target) and every finding is fixed here or registered as an open obligation. The test suite grew from 104 to **140 assertions**, including negative tests proven by disabling their fixes.
+- Known open debts are in the registry, not in prose — currently one row blocking package feature work (report parsing by column header) and one blocking the pilot's upgrade (row-migration recipe), both by design.
 
 ## What's new in v0.5.0
 
