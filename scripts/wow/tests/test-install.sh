@@ -156,6 +156,20 @@ bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1 \
   && ok_ "scope-mismatched blocks-install row does not refuse (control)" \
   || bad_ "install refused on a row scoped to a different repo"
 
+# ---- 7c. an incomplete package refuses to install (review PR-1) -------------
+PKG3="$WORK/pkg3"; mkdir -p "$PKG3"
+cp -R "$PKG2/." "$PKG3/"
+rm -f "$PKG3/docs/process/P2-PLAN.md"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$PKG3/docs/GAPS.md"
+TI="$(new_target incomplete)"
+if bash "$PKG3/install.sh" "$TI" >/dev/null 2>&1; then
+  bad_ "an incomplete package installed silently (dangling stubs, no playbook)"
+else
+  rc=$?
+  [ "$rc" -eq 5 ] && ok_ "incomplete package refused (exit 5)" \
+    || bad_ "incomplete package refused with exit $rc, not the documented 5"
+fi
+
 # ---- 8. every gate is reachable from a documented command ----------------
 # grep must read to EOF (no -q on a live pipeline): under lib.sh's pipefail,
 # `| grep -q` closes the pipe at first match, gates.sh dies of SIGPIPE, and the

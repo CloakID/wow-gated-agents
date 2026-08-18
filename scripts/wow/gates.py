@@ -214,7 +214,7 @@ def gate_1(msgfile):
             hits.append((name, m.group(1)))
     if len(hits) == 0:
         return False, ["no lane reference. Expected exactly one of "
-                       "[T:<task-id>] [Q:runs/quick/<dir>] [D:<debug-slug>] [WOW:publish]"]
+                       "[T:<task-id>] [Q:runs/quick/<dir>] [D:<debug-slug>] [WOW:publish] (or [WOW:migrate] mid-migration)"]
     if len(hits) > 1:
         return False, ["%d lane references, expected exactly one: %s"
                        % (len(hits), ", ".join(h[1] for h in hits))]
@@ -222,6 +222,17 @@ def gate_1(msgfile):
     how = ct["kinds"][name]["resolves"]
 
     if how == "none":
+        return True, []
+    if how == "mid_migration":
+        # [WOW:migrate] is legal only in the migration window: legacy tree
+        # present AND the freeze not yet flipped (review PR-4).
+        legacy_dir = F["legacy_freeze"]["paths"][0].split("/")[0]
+        if not os.path.isdir(rp(legacy_dir)):
+            return False, ["[WOW:migrate] outside a migration: no %s/ here — use a task, quick "
+                           "or debug lane ref" % legacy_dir]
+        if cfg().get(F["legacy_freeze"]["config_key"]):
+            return False, ["[WOW:migrate] after the freeze flipped — migration is over; use a "
+                           "task, quick or debug lane ref"]
         return True, []
     if how == "dir_exists":
         return (True, []) if os.path.isdir(rp(value)) else \
@@ -1372,6 +1383,12 @@ def check_parity():
                     "declarations of the gate set disagree" % gid)
     # ---- version authority --------------------------------------------------
     ch = rp("CHANGELOG.md")
+    if not os.path.isfile(ch):
+        msgs_note = "version authority: package-repo check — skipped here (no CHANGELOG.md); " \
+                    "consumer version truth is wow.config.json's installed stamp"
+        if not msgs:
+            return True, [msgs_note]
+        msgs.append(msgs_note)
     if os.path.isfile(ch):
         m = re.search(r"^##\s*v?([0-9][^\s]*)", read(ch), re.M)
         if m:

@@ -63,6 +63,17 @@ $HDR
 G
 assert_accepts "blocks-install row does not refuse a spec (wrong consumer)" "$FIX" gate-12 --kind feature
 
+# review FR-1: a registry whose rows the schema cannot read must fail LOUDLY,
+# never parse as an empty (= permissive) registry. This is frisbii's real
+# legacy table shape: 5 columns, G-nn ids.
+gaps << G
+| # | Taxonomy | Gap | Owner | Discharge |
+|---|---|---|---|---|
+| G-17 | framework-defect | gate-6 vacuous without plan | upstream | fixed upstream |
+| G-11 | framework-defect | gate-2 scope | upstream | merged |
+G
+assert_rejects "legacy 5-column G-nn registry fails loudly, not as empty" "$FIX" "cells" gate-12 --kind feature
+
 # Unknown kind is an error, not a bypass.
 assert_rejects "unknown --kind" "$FIX" "unknown --kind" gate-12 --kind yolo
 

@@ -54,6 +54,11 @@
       "publish": {
         "pattern": "(\\[WOW:publish\\])",
         "resolves": "none"
+      },
+      "migrate": {
+        "pattern": "(\\[WOW:migrate\\])",
+        "resolves": "mid_migration",
+        "$comment": "review PR-4: migration commits (lifting durables from .planning into docs/) had no legal lane ref, training operators to fake [WOW:publish]. Valid ONLY mid-migration: .planning/ exists AND migrated_from_gsd is still false. Greenfield repos and post-freeze repos reject it."
       }
     }
   },
@@ -677,7 +682,7 @@
       "discharge",
       "ev"
     ],
-    "row_start": "^\\|\\s*(?:~~)?OBL-",
+    "row_start": "^\\|\\s*(?:~~)?[A-Z][A-Z0-9]*-",
     "discharged_id": "^~~.+~~$",
     "effect_enum": [
       "advisory",
@@ -693,6 +698,7 @@
       "probe"
     ],
     "$spec_kinds_comment": "gate-12 --kind: 'feature' is refused while a blocks-new-feature-work row is open; audit/fix/probe are the discharge paths and must --ref the open obligation they discharge.",
-    "$scope_comment": "stops at whitespace OR ')': '(scope: *)' is scope '*', not '*)' — the greedy \\S+ let a planted blocks-install row slip past the installer in the wiring test"
+    "$scope_comment": "stops at whitespace OR ')': '(scope: *)' is scope '*', not '*)' — the greedy \\S+ let a planted blocks-install row slip past the installer in the wiring test",
+    "$row_start_comment": "matches ANY letter-prefixed id-shaped first cell (OBL-, CV-, G-, REQ-...), not only OBL-: a registry whose rows the schema cannot read must fail LOUDLY, never parse as empty (review FR-1 — frisbii's 5-column G-nn table read as an empty registry and gate-12 went green-because-empty)"
   }
 }
