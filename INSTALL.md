@@ -66,12 +66,14 @@ Everything install.sh writes is **repo-scoped** (CLAUDE.md markers, docs/process
 
 ## Migration (per repo, at pilot start)
 
+> Cite these steps by their bold names, not their numbers — the list renumbers as it grows (pilot N4).
+
 1. Freeze `.planning/` read-only (git — no deletions; it is history).
 2. Lift durables into `docs/`: REQUIREMENTS (active REQ rows only, restated statuses reconciled once), GAPS + surface index, TRACEABILITY, codebase map (from `.planning/codebase/`), specs-in-flight → `docs/spec/`.
 3. Derive nothing from STATE.md except by human review; its counters are untrusted (documented parse-miss corruption).
 4. **Re-home or retire legacy invariants BEFORE enabling GATE-11** (added v0.5.4, pilot #2): any pre-existing assertion that reads `.planning/` as its subject goes permanently green against frozen history the moment the freeze flips — the inert-gate class. Each such check is either re-pointed at the lifted homes (`docs/REQUIREMENTS.md`, `runs/`) or retired with a recorded reason. The freeze is not flipped until this list is empty.
 5. First WoW run starts at `/wow-ground` for the target area. `settings.local.json` regeneration at first P5 is a **reviewed merge, not a wipe** (added v0.5.4): generate from `permissions-policy.json`, then diff against the accreted file and carry forward entries the migration window actually uses (verify commands above all); dropped entries are listed for PO confirmation. A wipe on day one strips the run of its own verify permissions.
-6. **Brownfield vacuity warning** (added v0.5.4): gates whose durable homes don't exist yet (no REQUIREMENTS rows, no codebase map, no runs/) pass vacuously until reconciliation builds those homes — reconciliation is the precondition for non-vacuous gates, not cleanup. Until OBL-PKG-09 lands, run the check mentally: a green sweep in a repo with empty homes certifies nothing.
+6. **Brownfield vacuity warning** (added v0.5.4): gates whose durable homes don't exist yet (no REQUIREMENTS rows, no codebase map, no runs/) pass vacuously until reconciliation builds those homes — reconciliation is the precondition for non-vacuous gates, not cleanup. The check is a **written artifact, not a thought** (v0.5.5, pilot residual on #4): the install step produces `docs/install-vacuity.md` — one table, gate by gate, subject home exists / does not — committed with the install. Filled by hand until OBL-PKG-09 automates it; a green sweep in a repo with empty homes certifies nothing, and now says so on disk.
 7. Jira: create the pilot epic at first G1 — no retro-import of GSD history (archived `.planning/` remains the reference).
 
 ## Reversibility (added v0.5.4)

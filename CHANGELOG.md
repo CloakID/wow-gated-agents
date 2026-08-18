@@ -1,6 +1,12 @@
 # Changelog
 
-Draft-stage repo: versions move fast pre-1.0, and process docs may run ahead of the engine **only** when the debt is marked in the gate table and recorded as an open obligation in `docs/GAPS.md` (the layer-parity rule, v0.5.3). Run `./install.sh --check` in a consuming repo to see what an upgrade changes. Tags land only at doc/engine parity milestones.
+Draft-stage repo: versions move fast pre-1.0, and process docs may run ahead of the engine **only** when the debt is marked in the gate table and recorded as an open obligation in `docs/GAPS.md` (the layer-parity rule, v0.5.3). Run `./install.sh --check` in a consuming repo to see what an upgrade changes. Tags land only at doc/engine parity milestones. **The top entry of this file is the package version — the single authority (v0.5.5, pilot N2).** File headers carry the version that last modified them (must exist as an entry here); `formats.json`'s stamp must equal the top entry. Both checks join the parity sweep (OBL-PKG-08).
+
+## v0.5.5 — 2026-08-17
+- Pilot #2 reassessment residuals + N-findings: parity claim in GATES-SPEC now carries its own DESIGNED-NOT-IMPLEMENTED marker (OBL-PKG-08); install vacuity check is a committed artifact (`docs/install-vacuity.md`), not a mental note; version authority defined (this file's top entry; enforced via parity sweep); `effect` vocabulary closed and widened to `blocks-install` (consumer: install.sh; unrecognized values fail loudly) — OBL-PKG-07 reclassified accordingly; migration steps cited by name, not number.
+
+## v0.5.4 — 2026-08-17 (entry added retroactively in v0.5.5 — its omission was pilot finding N1)
+- Pilot #2 (brownfield) plan-review adoptions: OBL-PKG-08 (layer-parity sweep unregistered — the rule violated itself), OBL-PKG-09 (install vacuity report), OBL-PKG-10 (--uninstall); migration gains legacy-invariant re-homing before the GATE-11 freeze (hard stop), permissions regeneration as reviewed merge, brownfield vacuity warning, rollback recipe.
 
 ## v0.5.3 — 2026-08-16
 - **Subject-absent rule** (from pilot feedback PF-04): every gate now requires two negative tests — violation-present and subject-absent; an absent or unparseable subject is never a pass. Origin: GATE-6 returned PASS for a run with no PLAN.md.
