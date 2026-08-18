@@ -1,6 +1,6 @@
 # WoW v2 — a gated, evidence-first way of working for AI coding agents
 
-**Status: DRAFT v0.5.0 — design *and* reference implementation. Pre-pilot, actively seeking feedback.**
+**Status: DRAFT — current version is the top entry of [CHANGELOG.md](CHANGELOG.md) (the package's single version authority); engine debts are registered in [docs/GAPS.md](docs/GAPS.md). Two pilots running, actively seeking feedback.**
 
 WoW v2 is a spec→plan→run→report process for building software with AI coding agents (designed against Claude Code, portable in principle to any agent runner). It grew out of six months of running [GSD (get-shit-done)](https://github.com/gsd-build/get-shit-done) across two production repos, auditing what actually failed, and rebuilding around two findings that kept repeating:
 

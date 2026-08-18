@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.5.0
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.5.6
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ Canonical package: this repository. Per-repo install = `./install.sh <target-rep
 1. Writes/updates the **WoW section** of the target's `CLAUDE.md` (between `<!-- wow-v2:start/end -->` markers; rest of CLAUDE.md untouched). The section is passed to the rewrite as a file, never as a regex replacement string — a backslash in the router text used to abort the rewrite (or duplicate the marker block) while the installer reported success.
 2. Copies `docs/process/` (playbooks) and `scripts/wow/`: `gates.sh`, **`gates.py`** (the engine gates.sh delegates to), `formats.json`, `status.mjs`, `tests/`, `permissions-policy.json`, and **`GATES-SPEC.md`** (so the repo's CLAUDE.md router can cite a path that exists locally). `wow.config.json` is created once from a template and never overwritten — it holds repo-local truth.
 3. Writes `.claude/commands/wow-*.md` stubs (below) and installs git hooks: **commit-msg** (GATE-1 — message validation cannot run in pre-commit) and **pre-commit** (GATE-5 + GATE-11 on staged files).
-4. Idempotent; re-run to upgrade. Version stamp in `wow.config.json`; `install.sh --check` diffs installed vs canonical.
+4. Before writing anything, install.sh consults the package's own `docs/GAPS.md`: an open `blocks-install` row whose `scope:` matches the target refuses the install, citing the row (**OBL-PKG-11** until implemented — check by hand). Idempotent; re-run to upgrade. Version stamp in `wow.config.json`; `install.sh --check` diffs installed vs canonical.
 No npm, no third-party installer, no vendored engine — plain files owned in our repos.
 
 **Where the hooks go.** To the directory git actually reads: `core.hooksPath` when the repo sets one (husky, lefthook and the `pre-commit` framework all do), otherwise the **common git dir**, so **every worktree inherits them** — executor enforcement is free. Writing to `.git/hooks` unconditionally is how a repo can end up with zero enforcement while every self-check reports a healthy install, so both `--check` and `status.mjs` report the resolved directory and how it was chosen.
@@ -27,6 +27,16 @@ No npm, no third-party installer, no vendored engine — plain files owned in ou
 **Existing hooks are preserved, not clobbered.** A target that already has its own `commit-msg`/`pre-commit` keeps it: the file is moved to `<hook>.pre-wow` and the WoW hook runs it first, failing the commit if it fails. Adopting a process framework should not silently delete a project's lint hook.
 
 **What `--check` verifies.** Engine files and playbooks byte-for-byte; command stubs; the CLAUDE.md section between its markers; files present in the target but no longer in the package (`EXTRA` — a plain install prunes them, so "installed == canonical" stays true across upgrades); and the hooks *by body*, not by the presence of the string `gates.sh`. A hook rewritten to `exit 0` with a comment mentioning gates.sh is drift, and the strongest enforcement layer is exactly the one that must not be silently removable.
+
+## Install modes — declared intent, derived verification (added v0.5.6, PO design question)
+
+`install.sh --mode fresh|upgrade|migrate` **[DESIGNED-NOT-IMPLEMENTED — OBL-PKG-12; run the checks by hand until it lands]**. The mode is the operator's declared intent; the installer derives the target's actual intake state and **refuses on mismatch** — a declared mode is never trusted over evidence (derive-don't-declare, the p0-record pattern):
+
+- `fresh`: no prior wow.config version stamp, no `.planning/`, no pre-existing durable homes expected. Refused if `.planning/` exists (that's a migration) or a version stamp exists (that's an upgrade).
+- `upgrade`: prior stamp required. **Drift-refusal guard:** any installed file that differs from BOTH current canonical and the version previously installed is a local modification — the installer lists the diffs and refuses without explicit per-file acknowledgment. This is the general form of the G-11 protection: it guards every future local fix, not one known case.
+- `migrate`: `.planning/` present; runs the Migration checklist below (vacuity artifact, legacy-invariant list, permissions merge) as gated steps, not prose.
+
+Orthogonal to modes, always: the package-registry consult (open `blocks-install` rows, OBL-PKG-11) — that guards against a defective *source*; modes and drift-refusal guard the *target*.
 
 ## Command stubs (deterministic phase entry)
 
