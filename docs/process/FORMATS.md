@@ -107,8 +107,23 @@ Good probe surfaces, in preference order: published OpenAPI/schema document · v
 
 The framework has single homes for facts, decisions and routes; obligations get one too — and it is **not a new artifact**: `docs/GAPS.md` is the obligation registry. An obligation is a gap record whose discharge is future work (an owed audit, a mandated follow-up, a precondition for the next feature). It survives run archival because GAPS.md is durable — nothing that must outlive a run may live only in `runs/` (GATE-7 escrow check).
 
-Record fields (schema in formats.json `gap_row`): id · taxonomy tag · **owner** (who discharges) · **effect** — closed controlled vocabulary: `advisory` | `blocks-new-feature-work` (consumer: GATE-12 refuses new-feature `/wow-spec`) | `blocks-install` (consumer: install.sh — reads the PACKAGE's own registry before writing and refuses install/upgrade into any target matched by an open row's `scope:`; rows carry `scope:` = repo name list or `*`, default `*` — added v0.5.5/v0.5.6, pilot N3+D1). An unrecognized effect value is a **validation failure, loudly** — never a silent downgrade to non-blocking. Escape any literal `|` inside a cell as `\|` **only in the trailing ev cell** — an escaped pipe in an earlier cell shifts every column after it (review PR-7) · successor · discharge condition · `ev:` on creation and on discharge.
+Record fields (schema in formats.json `gap_row`): id · taxonomy tag · **owner** (who discharges) · **effect** — closed controlled vocabulary: `advisory` | `blocks-new-feature-work` (consumer: GATE-12 refuses new-feature `/wow-spec`) | `blocks-install` (consumer: install.sh — reads the PACKAGE's own registry before writing and refuses install/upgrade into any target matched by an open row's `scope:`; rows carry `scope:` = repo name list or `*`, default `*` — added v0.5.5/v0.5.6, pilot N3+D1). An unrecognized effect value is a **validation failure, loudly** — never a silent downgrade to non-blocking. **Effect transitions are witnessed** (PO decision 2026-08-18, review PR-5): any change to an open row's `effect` carries an in-row note `effect: <old>→<new> <date>` plus fresh `ev:` — the sweep's transition check (engine round 3, OBL-PKG-16) fails an unwitnessed change, and GAPS.md is a scan target. Escape any literal `|` inside a cell as `\|` **only in the trailing ev cell** — an escaped pipe in an earlier cell shifts every column after it (review PR-7) · successor · discharge condition · `ev:` on creation and on discharge.
 
 `effect: blocks-new-feature-work` is machine-consequential: GATE-12 refuses `/wow-spec` for a **new feature** while one is open. Exempt (they are how obligations get discharged): audit specs, fix iterations (`r>1`), and probes, when they reference the blocking obligation's id. Keep `effect` separate from `owner` — who discharges and what it blocks are different facts; conflating them in one field re-creates the drift class this framework exists to kill.
 
 **Derivation, not narrative:** status.mjs reads GAPS.md (and REQUIREMENTS) — it answers *what does the current state require next*, not only *what is the state*. Audit-trigger counters derive from durable homes, never from archived RUN-REPORTs. Between-run continuity comes from derivation over durable records — HANDOFF stays per-run and retired at P5; no persistent narrative state returns through this door.
+
+## 13. Pilot feedback log (`docs/pilot-feedback.md`) — added v0.6.0, PO decision 2026-08-18
+
+Feedback ids are load-bearing (the CHANGELOG cites them); this is their definition. One table:
+
+| id | source | state | upstream-ref |
+|---|---|---|---|
+
+`F-nn` = repo-local finding ids; `PF-nn` is reserved for package-side records. `state` ∈ open |
+adopted | declined | superseded. `upstream-ref` = the issue/commit/CHANGELOG entry that answered
+it. Append-only; the file lives in any consuming repo that files feedback.
+
+**Audit findings:** an audit run's verdict table is `runs/<id>/FINDINGS.md` — a named run
+artifact (see runs_layout), archived with its run. **GLOSSARY:** `docs/GLOSSARY.md` is an
+optional durable home for term definitions; no schema, no gate.

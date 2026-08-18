@@ -174,7 +174,8 @@
       "docs/spec/*.md",
       "runs/*/RUN-REPORT.md",
       "runs/*/reports/*.md",
-      "runs/quick/*/NOTE.md"
+      "runs/quick/*/NOTE.md",
+      "docs/GAPS.md"
     ]
   },
   "citation_scan_exclude": [
@@ -474,7 +475,9 @@
     ],
     "quick_result_section": "^#+\\s*result\\s*$([\\s\\S]*?)(?=^#|\\Z)",
     "quick_stale_days": 7,
-    "$single_home_comment": "ORCH-owned files live once, in plan_schema.orch_owned_paths. A basename copy here would be a second home for one fact inside the single-home file itself."
+    "$single_home_comment": "ORCH-owned files live once, in plan_schema.orch_owned_paths. A basename copy here would be a second home for one fact inside the single-home file itself.",
+    "findings": "runs/{run_id}/FINDINGS.md",
+    "$findings_comment": "audit-run verdict table (PO decision 2026-08-18, review FR-9): named so escrow/GC/archival know it is load-bearing"
   },
   "legacy_freeze": {
     "$comment": "GATE-11. Inert unless wow.config.json sets the config key true. Frozen means frozen in every direction: additions, edits, renames AND deletions. Filtering deletions out of the staged set let `git rm -r .planning/` erase the history the gate exists to preserve.",
