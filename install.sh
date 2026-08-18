@@ -73,7 +73,7 @@ print("REQ_TOOLS=(%s)"    % q("%s:%s" % kv for kv in I["prerequisites"]["require
 print("OPT_TOOLS=(%s)"    % q("%s:%s" % kv for kv in I["prerequisites"]["optional"].items()))
 MANIFEST_PY
 )" || true
-[ "${#ENGINE_FILES[@]:-0}" -gt 0 ] 2>/dev/null || { echo "could not read the install manifest from formats.json" >&2; exit 2; }
+[ -n "${ENGINE_FILES+set}" ] || { echo "could not read the install manifest from formats.json" >&2; exit 2; }
 
 DRIFT=0
 say() { echo "  $*"; }

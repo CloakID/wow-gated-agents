@@ -47,3 +47,18 @@ frisbii-subscriptions, the [WOW:migrate] three-state window.
 - Nits fixed: OBL-PKG-06's dead ev anchor; install.sh's eval-masked manifest guard.
 
 Post-fix state: 154 assertions, all suites green, sweep --p5 7/7 including parity.
+
+## Delta re-verification at 4b94a58 — PASS
+
+All nine findings re-tested with the original reproductions. F1: refused targets untouched across
+all three defect classes (0 files, 0 hooks; complete-package control installs 42). F2: the G-11
+revert mutation now goes red. F3: all three fail-open registries refuse (exit 4, 1 file), advisory
+control installs. F6/F9: mutation-proven, all shapes. F5 stamp watched, not just corrected.
+F8's registration judged adequate ("the layer-parity contract, satisfied"). All 11 round-1
+mutations still red; live checks hold.
+
+Accepted residuals, closed in the wording round that followed: F4's schema check covers the
+three suffix families (6/21 named keys) — spec sentence aligned to the mechanism, full
+both-direction coverage folded into OBL-PKG-17; N1 bash-3.2 guard fixed (`${VAR+set}`); N2
+mutation-count claim corrected (1 red, not 2); N3 two mutation cause-strings shadowed by F9's
+catch-all — cosmetic under mutation only, accepted.
