@@ -74,6 +74,22 @@ gaps << G
 G
 assert_rejects "legacy 5-column G-nn registry fails loudly, not as empty" "$FIX" "cells" gate-12 --kind feature
 
+# verifier F9: loudness must not depend on the id casing or existence of ids.
+gaps << G
+| # | Taxonomy | Gap | Owner | Discharge |
+|---|---|---|---|---|
+| g-17 | framework-defect | lowercase ids | upstream | later |
+| 12 | numeric | numeric ids | upstream | later |
+G
+assert_rejects "lowercase/numeric-id table fails loudly, not as empty" "$FIX" "cannot read" gate-12 --kind feature
+
+printf 'Known gaps:\n- the webhook ordering is unverified\n- backups do not cover engine DB\n' > "$FIX/docs/GAPS.md"
+assert_rejects "prose registry (no table) fails loudly" "$FIX" "no table" gate-12 --kind feature
+
+# The design stands: an EMPTY table (header + separator, zero rows) is a valid registry.
+gaps <<< "$HDR"
+assert_accepts "empty table remains a valid empty registry (control)" "$FIX" gate-12 --kind feature
+
 # Unknown kind is an error, not a bypass.
 assert_rejects "unknown --kind" "$FIX" "unknown --kind" gate-12 --kind yolo
 

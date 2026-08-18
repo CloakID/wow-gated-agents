@@ -1,4 +1,4 @@
-# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.5.0
+# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.6.0
 
 > Drop this section into your repo's CLAUDE.md (or equivalent agent memory file). Target ≤60 lines resident; everything else loads on phase entry.
 

@@ -34,6 +34,11 @@ assert_rejects "marker naming a discharged obligation" "$FIX" "decoration" parit
 for n in $(seq 1 11); do printf '| GATE-%s | check | where | block |\n' "$n"; done | spec
 assert_rejects "engine gate with no spec row" "$FIX" "declarations of the gate set disagree" parity
 
+# F4: the named-schema half — a schema GATES-SPEC mentions must exist in formats.json.
+{ rows_1_12; printf 'The engine also honors the `imaginary_row` schema.\n'; } | spec
+assert_rejects "spec names a schema formats.json lacks" "$FIX" "no such key" parity
+rows_1_12 | spec
+
 # Version authority: formats.json must equal the CHANGELOG top entry.
 rows_1_12 | spec
 printf '# Changelog\n\n## v9.9.9 — someday\n- imaginary\n' > "$FIX/CHANGELOG.md"

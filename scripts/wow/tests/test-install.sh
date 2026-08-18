@@ -169,6 +169,36 @@ else
   [ "$rc" -eq 5 ] && ok_ "incomplete package refused (exit 5)" \
     || bad_ "incomplete package refused with exit $rc, not the documented 5"
 fi
+# verifier F1: the refusal must precede ALL writes — a refusal that fires after
+# the copy loop leaves dangling stubs and LIVE hooks behind.
+if [ -e "$TI/CLAUDE.md.wow" ] || [ -d "$TI/.claude" ] || [ -d "$TI/docs/process" ] \
+   || [ -d "$TI/scripts/wow" ] || grep -q wow-v2 "$TI/CLAUDE.md" 2>/dev/null \
+   || ls "$(cd "$TI" && git rev-parse --git-path hooks)"/commit-msg >/dev/null 2>&1; then
+  bad_ "refusal fired but the target was written anyway (F1: dangling stubs / live hooks)"
+else
+  ok_ "refused target left untouched (F1: nothing written before the check)"
+fi
+
+# verifier F3: the consult mirrors _gap_rows strictness — fail CLOSED, never open.
+PKG4="$WORK/pkg4"; mkdir -p "$PKG4"; cp -R "$PKG2/." "$PKG4/"
+TC="$(new_target consult)"
+printf '| # | Taxonomy | Gap | Owner | Discharge |\n|---|---|---|---|---|\n| G-01 | x | blocks-install (scope: *) | PO | later |\n' > "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok_ "legacy-shaped registry refuses install (F3 fail-closed, exit $rc)" \
+  || bad_ "legacy-shaped registry did not refuse (exit $rc) — fail-open"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-13 | x | PO | blocks-everything | s | d | ev:commit{abc1234} |\n' > "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok_ "unknown effect refuses install (F3 closed enum)" \
+  || bad_ "unknown effect did not refuse (exit $rc) — the silent downgrade returns"
+rm -f "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok_ "absent package registry refuses install (F3 subject-absent)" \
+  || bad_ "absent registry did not refuse (exit $rc)"
+# OBL-PKG-11 stated control: an advisory row must NOT refuse.
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-14 | x | PO | advisory | s | d | ev:commit{abc1234} |\n' > "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1 \
+  && ok_ "advisory row does not refuse (OBL-PKG-11 control)" \
+  || bad_ "advisory row refused the install — the consult is an off switch"
 
 # ---- 8. every gate is reachable from a documented command ----------------
 # grep must read to EOF (no -q on a live pipeline): under lib.sh's pipefail,

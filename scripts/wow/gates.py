@@ -832,6 +832,22 @@ def _gap_rows():
         sm = re.search(gr["scope_parse"], row["effect"])
         row["scope"] = sm.group(1) if sm else "*"
         rows.append(row)
+    if not rows and not problems:
+        # verifier F9: FR-1's loudness covered only uppercase id-shaped rows.
+        # A table whose data rows the schema cannot see at all (lowercase ids,
+        # numeric ids), or a registry with no table, must not parse as empty.
+        text_lines = [l for l in lines_of(path)]
+        seps = [l for l in text_lines if re.match(r"^\|[\s:|-]+\|\s*$", l)]
+        pipe_rows = [l for l in text_lines if l.lstrip().startswith("|")
+                     and not re.match(r"^\|[\s:|-]+\|\s*$", l)]
+        if seps and len(pipe_rows) > len(seps):  # header rows pair 1:1 with separators
+            problems.append("%s contains a table with %d data-looking row(s) the gap_row schema "
+                            "cannot read — an unreadable registry is never an empty one (F9)"
+                            % (F["gap_row"]["file"], len(pipe_rows) - len(seps)))
+        elif not seps and any(l.strip() for l in text_lines):
+            problems.append("%s has content but no table — FORMATS \u00a712 defines the registry AS "
+                            "a table; prose obligations are the failure mode this file exists to "
+                            "end (F9)" % F["gap_row"]["file"])
     return rows, problems
 
 
@@ -904,9 +920,9 @@ def gate_7():
     for base, _dirs, files in os.walk(rp(P["runs_dir"])):
         if os.path.relpath(base, rp(P["runs_dir"])).startswith(rl["archive"]):
             continue
-        if "RUN-REPORT.md" not in files:
+        if os.path.basename(F["report_row_schema"]["file"]) not in files:
             continue
-        rr = os.path.join(base, "RUN-REPORT.md")
+        rr = os.path.join(base, os.path.basename(F["report_row_schema"]["file"]))
         rr_rel = os.path.relpath(rr, ROOT)
         text = read(rr)
         for cv in sorted(set(cv_pat.findall(text))):
@@ -1348,9 +1364,9 @@ def check_parity():
     header equals the version of the commit that last modified it."""
     msgs = []
     spec_path = None
-    for cand in (rp("scripts", "wow", "GATES-SPEC.md"), rp("GATES-SPEC.md")):
-        if os.path.isfile(cand):
-            spec_path = cand
+    for cand_rel in F["parity"]["spec_locations"]:
+        if os.path.isfile(rp(cand_rel)):
+            spec_path = rp(cand_rel)
             break
     if spec_path is None:
         return False, ["no GATES-SPEC.md found — parity has no spec side to compare, "
@@ -1378,6 +1394,11 @@ def check_parity():
             msgs.append("%s is marked DESIGNED-NOT-IMPLEMENTED under %s, but that obligation "
                         "is not open in %s — a marker pointing at nothing is decoration"
                         % (gid, m.group(1), F["gap_row"]["file"]))
+    # F4: the schema half — every schema GATES-SPEC names must exist in formats.json
+    for tok in sorted(set(re.findall(F["parity"]["schema_token"], text))):
+        if tok not in F:
+            msgs.append("GATES-SPEC names schema `%s` but formats.json has no such key — the "
+                        "named-schema half of layer parity (verifier F4)" % tok)
     for gid in sorted(engine - set(spec_rows.keys())):
         msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
                     "declarations of the gate set disagree" % gid)
@@ -1399,10 +1420,9 @@ def check_parity():
                             "version authority (CHANGELOG preamble)" % (F.get("version"), top))
             hdr_re = re.compile(r"DRAFT\s+v([0-9][^\s]*)")
             title_re = re.compile(r"\bv?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-draft)?)\b")
-            for doc in sorted(set(matching_docs(["docs/process/*.md"]) +
-                                  [p for p in ("GATES-SPEC.md", "INSTALL.md", "README.md",
-                                               "scripts/wow/GATES-SPEC.md")
-                                   if os.path.isfile(rp(p))])):
+            globs = [d for d in F["parity"]["versioned_docs"] if "*" in d]
+            names = [d for d in F["parity"]["versioned_docs"] if "*" not in d and os.path.isfile(rp(d))]
+            for doc in sorted(set(matching_docs(globs) + names)):
                 dm = hdr_re.search(read(rp(doc)) or "")
                 if not dm:
                     continue
