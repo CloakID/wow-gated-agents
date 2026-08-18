@@ -41,7 +41,7 @@ assert_rejects() {
   out="$( cd "$dir" && "$dir/scripts/wow/gates.sh" "$@" 2>&1 )"; rc=$?
   if [ "$rc" -eq 0 ]; then
     echo "  FAIL not rejected: $label"; echo "$out" | sed 's/^/       /'; FAIL=$((FAIL+1))
-  elif ! printf '%s' "$out" | grep -qF -- "$expect"; then
+  elif ! grep -qF -- "$expect" <<<"$out"; then
     echo "  FAIL rejected for the WRONG REASON: $label"
     echo "       expected cause: $expect"; echo "$out" | sed 's/^/       /'; FAIL=$((FAIL+1))
   else
@@ -68,7 +68,7 @@ assert_output() {
   local label="$1"; shift; local dir="$1"; shift; local expect="$1"; shift
   local out
   out="$( cd "$dir" && "$dir/scripts/wow/gates.sh" "$@" 2>&1 )"
-  if printf '%s' "$out" | grep -qF -- "$expect"; then
+  if grep -qF -- "$expect" <<<"$out"; then
     echo "  ok   reported:  $label"; PASS=$((PASS+1))
   else
     echo "  FAIL not reported: $label"

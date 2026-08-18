@@ -148,4 +148,60 @@ printf 'changed again\n' > "$FIX/src/auth/thing.txt"
 assert_rejects "plan-declared area is stale" "$FIX" "STALE" gate-6 --run 260815-x-r1
 
 assert_rejects "invoked with no scope at all" "$FIX" "nothing to check" gate-6
+
+# ---- OBL-PKG-02 / PF-04: subject-absent is never a pass ---------------------
+# gate-6 --run returned PASS for a run with no PLAN.md: zero parsed units
+# skipped the no-areas branch. "A gate invoked with no scope is not a pass"
+# already existed one branch earlier; these prove the same holds when the scope
+# resolves to nothing.
+
+assert_rejects "run id that does not exist (subject-absent)" "$FIX" "not a pass" \
+  gate-6 --run 260101-no-such-run-r1
+
+mkdir -p "$FIX/runs/260816-empty-r1"
+assert_rejects "run dir exists but has no PLAN.md (subject-absent)" "$FIX" "not a pass" \
+  gate-6 --run 260816-empty-r1
+
+printf '# a plan the schema cannot read\nfree prose, no unit headings\n' \
+  > "$FIX/runs/260816-empty-r1/PLAN.md"
+assert_rejects "PLAN.md whose headings do not match the schema (unparseable = absent)" "$FIX" \
+  "parses into no units" gate-6 --run 260816-empty-r1
+
+# Positive control: a well-formed plan declaring areas over a fresh map still
+# passes — "the gate now refuses everything" is ruled out.
+mkdir -p "$FIX/runs/260816-good-r1" "$FIX/src/auth"
+BASE2="$( cd "$FIX" && git rev-parse HEAD )"
+printf -- '---\narea: auth\nverified_against: %s\npaths: ["src/auth/**"]\n---\n# map\n' "$BASE2" \
+  > "$FIX/docs/codebase/auth.md"
+cat > "$FIX/runs/260816-good-r1/PLAN.md" <<'P'
+# PLAN — 260816-good-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — only
+owns:
+- src/auth/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+areas:
+- auth
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260816-good-r1.T01 | do a | `true` | done |
+
+## Coverage matrix
+
+| AC | Tasks |
+|---|---|
+| AC-1 | 260816-good-r1.T01 |
+P
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "good plan [T:260816-good-r1.T01]" ) >/dev/null 2>&1 || \
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "good plan [WOW:publish]" )
+assert_accepts "well-formed plan declaring areas over a fresh map (positive control)" "$FIX" \
+  gate-6 --run 260816-good-r1
+
+
 finish

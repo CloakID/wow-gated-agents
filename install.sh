@@ -98,6 +98,53 @@ case "$git_ver" in
 esac
 [ "$missing_prereq" -eq 1 ] && { echo "install aborted: install the prerequisites above" >&2; exit 3; }
 
+# ------------------------------------------- blocks-install (OBL-PKG-11, §12)
+# Before writing anything: an open blocks-install obligation in the PACKAGE's
+# own registry refuses install/upgrade into any scope-matched target. The
+# package blocks its own distribution while it would do harm. Rows carry
+# scope: (repo names or *); an unrecognized effect already failed gate-12's
+# validation — here we only honor the closed enum.
+if [ "$CHECK" != "1" ]; then
+  BLOCKED_ROW="$(python3 - "$SOURCE" "$(basename "$TARGET")" <<'PY'
+import json, os, re, sys
+src, target = sys.argv[1], sys.argv[2]
+try:
+    F = json.load(open(os.path.join(src, "scripts", "wow", "formats.json")))
+    gr = F["gap_row"]
+    p = os.path.join(src, gr["file"])
+    if not os.path.isfile(p):
+        raise SystemExit(0)
+    for ln in open(p, encoding="utf-8"):
+        if not re.match(gr["row_start"], ln):
+            continue
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) < len(gr["columns"]):
+            continue
+        row = dict(zip(gr["columns"], cells))
+        if re.match(gr["discharged_id"], row["id"]):
+            continue
+        m = re.match(gr["effect_cell"], row["effect"])
+        if not m or m.group(1) != "blocks-install":
+            continue
+        sm = re.search(gr["scope_parse"], row["effect"])
+        scope = sm.group(1) if sm else "*"
+        if scope == "*" or target in [x.strip() for x in scope.split(",")]:
+            print(row["id"])
+            raise SystemExit(0)
+except SystemExit:
+    raise
+except Exception:
+    pass
+PY
+)"
+  if [ -n "$BLOCKED_ROW" ]; then
+    echo "REFUSED: open blocks-install obligation $BLOCKED_ROW in the package registry" >&2
+    echo "         (docs/GAPS.md in the source). Discharge it or narrow its scope: —" >&2
+    echo "         installing now would ship the harm the row records." >&2
+    exit 4
+  fi
+fi
+
 # ------------------------------------------------------------------- file copy
 copy() { copy_as "$1" "$1"; }
 

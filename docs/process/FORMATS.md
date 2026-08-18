@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.5.6
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.0
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -107,7 +107,7 @@ Good probe surfaces, in preference order: published OpenAPI/schema document · v
 
 The framework has single homes for facts, decisions and routes; obligations get one too — and it is **not a new artifact**: `docs/GAPS.md` is the obligation registry. An obligation is a gap record whose discharge is future work (an owed audit, a mandated follow-up, a precondition for the next feature). It survives run archival because GAPS.md is durable — nothing that must outlive a run may live only in `runs/` (GATE-7 escrow check).
 
-Record fields (schema in formats.json `gap_row`): id · taxonomy tag · **owner** (who discharges) · **effect** — closed controlled vocabulary: `advisory` | `blocks-new-feature-work` (consumer: GATE-12 refuses new-feature `/wow-spec`) | `blocks-install` (consumer: install.sh — **[DESIGNED-NOT-IMPLEMENTED — OBL-PKG-11]** — reads the PACKAGE's own registry before writing and refuses install/upgrade into any target matched by an open row's `scope:`; rows carry `scope:` = repo name list or `*`, default `*` — added v0.5.5/v0.5.6, pilot N3+D1). An unrecognized effect value is a **validation failure, loudly** — never a silent downgrade to non-blocking · successor · discharge condition · `ev:` on creation and on discharge.
+Record fields (schema in formats.json `gap_row`): id · taxonomy tag · **owner** (who discharges) · **effect** — closed controlled vocabulary: `advisory` | `blocks-new-feature-work` (consumer: GATE-12 refuses new-feature `/wow-spec`) | `blocks-install` (consumer: install.sh — reads the PACKAGE's own registry before writing and refuses install/upgrade into any target matched by an open row's `scope:`; rows carry `scope:` = repo name list or `*`, default `*` — added v0.5.5/v0.5.6, pilot N3+D1). An unrecognized effect value is a **validation failure, loudly** — never a silent downgrade to non-blocking · successor · discharge condition · `ev:` on creation and on discharge.
 
 `effect: blocks-new-feature-work` is machine-consequential: GATE-12 refuses `/wow-spec` for a **new feature** while one is open. Exempt (they are how obligations get discharged): audit specs, fix iterations (`r>1`), and probes, when they reference the blocking obligation's id. Keep `effect` separate from `owner` — who discharges and what it blocks are different facts; conflating them in one field re-creates the drift class this framework exists to kill.
 

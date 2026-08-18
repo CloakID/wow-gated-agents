@@ -35,7 +35,7 @@ if [ ! -f "$INSTALL" ]; then
     bad_ "the installed commit-msg hook accepted a laneless message — GATE-1 is not wired"
   else ok_ "the installed commit-msg hook rejects a laneless message (GATE-1 live)"; fi
   for g in $(python3 -c "import json;F=json.load(open('$WOW_DIR/formats.json'));print(' '.join(F['sweep']['always']+F['sweep']['p5_only']))"); do
-    ( cd "$PKG_DIR" && "$WOW_DIR/gates.sh" sweep --p5 2>&1 | grep -q "$g" ) \
+    ( cd "$PKG_DIR" && "$WOW_DIR/gates.sh" sweep --p5 2>&1 | grep "$g" >/dev/null ) \
       && ok_ "sweep --p5 runs $g" || bad_ "$g is in no sweep — a gate nothing calls is inert"
   done
   finish
@@ -111,7 +111,7 @@ if [ -f "$T3/$HOOKS3/pre-commit.pre-wow" ]; then ok_ "existing pre-commit hook p
 else bad_ "existing pre-commit hook was destroyed"; fi
 printf 'y\n' >> "$T3/app.txt"; ( cd "$T3" && git add -A )
 out3="$( cd "$T3" && git commit -m "chain [WOW:publish]" 2>&1 )"
-printf '%s' "$out3" | grep -q "project lint ran" \
+grep -q "project lint ran" <<<"$out3" \
   && ok_ "the preserved hook still runs" || bad_ "the preserved hook is no longer called" "$out3"
 
 # ---- 6. --check detects drift, including a neutered hook -----------------
@@ -130,9 +130,39 @@ cp -R "$T" "$WORK/snap1"; bash "$INSTALL" "$T" >/dev/null 2>&1
 if diff -r -x '.git' "$WORK/snap1" "$T" >/dev/null 2>&1; then ok_ "re-running install.sh changes nothing"
 else bad_ "install.sh is not idempotent" "$(diff -r -x '.git' "$WORK/snap1" "$T" | head -5)"; fi
 
+# ---- 7b. blocks-install: the package refuses its own distribution ----------
+# (OBL-PKG-11) An open scope-matched blocks-install row in the SOURCE registry
+# refuses install with exit 4. Control: a discharged row does not refuse.
+PKG2="$WORK/pkg2"; mkdir -p "$PKG2"
+( cd "$PKG_DIR" && git ls-files -z 2>/dev/null | tar --null -T - -cf - 2>/dev/null | ( cd "$PKG2" && tar -xf - ) ) \
+  || cp -R "$PKG_DIR/." "$PKG2/"
+rm -rf "$PKG2/.git"
+mkdir -p "$PKG2/docs"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-11 | process_debt | PO | blocks-install (scope: *) | merge | merged | ev:commit{abc1234} |\n' > "$PKG2/docs/GAPS.md"
+TB="$(new_target blocked)"
+if bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1; then
+  bad_ "install proceeded past an open blocks-install row"
+else
+  rc=$?
+  [ "$rc" -eq 4 ] && ok_ "install refused on open blocks-install (exit 4)" \
+    || bad_ "install refused but with exit $rc, not the documented 4"
+fi
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| ~~OBL-T-11~~ | process_debt | PO | blocks-install (scope: *) | merge | merged | ev:commit{abc1234} discharged ev:commit{def5678} |\n' > "$PKG2/docs/GAPS.md"
+bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1 \
+  && ok_ "discharged blocks-install row does not refuse (control)" \
+  || bad_ "install refused on a DISCHARGED row — nothing could ever ship"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-12 | process_debt | PO | blocks-install (scope: some-other-repo) | merge | merged | ev:commit{abc1234} |\n' > "$PKG2/docs/GAPS.md"
+bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1 \
+  && ok_ "scope-mismatched blocks-install row does not refuse (control)" \
+  || bad_ "install refused on a row scoped to a different repo"
+
 # ---- 8. every gate is reachable from a documented command ----------------
+# grep must read to EOF (no -q on a live pipeline): under lib.sh's pipefail,
+# `| grep -q` closes the pipe at first match, gates.sh dies of SIGPIPE, and the
+# pipeline FAILS despite the match — a buffering race that passes on one
+# machine and fails on another (TF-01, found in the engine-v0.5.x session).
 for g in $( cd "$T" && python3 -c "import json;print(' '.join(json.load(open('scripts/wow/formats.json'))['sweep']['always']+json.load(open('scripts/wow/formats.json'))['sweep']['p5_only']))" ); do
-  ( cd "$T" && ./scripts/wow/gates.sh sweep --p5 2>&1 | grep -q "$g" ) \
+  ( cd "$T" && ./scripts/wow/gates.sh sweep --p5 2>&1 | grep "$g" >/dev/null ) \
     && ok_ "sweep --p5 runs $g" || bad_ "$g is in no sweep — a gate nothing calls is inert"
 done
 printf -- '- [ ] transition ABC-1 to Done\n' > "$T/runs/quick/jira-queue.md"
