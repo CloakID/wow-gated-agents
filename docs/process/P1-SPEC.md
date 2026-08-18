@@ -1,6 +1,9 @@
-# P1 — SPEC — DRAFT v0.5.1
+# P1 — SPEC — DRAFT v0.6.0
 Entry: `/wow-spec <feature>` · Output: `docs/spec/SPEC-<feature>-v1.md` (durable) · Gate: **G1 (PO sign-off)** → Jira epic.
 Load: prior spec version (if any), `docs/REQUIREMENTS.md`, `docs/GAPS.md`, `docs/codebase/<area>.md`, open ADRs. Nothing else.
+
+## [ORCH] — step 0: the obligation gate (review FR-4 — a gate nothing calls is inert)
+Classify the spec's kind — feature | audit | fix | probe — a judgment call (GATES-SPEC not-gates list), then run `scripts/wow/gates.sh gate-12 --kind <kind> [--ref OBL-…]` before eliciting anything. A refusal ends the session here: the registry says what must happen first. Record the invocation and result as `ev:cmd` in the spec header.
 
 ## [ORCH] — run the discussion
 1. Elicit and draft iteratively with the PO: objectives · scope boundaries (in/out) · architecture approach + alternatives considered · dependencies (internal, external, new) · tooling.

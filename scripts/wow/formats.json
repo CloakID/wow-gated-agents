@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.5.0-draft",
+  "version": "0.6.0-draft",
   "ids": {
     "run": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*$",
     "unit": "^U[1-9][0-9]*$",
@@ -16,7 +16,8 @@
     "adr_file": "^[0-9]{3}-[a-z0-9-]+\\.md$",
     "spec_file": "^SPEC-[a-z0-9-]{1,24}-v[1-9][0-9]*\\.md$",
     "quick_dir": "^[0-9]{6}-[a-z0-9][a-z0-9-]*$",
-    "debug_file": "^[a-z0-9][a-z0-9-]*\\.md$"
+    "debug_file": "^[a-z0-9][a-z0-9-]*\\.md$",
+    "obligation": "^OBL-[A-Z0-9]+-[0-9]{2}$"
   },
   "paths": {
     "$comment": "Every repo-relative location the gates and status.mjs read. Inlining any of these in a consumer is the defect this section exists to prevent.",
@@ -28,7 +29,8 @@
     "adr_dir": "docs/adr",
     "runs_dir": "runs",
     "gate_log": "runs/.gate-log",
-    "spec_reference": "docs/spec/(SPEC-[a-z0-9-]+-v[0-9]+\\.md)"
+    "spec_reference": "docs/spec/(SPEC-[a-z0-9-]+-v[0-9]+\\.md)",
+    "gaps_file": "docs/GAPS.md"
   },
   "commit_trailers": {
     "$comment": "GATE-1. Exactly one must appear in a commit message. Each names a lane whose path must exist AND resolve to a real record. The task pattern embeds ids.task so the trailer and the id can never drift apart.",
@@ -52,6 +54,11 @@
       "publish": {
         "pattern": "(\\[WOW:publish\\])",
         "resolves": "none"
+      },
+      "migrate": {
+        "pattern": "(\\[WOW:migrate\\])",
+        "resolves": "mid_migration",
+        "$comment": "review PR-4: migration commits (lifting durables from .planning into docs/) had no legal lane ref, training operators to fake [WOW:publish]. Valid ONLY mid-migration: .planning/ exists AND migrated_from_gsd is still false. Greenfield repos and post-freeze repos reject it."
       }
     }
   },
@@ -167,7 +174,8 @@
       "docs/spec/*.md",
       "runs/*/RUN-REPORT.md",
       "runs/*/reports/*.md",
-      "runs/quick/*/NOTE.md"
+      "runs/quick/*/NOTE.md",
+      "docs/GAPS.md"
     ]
   },
   "citation_scan_exclude": [
@@ -467,7 +475,9 @@
     ],
     "quick_result_section": "^#+\\s*result\\s*$([\\s\\S]*?)(?=^#|\\Z)",
     "quick_stale_days": 7,
-    "$single_home_comment": "ORCH-owned files live once, in plan_schema.orch_owned_paths. A basename copy here would be a second home for one fact inside the single-home file itself."
+    "$single_home_comment": "ORCH-owned files live once, in plan_schema.orch_owned_paths. A basename copy here would be a second home for one fact inside the single-home file itself.",
+    "findings": "runs/{run_id}/FINDINGS.md",
+    "$findings_comment": "audit-run verdict table (PO decision 2026-08-18, review FR-9): named so escrow/GC/archival know it is load-bearing"
   },
   "legacy_freeze": {
     "$comment": "GATE-11. Inert unless wow.config.json sets the config key true. Frozen means frozen in every direction: additions, edits, renames AND deletions. Filtering deletions out of the staged set let `git rm -r .planning/` erase the history the gate exists to preserve.",
@@ -642,6 +652,12 @@
       "where": "pre-commit",
       "blocks": "commit",
       "inert_when": "wow.config.json migrated_from_gsd != true"
+    },
+    "GATE-12": {
+      "where": "/wow-spec",
+      "blocks": "P1 entry",
+      "inert_when": null,
+      "$comment": "Not in the sweep lists: it needs invocation context (--kind). The P1 command stub runs it; test-gate-12.sh proves the logic, test-install proves the stub names it."
     }
   },
   "sweep": {
@@ -656,5 +672,52 @@
     "p5_only": [
       "gate-7"
     ]
+  },
+  "gap_row": {
+    "$comment": "FORMATS 12: docs/GAPS.md is the obligation registry. Consumed by gate_12, gate_7's escrow check, and status.mjs. A row is OPEN unless its id cell is struck through (~~OBL-XXX-01~~ = discharged; the discharge ev: citation joins the ev cell). The effect enum is CLOSED: an unrecognized value fails validation loudly and is never treated as non-blocking (v0.5.6, pilot N3).",
+    "file": "docs/GAPS.md",
+    "columns": [
+      "id",
+      "tag",
+      "owner",
+      "effect",
+      "successor",
+      "discharge",
+      "ev"
+    ],
+    "row_start": "^\\|\\s*(?:~~)?[A-Z][A-Z0-9]*-",
+    "discharged_id": "^~~.+~~$",
+    "effect_enum": [
+      "advisory",
+      "blocks-new-feature-work",
+      "blocks-install"
+    ],
+    "effect_cell": "^(advisory|blocks-new-feature-work|blocks-install)\\b",
+    "scope_parse": "scope:\\s*([^)\\s]+)",
+    "spec_kinds": [
+      "feature",
+      "audit",
+      "fix",
+      "probe"
+    ],
+    "$spec_kinds_comment": "gate-12 --kind: 'feature' is refused while a blocks-new-feature-work row is open; audit/fix/probe are the discharge paths and must --ref the open obligation they discharge.",
+    "$scope_comment": "stops at whitespace OR ')': '(scope: *)' is scope '*', not '*)' — the greedy \\S+ let a planted blocks-install row slip past the installer in the wiring test",
+    "$row_start_comment": "matches ANY letter-prefixed id-shaped first cell (OBL-, CV-, G-, REQ-...), not only OBL-: a registry whose rows the schema cannot read must fail LOUDLY, never parse as empty (review FR-1 — frisbii's 5-column G-nn table read as an empty registry and gate-12 went green-because-empty)"
+  },
+  "parity": {
+    "$comment": "verifier F5: check_parity's doc set and spec locations were inline literals in gates.py — the function enforcing layer parity was itself the violator. Single home restored.",
+    "versioned_docs": [
+      "docs/process/*.md",
+      "GATES-SPEC.md",
+      "INSTALL.md",
+      "README.md",
+      "CLAUDE-WOW-SECTION.md",
+      "scripts/wow/GATES-SPEC.md"
+    ],
+    "spec_locations": [
+      "scripts/wow/GATES-SPEC.md",
+      "GATES-SPEC.md"
+    ],
+    "schema_token": "`([a-z][a-z0-9_]*(?:_schema|_frontmatter|_row))`"
   }
 }

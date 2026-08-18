@@ -72,7 +72,8 @@ print("COMMAND_STUBS=(%s)" % q("%s:%s" % kv for kv in I["command_stubs"].items()
 print("REQ_TOOLS=(%s)"    % q("%s:%s" % kv for kv in I["prerequisites"]["required"].items()))
 print("OPT_TOOLS=(%s)"    % q("%s:%s" % kv for kv in I["prerequisites"]["optional"].items()))
 MANIFEST_PY
-)" || { echo "could not read the install manifest from formats.json" >&2; exit 2; }
+)" || true
+[ -n "${ENGINE_FILES+set}" ] || { echo "could not read the install manifest from formats.json" >&2; exit 2; }
 
 DRIFT=0
 say() { echo "  $*"; }
@@ -98,14 +99,109 @@ case "$git_ver" in
 esac
 [ "$missing_prereq" -eq 1 ] && { echo "install aborted: install the prerequisites above" >&2; exit 3; }
 
+# ------------------------------------------- blocks-install (OBL-PKG-11, §12)
+# Before writing anything: an open blocks-install obligation in the PACKAGE's
+# own registry refuses install/upgrade into any scope-matched target. The
+# package blocks its own distribution while it would do harm. Rows carry
+# scope: (repo names or *); an unrecognized effect already failed gate-12's
+# validation — here we only honor the closed enum.
+BLOCKED_ROW="$(python3 - "$SOURCE" "$(basename "$TARGET")" <<'PY'
+import json, os, re, sys
+src, target = sys.argv[1], sys.argv[2]
+try:
+    F = json.load(open(os.path.join(src, "scripts", "wow", "formats.json")))
+    gr = F["gap_row"]
+    p = os.path.join(src, gr["file"])
+    if not os.path.isfile(p):
+        print("CONSULT-ERROR no %s in the package — absence of the registry is not "
+              "absence of obligations (packages >= 0.6 ship one; an empty table is valid)"
+              % gr["file"])
+        raise SystemExit(0)
+    for ln in open(p, encoding="utf-8"):
+        if not re.match(gr["row_start"], ln):
+            continue
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) < len(gr["columns"]):
+            # verifier F3: a registry the schema cannot read must refuse, not skip
+            print("CONSULT-ERROR row %r has %d cells, schema needs %d"
+                  % (cells[0] if cells else "?", len(cells), len(gr["columns"])))
+            raise SystemExit(0)
+        row = dict(zip(gr["columns"], cells))
+        if re.match(gr["discharged_id"], row["id"]):
+            continue
+        m = re.match(gr["effect_cell"], row["effect"])
+        if not m:
+            print("CONSULT-ERROR row %s: effect outside the closed vocabulary: %r"
+                  % (row["id"], row["effect"][:40]))
+            raise SystemExit(0)
+        if m.group(1) != "blocks-install":
+            continue
+        sm = re.search(gr["scope_parse"], row["effect"])
+        scope = sm.group(1) if sm else "*"
+        if scope == "*" or target in [x.strip() for x in scope.split(",")]:
+            print(row["id"])
+            raise SystemExit(0)
+except SystemExit:
+    raise
+except Exception as e:
+    # review FR-5: a consult that dies silently is a guard that is never
+    # allowed to fire — "never silently non-blocking" (pilot N3). Fail CLOSED.
+    print("CONSULT-ERROR %s" % e)
+PY
+)"
+if [ -n "$BLOCKED_ROW" ]; then
+  case "$BLOCKED_ROW" in
+    CONSULT-ERROR*)
+      MSG="could not evaluate the package registry ($BLOCKED_ROW) — refusing rather than guessing" ;;
+    *)
+      MSG="open blocks-install obligation $BLOCKED_ROW in the package registry" ;;
+  esac
+  if [ "$CHECK" = "1" ]; then
+    say "NOTE: a plain install would be REFUSED — $MSG"
+  else
+    echo "REFUSED: $MSG" >&2
+    echo "         (docs/GAPS.md in the source). Discharge it, narrow its scope, or fix the registry." >&2
+    exit 4
+  fi
+fi
+
 # ------------------------------------------------------------------- file copy
 copy() { copy_as "$1" "$1"; }
+
+# Package self-integrity (review PR-1): every playbook a command stub points at,
+# and the CLAUDE.md section source, must exist in the package BEFORE we write a
+# single file — a dir-copy of docs/process/ cannot notice an absent member.
+MISSING_SRC=""
+for stub_target in $(python3 -c "import json;I=json.load(open('$SOURCE/scripts/wow/formats.json'))['install'];print(' '.join(sorted(set(I['command_stubs'].values()))))" 2>/dev/null); do
+  [ -f "$SOURCE/docs/process/$stub_target.md" ] || MISSING_SRC="$MISSING_SRC docs/process/$stub_target.md"
+done
+SECTION_SRC="$(python3 -c "import json;print(json.load(open('$SOURCE/scripts/wow/formats.json'))['install']['claude_md']['section_source'])" 2>/dev/null)"
+[ -n "$SECTION_SRC" ] && [ ! -f "$SOURCE/$SECTION_SRC" ] && MISSING_SRC="$MISSING_SRC $SECTION_SRC"
+for ef in "${ENGINE_FILES[@]}"; do
+  case "$ef" in
+    */GATES-SPEC.md) src_rel="$(basename "$ef")" ;;   # root-sourced, installs under scripts/wow/
+    *)               src_rel="$ef" ;;
+  esac
+  # the package repo installing onto itself sources some files from their target path
+  [ -e "$SOURCE/$src_rel" ] || [ -e "$SOURCE/$ef" ] || MISSING_SRC="$MISSING_SRC $ef"
+done
+# verifier F1: the refusal must happen BEFORE we write a single file — the old
+# placement announced exit 5 after the copy loop, the CLAUDE.md rewrite, the
+# stubs and both hooks had already landed in the target.
+if [ -n "$MISSING_SRC" ] && [ "$CHECK" != "1" ]; then
+  echo "REFUSED before writing anything: the package itself is missing:$MISSING_SRC" >&2
+  echo "an incomplete framework must not install (review PR-1 / verifier F1)" >&2
+  exit 5
+fi
 
 copy_as() { # copy_as <source-relative> <target-relative>
   local rel="$2"
   local src="$SOURCE/$1"
   local dst="$TARGET/$2"
-  [ -e "$src" ] || return 0
+  # review PR-1: a missing PACKAGE source silently skipped here shipped a repo
+  # with dangling command stubs and no router, and --check called it clean.
+  # A package that cannot supply its own manifest refuses to install.
+  [ -e "$src" ] || { MISSING_SRC="$MISSING_SRC $1"; drift "MISSING-IN-PACKAGE $1"; return 0; }
   # Installing a repo onto itself is a legitimate no-op (it is how the package
   # repo re-runs its own installer), not an error.
   if [ "$src" -ef "$dst" ]; then say "ok       $rel (source is target)"; return 0; fi
@@ -319,6 +415,11 @@ write_hook() {
 for h in "${HOOK_NAMES[@]}"; do write_hook "$h"; done
 
 echo
+if [ -n "$MISSING_SRC" ]; then
+  echo "PACKAGE INCOMPLETE — missing from the package itself:$MISSING_SRC" >&2
+  [ "$CHECK" != "1" ] && echo "NOTE: this fired AFTER the pre-write check — a file vanished mid-install; the target may be partial" >&2
+  exit 5
+fi
 if [ "$CHECK" -eq 1 ]; then
   [ "$DRIFT" -eq 0 ] && { echo "no drift"; exit 0; } || { echo "DRIFT FOUND — re-run install.sh to upgrade"; exit 1; }
 fi

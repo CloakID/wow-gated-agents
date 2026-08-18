@@ -84,4 +84,21 @@ diff --git a/runs/260813-real-r1/PLAN.md b/runs/260813-real-r1/PLAN.md
 +| 260813-real-r1.T02 | do b | `pytest b` | b works |  see [T:260813-real-r1.T02]
 M
 assert_accepts "git commit -v message quoting a trailer in its diff" "$FIX" gate-1 msg-verbose
+# ---- [WOW:migrate] validity window (verifier F6: shipped untested) -----------
+MSGF="$(mktemp)"
+printf 'lift REQUIREMENTS out of legacy [WOW:migrate]\n' > "$MSGF"
+# greenfield: no .planning/ -> refused
+assert_rejects "[WOW:migrate] in a greenfield repo" "$FIX" "outside a migration" gate-1 "$MSGF"
+# mid-migration: .planning present, freeze unflipped -> legal
+mkdir -p "$FIX/.planning"; printf 'legacy\n' > "$FIX/.planning/STATE.md"
+assert_accepts "[WOW:migrate] mid-migration (.planning present, freeze false)" "$FIX" gate-1 "$MSGF"
+# post-freeze: flag true -> refused
+python3 - "$FIX/scripts/wow/wow.config.json" <<'PY'
+import json,sys,io
+p=sys.argv[1]; c=json.load(open(p)); c["migrated_from_gsd"]=True
+io.open(p,"w",encoding="utf-8").write(json.dumps(c)+"\n")
+PY
+assert_rejects "[WOW:migrate] after the freeze flipped" "$FIX" "migration is over" gate-1 "$MSGF"
+rm -f "$MSGF"
+
 finish

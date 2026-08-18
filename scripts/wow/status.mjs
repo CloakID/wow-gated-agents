@@ -266,6 +266,37 @@ function auditTriggers(rs) {
 }
 
 // ---------------------------------------------------------------------- render
+// ------------------------------------------------------------ obligations (§12)
+// status.mjs answers "what does this state require next", not only "what is the
+// state" — the founding gap of PF-03/F-6: an owed audit lived in a signed
+// spec's prose, and nothing derived read it.
+function obligations() {
+  const gr = F.gap_row;
+  const p = join(ROOT, gr.file);
+  if (!existsSync(p)) return { registry: false, open: [], discharged: 0, problems: [`no ${gr.file}`] };
+  const rows = [], problems = [];
+  const rowRe = new RegExp(gr.row_start.replace(/^\^/, ''));
+  const effRe = new RegExp(gr.effect_cell);
+  for (const ln of readFileSync(p, 'utf8').split('\n')) {
+    if (!/^\|/.test(ln) || !rowRe.test(ln)) continue;
+    const cells = ln.split('|').slice(1, -1).map(c => c.trim());
+    if (cells.length < gr.columns.length) { problems.push(`short row: ${cells[0] ?? ''}`); continue; }
+    const row = Object.fromEntries(gr.columns.map((c, i) => [c, cells[i]]));
+    row.open = !new RegExp(gr.discharged_id).test(row.id);
+    row.id_plain = row.id.replace(/~~/g, '');
+    const m = effRe.exec(row.effect);
+    if (!m) { problems.push(`${row.id_plain}: effect outside closed vocabulary: ${row.effect.slice(0, 40)}`); continue; }
+    row.effect_value = m[1];
+    rows.push(row);
+  }
+  return {
+    registry: true,
+    open: rows.filter(r => r.open).map(r => ({ id: r.id_plain, effect: r.effect_value, owner: r.owner, tag: r.tag })),
+    discharged: rows.filter(r => !r.open).length,
+    problems,
+  };
+}
+
 const data = {
   repo: relative(dirname(ROOT), ROOT),
   install: installation(),
@@ -274,6 +305,7 @@ const data = {
   claimLabels: claimLabels(),
   runs: runs(),
   lanes: lanes(),
+  obligations: obligations(),
 };
 data.auditTriggers = auditTriggers(data.runs);
 
@@ -347,4 +379,21 @@ for (const [k, v] of Object.entries(data.auditTriggers)) {
   out.push(`  ${k} ${v.metric}: ${val}${v.hit ? '  HIT' : ''}`);
   if (v.note) out.push(dim(`       ${v.note}`));
 }
+
+out.push(B('Obligations') + dim('  (docs/GAPS.md — what this state requires next)'));
+const ob = data.obligations;
+if (!ob.registry) out.push('  NO REGISTRY — gate-12 refuses new feature work until docs/GAPS.md exists');
+else {
+  const blockingF = ob.open.filter(o => o.effect === 'blocks-new-feature-work');
+  const blockingI = ob.open.filter(o => o.effect === 'blocks-install');
+  const advisory  = ob.open.filter(o => o.effect === 'advisory');
+  if (blockingF.length) out.push(`  BLOCKING new feature work: ${blockingF.map(o => o.id).join(', ')}`);
+  if (blockingI.length) out.push(`  BLOCKING install/upgrade: ${blockingI.map(o => o.id).join(', ')}`);
+  out.push(`  advisory open: ${advisory.length}   discharged: ${ob.discharged}`);
+  for (const pr of ob.problems) out.push(`  MALFORMED: ${pr}`);
+  if (!blockingF.length && !blockingI.length && !ob.problems.length)
+    out.push(dim('  nothing blocks the next spec or install'));
+}
+out.push('');
+
 console.log(out.join('\n'));

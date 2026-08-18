@@ -214,7 +214,7 @@ def gate_1(msgfile):
             hits.append((name, m.group(1)))
     if len(hits) == 0:
         return False, ["no lane reference. Expected exactly one of "
-                       "[T:<task-id>] [Q:runs/quick/<dir>] [D:<debug-slug>] [WOW:publish]"]
+                       "[T:<task-id>] [Q:runs/quick/<dir>] [D:<debug-slug>] [WOW:publish] (or [WOW:migrate] mid-migration)"]
     if len(hits) > 1:
         return False, ["%d lane references, expected exactly one: %s"
                        % (len(hits), ", ".join(h[1] for h in hits))]
@@ -222,6 +222,17 @@ def gate_1(msgfile):
     how = ct["kinds"][name]["resolves"]
 
     if how == "none":
+        return True, []
+    if how == "mid_migration":
+        # [WOW:migrate] is legal only in the migration window: legacy tree
+        # present AND the freeze not yet flipped (review PR-4).
+        legacy_dir = F["legacy_freeze"]["paths"][0].split("/")[0]
+        if not os.path.isdir(rp(legacy_dir)):
+            return False, ["[WOW:migrate] outside a migration: no %s/ here — use a task, quick "
+                           "or debug lane ref" % legacy_dir]
+        if cfg().get(F["legacy_freeze"]["config_key"]):
+            return False, ["[WOW:migrate] after the freeze flipped — migration is over; use a "
+                           "task, quick or debug lane ref"]
         return True, []
     if how == "dir_exists":
         return (True, []) if os.path.isdir(rp(value)) else \
@@ -517,10 +528,43 @@ def _req_rows_touched(run_id):
     return touched
 
 
+def _governing_sources(run_id):
+    """GATE-2's scope: the run's GOVERNING spec and its PLAN.
+
+    GATES-SPEC's GATE-2 row says "every REQ ID named by *the active spec/plan*"
+    — singular and definite. It never authorised following references out to
+    other specs. Walking every .md under runs/<id>/ and appending every spec
+    path any of them mentioned did exactly that, so a HANDOFF pointer to an
+    unsigned draft pulled that draft's requirement ids into the set this run
+    was required to have updated — including ids belonging to its "owned
+    elsewhere" table, which have no technical status to update. `G-11`.
+
+    The governing spec is already declared and already machine-parsed:
+    plan_schema.spec_header, which GATE-8 validates. This reads that
+    declaration instead of guessing from prose.
+    """
+    srcs, notes = [], []
+    plan_rel = fill(F["plan_schema"]["file"], run_id=run_id)
+    if not os.path.isfile(rp(plan_rel)):
+        notes.append("run %s has no %s — no governing spec to resolve; "
+                     "REQ scope is empty rather than guessed from run prose"
+                     % (run_id, plan_rel))
+        return srcs, notes
+    srcs.append(plan_rel)
+    m = re.search(F["plan_schema"]["spec_header"], read(rp(plan_rel)), re.M)
+    if m:
+        srcs.append(m.group(1))
+    else:
+        notes.append("%s declares no 'spec:' header — GATE-2 scope is the plan "
+                     "alone (plan structure is GATE-8's)" % plan_rel)
+    return srcs, notes
+
+
 def gate_2(run_id=None, spec=None):
     schema = F["requirements_row_schema"]
     req_pat = F["ids"]["requirement"].strip("^$")
     scoped = bool(run_id or spec)
+    pre_msgs = []
     if not scoped:
         run_id = discover_run()
         if not run_id:
@@ -530,26 +574,21 @@ def gate_2(run_id=None, spec=None):
     if spec:
         sources.append(spec)
     if run_id:
-        d = rp(P["runs_dir"], run_id)
-        for base, _dirs, files in os.walk(d):
-            for fn in files:
-                if fn.endswith(".md"):
-                    sources.append(os.path.relpath(os.path.join(base, fn), ROOT))
-        for s in list(sources):
-            for m in re.finditer(P["spec_reference"], read(rp(s))):
-                sources.append(os.path.join(P["specs_dir"], m.group(1)))
+        srcs, notes = _governing_sources(run_id)
+        sources.extend(srcs)
+        pre_msgs.extend(notes)
     for s in sorted(set(sources)):
         for m in re.finditer(req_pat, read(rp(s))):
             named.add(m.group(0))
     if not named:
-        return True, ["no REQ ids named by the active spec/plan"]
+        return True, pre_msgs + ["no REQ ids named by the active spec/plan"]
 
     rows = _req_rows()
     missing = sorted(r for r in named if r not in rows)
     if missing:
-        return False, ["REQ id named by the active spec/plan has no row in %s: %s"
-                       % (schema["file"], ", ".join(missing))]
-    msgs = ["%d REQ id(s) checked, all have rows" % len(named)]
+        return False, pre_msgs + ["REQ id named by the active spec/plan has no row in %s: %s"
+                                  % (schema["file"], ", ".join(missing))]
+    msgs = pre_msgs + ["%d REQ id(s) checked, all have rows" % len(named)]
     if run_id and schema.get("must_be_updated_in_run"):
         touched = _req_rows_touched(run_id)
         stale = sorted(r for r in named if r not in touched)
@@ -729,7 +768,18 @@ def gate_6(area=None, run_id=None, deps=None, probe=True):
                        "scope is not a pass."]
     if run_id and not area and not areas:
         ps = F["plan_schema"]
-        if _parse_plan(rp(fill(ps["file"], run_id=run_id)))["units"]:
+        plan_rel = fill(ps["file"], run_id=run_id)
+        if not os.path.isfile(rp(plan_rel)):
+            # OBL-PKG-02 / PF-04: a run with no plan is not an empty check — it
+            # is the subject-absent case, and an absent subject is never a pass.
+            ok = False
+            msgs.append("no %s — GATE-6 has nothing to check, and that is not a pass "
+                        "(subject-absent, GATES-SPEC v0.5.3)" % plan_rel)
+        elif not _parse_plan(rp(plan_rel))["units"]:
+            ok = False
+            msgs.append("%s parses into no units — GATE-6 cannot resolve areas. A plan the "
+                        "schema cannot read is not a plan that declares no areas." % plan_rel)
+        else:
             ok = False
             msgs.append("PLAN.md declares no 'areas:' for any unit — GATE-6(a) then has nothing "
                         "to check. Declare the codebase areas each unit touches (FORMATS §6).")
@@ -745,6 +795,91 @@ def gate_6(area=None, run_id=None, deps=None, probe=True):
         if not good:
             ok = False
     return ok, msgs
+
+
+# --------------------------------------------------------------------------
+# GATE-12 — obligation block at /wow-spec (FORMATS §12, OBL-PKG-01)
+# --------------------------------------------------------------------------
+def _gap_rows():
+    """Parse docs/GAPS.md per formats.json gap_row. Returns (rows, problems).
+
+    A malformed effect cell is a PROBLEM, never a silently non-blocking row —
+    the enum is closed (v0.5.6, pilot N3: an unrecognized effect downgrading to
+    non-blocking would silently disarm the one row guarding a reinstall)."""
+    gr = F["gap_row"]
+    path = rp(gr["file"])
+    if not os.path.isfile(path):
+        return None, ["no %s — the obligation registry does not exist" % gr["file"]]
+    rows, problems = [], []
+    for ln in lines_of(path):
+        if not re.match(gr["row_start"], ln):
+            continue
+        cells = _cells(ln)
+        if len(cells) < len(gr["columns"]):
+            problems.append("gap row has %d cells, schema needs %d: %s"
+                            % (len(cells), len(gr["columns"]), cells[0] if cells else ln[:40]))
+            continue
+        row = dict(zip(gr["columns"], cells))
+        row["open"] = not re.match(gr["discharged_id"], row["id"].strip())
+        row["id_plain"] = row["id"].strip().strip("~")
+        m = re.match(gr["effect_cell"], row["effect"].strip())
+        if not m:
+            problems.append("row %s: effect %r is outside the closed vocabulary %s — an "
+                            "unrecognized effect FAILS loudly, it is never non-blocking"
+                            % (row["id_plain"], row["effect"].strip()[:40], gr["effect_enum"]))
+            continue
+        row["effect_value"] = m.group(1)
+        sm = re.search(gr["scope_parse"], row["effect"])
+        row["scope"] = sm.group(1) if sm else "*"
+        rows.append(row)
+    if not rows and not problems:
+        # verifier F9: FR-1's loudness covered only uppercase id-shaped rows.
+        # A table whose data rows the schema cannot see at all (lowercase ids,
+        # numeric ids), or a registry with no table, must not parse as empty.
+        text_lines = [l for l in lines_of(path)]
+        seps = [l for l in text_lines if re.match(r"^\|[\s:|-]+\|\s*$", l)]
+        pipe_rows = [l for l in text_lines if l.lstrip().startswith("|")
+                     and not re.match(r"^\|[\s:|-]+\|\s*$", l)]
+        if seps and len(pipe_rows) > len(seps):  # header rows pair 1:1 with separators
+            problems.append("%s contains a table with %d data-looking row(s) the gap_row schema "
+                            "cannot read — an unreadable registry is never an empty one (F9)"
+                            % (F["gap_row"]["file"], len(pipe_rows) - len(seps)))
+        elif not seps and any(l.strip() for l in text_lines):
+            problems.append("%s has content but no table — FORMATS \u00a712 defines the registry AS "
+                            "a table; prose obligations are the failure mode this file exists to "
+                            "end (F9)" % F["gap_row"]["file"])
+    return rows, problems
+
+
+def gate_12(kind=None, ref=None):
+    """Refuse /wow-spec for a NEW FEATURE while a blocks-new-feature-work
+    obligation is open. Audit/fix/probe specs are the discharge paths and must
+    reference the open obligation they discharge."""
+    gr = F["gap_row"]
+    kind = kind or "feature"
+    if kind not in gr["spec_kinds"]:
+        return False, ["unknown --kind %r (one of %s)" % (kind, "|".join(gr["spec_kinds"]))]
+    rows, problems = _gap_rows()
+    if rows is None:
+        # Subject-absent is never a pass: absence of the registry is not
+        # absence of obligations. An EMPTY registry file is a valid pass.
+        return False, problems + ["cannot prove no blocking obligations — create the registry "
+                                  "(an empty table is a valid registry), and that is not a pass"]
+    if problems:
+        return False, problems
+    blocking = [r for r in rows if r["open"] and r["effect_value"] == "blocks-new-feature-work"]
+    if not blocking:
+        return True, ["no open blocks-new-feature-work obligation (%d open row(s) total)"
+                      % sum(1 for r in rows if r["open"])]
+    ids = [r["id_plain"] for r in blocking]
+    if kind == "feature":
+        return False, ["open blocks-new-feature-work obligation(s): %s — new feature work is "
+                       "refused until discharged; audit/fix/probe specs referencing the "
+                       "obligation are the way through" % ", ".join(ids)]
+    if not ref or ref not in ids:
+        return False, ["--kind %s is exempt only when it references the open obligation it "
+                       "discharges: pass --ref with one of %s" % (kind, ", ".join(ids))]
+    return True, ["%s spec discharging %s — exemption applies" % (kind, ref)]
 
 
 # --------------------------------------------------------------------------
@@ -777,6 +912,31 @@ def gate_7():
         for run in sorted(os.listdir(ad)):
             if os.path.isfile(os.path.join(ad, run, rl["active_marker"])):
                 msgs.append("%s/%s is archived but still marked active" % (rl["archive_dir"], run))
+    # Obligation escrow (FORMATS §12, OBL-PKG-01): nothing obligation-shaped may
+    # live only in the runs/ tree being archived. Every CV id and DEFERRED row
+    # in a RUN-REPORT must exist in the durable registry status.mjs reads.
+    gaps_text = read(rp(F["gap_row"]["file"])) if os.path.isfile(rp(F["gap_row"]["file"])) else ""
+    cv_pat = re.compile(F["ids"]["cannot_validate"].strip("^$"))
+    for base, _dirs, files in os.walk(rp(P["runs_dir"])):
+        if os.path.relpath(base, rp(P["runs_dir"])).startswith(rl["archive"]):
+            continue
+        if os.path.basename(F["report_row_schema"]["file"]) not in files:
+            continue
+        rr = os.path.join(base, os.path.basename(F["report_row_schema"]["file"]))
+        rr_rel = os.path.relpath(rr, ROOT)
+        text = read(rr)
+        for cv in sorted(set(cv_pat.findall(text))):
+            if cv not in gaps_text:
+                msgs.append("%s records %s but %s does not — an obligation living only in an "
+                            "archivable run (escrow, FORMATS §12)"
+                            % (rr_rel, cv, F["gap_row"]["file"]))
+        for ln in text.splitlines():
+            cells = _cells(ln)
+            if len(cells) >= 2 and cells[1].strip().upper().startswith("DEFERRED"):
+                rid = cells[0].strip()
+                if rid and rid not in gaps_text:
+                    msgs.append("%s defers %s with no row in %s (escrow, FORMATS §12)"
+                                % (rr_rel, rid, F["gap_row"]["file"]))
     return (len(msgs) == 0), msgs
 
 
@@ -1184,11 +1344,101 @@ def run_gate(name, args):
                       run_id=_opt(args, "--run"), spec=_opt(args, "--spec"))
     if name == "gate-10":
         return gate_10(_opt(args, "--run"), _opt(args, "--gate") or "G2")
+    if name == "parity":
+        return check_parity()
+    if name == "gate-12":
+        return gate_12(kind=_opt(args, "--kind"), ref=_opt(args, "--ref"))
     if name == "gate-11":
         paths = staged_files(include_deleted=F["legacy_freeze"]["include_deletions"]) \
             if "--staged" in args else _list_opt(args, "--paths")
         return gate_11(paths)
     return False, ["unknown gate %s" % name]
+
+
+def check_parity():
+    """OBL-PKG-08 / layer-parity rule (GATES-SPEC v0.5.3): the GATES-SPEC table
+    and the engine are two declarations of the same set, and this compares them.
+    A spec-only row is legal ONLY with a DESIGNED-NOT-IMPLEMENTED marker naming
+    an OPEN obligation. Also the version authority (v0.5.5/N2, v0.5.6/D2):
+    formats.json's stamp equals the CHANGELOG top entry, and each versioned doc
+    header equals the version of the commit that last modified it."""
+    msgs = []
+    spec_path = None
+    for cand_rel in F["parity"]["spec_locations"]:
+        if os.path.isfile(rp(cand_rel)):
+            spec_path = rp(cand_rel)
+            break
+    if spec_path is None:
+        return False, ["no GATES-SPEC.md found — parity has no spec side to compare, "
+                       "and that is not a pass"]
+    text = read(spec_path)
+    spec_rows = {}
+    for m in re.finditer(r"^\|\s*GATE-(\d+)\s*\|(.*)$", text, re.M):
+        spec_rows["GATE-" + m.group(1)] = m.group(2)
+    marker_re = re.compile(r"DESIGNED-NOT-IMPLEMENTED\s*[—-]+\s*(OBL-[A-Z0-9]+-[0-9]{2})")
+    rows, _problems = _gap_rows()
+    open_ids = {r["id_plain"] for r in (rows or []) if r["open"]}
+    engine = set(F["gates"].keys())
+    for gid, body in sorted(spec_rows.items(), key=lambda kv: int(kv[0].split("-")[1])):
+        n = gid.split("-")[1]
+        implemented = gid in engine and ("gate_%s" % n) in globals()
+        m = marker_re.search(body)
+        if implemented:
+            continue
+        if not m:
+            return_msg = ("%s is in GATES-SPEC with no engine counterpart and no "
+                          "DESIGNED-NOT-IMPLEMENTED marker — a spec-first change without a "
+                          "paired obligation (layer-parity rule)" % gid)
+            msgs.append(return_msg)
+        elif m.group(1) not in open_ids:
+            msgs.append("%s is marked DESIGNED-NOT-IMPLEMENTED under %s, but that obligation "
+                        "is not open in %s — a marker pointing at nothing is decoration"
+                        % (gid, m.group(1), F["gap_row"]["file"]))
+    # F4: the schema half — every schema GATES-SPEC names must exist in formats.json
+    for tok in sorted(set(re.findall(F["parity"]["schema_token"], text))):
+        if tok not in F:
+            msgs.append("GATES-SPEC names schema `%s` but formats.json has no such key — the "
+                        "named-schema half of layer parity (verifier F4)" % tok)
+    for gid in sorted(engine - set(spec_rows.keys())):
+        msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
+                    "declarations of the gate set disagree" % gid)
+    # ---- version authority --------------------------------------------------
+    ch = rp("CHANGELOG.md")
+    if not os.path.isfile(ch):
+        msgs_note = "version authority: package-repo check — skipped here (no CHANGELOG.md); " \
+                    "consumer version truth is wow.config.json's installed stamp"
+        if not msgs:
+            return True, [msgs_note]
+        msgs.append(msgs_note)
+    if os.path.isfile(ch):
+        m = re.search(r"^##\s*v?([0-9][^\s]*)", read(ch), re.M)
+        if m:
+            top = m.group(1).replace("-draft", "")
+            fv = str(F.get("version", "")).replace("-draft", "").lstrip("v")
+            if fv != top:
+                msgs.append("formats.json version %r != CHANGELOG top entry v%s — the single "
+                            "version authority (CHANGELOG preamble)" % (F.get("version"), top))
+            hdr_re = re.compile(r"DRAFT\s+v([0-9][^\s]*)")
+            title_re = re.compile(r"\bv?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-draft)?)\b")
+            globs = [d for d in F["parity"]["versioned_docs"] if "*" in d]
+            names = [d for d in F["parity"]["versioned_docs"] if "*" not in d and os.path.isfile(rp(d))]
+            for doc in sorted(set(matching_docs(globs) + names)):
+                dm = hdr_re.search(read(rp(doc)) or "")
+                if not dm:
+                    continue
+                title = git("log", "-1", "--format=%s", "--", doc)
+                if not title:
+                    continue
+                tm = title_re.search(title)
+                if not tm:
+                    continue  # last commit not version-titled: nothing to compare against
+                hv = dm.group(1).replace("-draft", "")
+                tv = tm.group(1).replace("-draft", "")
+                if hv != tv:
+                    msgs.append("%s header says v%s but its last-modifying commit is %r — "
+                                "header stamps are last-MODIFIED markers, checked against git "
+                                "history (pilot D2)" % (doc, dm.group(1), title.strip()[:50]))
+    return (len(msgs) == 0), msgs
 
 
 def sweep(args):
@@ -1197,6 +1447,14 @@ def sweep(args):
     if "--p5" in args:
         gates += F["sweep"]["p5_only"]
     failed, total = [], 0
+    ok, msgs = check_parity()
+    total += 1
+    print("%s %s" % ("PASS" if ok else "FAIL", "parity"))
+    for m in msgs:
+        print("     %s" % m)
+    if not ok:
+        failed.append("parity")
+        log_rejection("PARITY", msgs)
     for g in gates:
         a = []
         if run_id and g in ("gate-2", "gate-4", "gate-5"):
@@ -1222,7 +1480,7 @@ def main(argv):
         argv = [a for a in argv if a != "--quiet"]
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
-        print("usage: gates.sh <gate-1..gate-11|sweep [--p5]|list> [options]")
+        print("usage: gates.sh <gate-1..gate-12|sweep [--p5]|list> [options]")
         return 0
     cmd, args = argv[0], argv[1:]
     if cmd == "list":

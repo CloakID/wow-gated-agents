@@ -35,7 +35,7 @@ if [ ! -f "$INSTALL" ]; then
     bad_ "the installed commit-msg hook accepted a laneless message — GATE-1 is not wired"
   else ok_ "the installed commit-msg hook rejects a laneless message (GATE-1 live)"; fi
   for g in $(python3 -c "import json;F=json.load(open('$WOW_DIR/formats.json'));print(' '.join(F['sweep']['always']+F['sweep']['p5_only']))"); do
-    ( cd "$PKG_DIR" && "$WOW_DIR/gates.sh" sweep --p5 2>&1 | grep -q "$g" ) \
+    ( cd "$PKG_DIR" && "$WOW_DIR/gates.sh" sweep --p5 2>&1 | grep "$g" >/dev/null ) \
       && ok_ "sweep --p5 runs $g" || bad_ "$g is in no sweep — a gate nothing calls is inert"
   done
   finish
@@ -111,7 +111,7 @@ if [ -f "$T3/$HOOKS3/pre-commit.pre-wow" ]; then ok_ "existing pre-commit hook p
 else bad_ "existing pre-commit hook was destroyed"; fi
 printf 'y\n' >> "$T3/app.txt"; ( cd "$T3" && git add -A )
 out3="$( cd "$T3" && git commit -m "chain [WOW:publish]" 2>&1 )"
-printf '%s' "$out3" | grep -q "project lint ran" \
+grep -q "project lint ran" <<<"$out3" \
   && ok_ "the preserved hook still runs" || bad_ "the preserved hook is no longer called" "$out3"
 
 # ---- 6. --check detects drift, including a neutered hook -----------------
@@ -130,9 +130,83 @@ cp -R "$T" "$WORK/snap1"; bash "$INSTALL" "$T" >/dev/null 2>&1
 if diff -r -x '.git' "$WORK/snap1" "$T" >/dev/null 2>&1; then ok_ "re-running install.sh changes nothing"
 else bad_ "install.sh is not idempotent" "$(diff -r -x '.git' "$WORK/snap1" "$T" | head -5)"; fi
 
+# ---- 7b. blocks-install: the package refuses its own distribution ----------
+# (OBL-PKG-11) An open scope-matched blocks-install row in the SOURCE registry
+# refuses install with exit 4. Control: a discharged row does not refuse.
+PKG2="$WORK/pkg2"; mkdir -p "$PKG2"
+( cd "$PKG_DIR" && git ls-files -z 2>/dev/null | tar --null -T - -cf - 2>/dev/null | ( cd "$PKG2" && tar -xf - ) ) \
+  || cp -R "$PKG_DIR/." "$PKG2/"
+rm -rf "$PKG2/.git"
+mkdir -p "$PKG2/docs"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-11 | process_debt | PO | blocks-install (scope: *) | merge | merged | ev:commit{abc1234} |\n' > "$PKG2/docs/GAPS.md"
+TB="$(new_target blocked)"
+if bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1; then
+  bad_ "install proceeded past an open blocks-install row"
+else
+  rc=$?
+  [ "$rc" -eq 4 ] && ok_ "install refused on open blocks-install (exit 4)" \
+    || bad_ "install refused but with exit $rc, not the documented 4"
+fi
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| ~~OBL-T-11~~ | process_debt | PO | blocks-install (scope: *) | merge | merged | ev:commit{abc1234} discharged ev:commit{def5678} |\n' > "$PKG2/docs/GAPS.md"
+bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1 \
+  && ok_ "discharged blocks-install row does not refuse (control)" \
+  || bad_ "install refused on a DISCHARGED row — nothing could ever ship"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-12 | process_debt | PO | blocks-install (scope: some-other-repo) | merge | merged | ev:commit{abc1234} |\n' > "$PKG2/docs/GAPS.md"
+bash "$PKG2/install.sh" "$TB" >/dev/null 2>&1 \
+  && ok_ "scope-mismatched blocks-install row does not refuse (control)" \
+  || bad_ "install refused on a row scoped to a different repo"
+
+# ---- 7c. an incomplete package refuses to install (review PR-1) -------------
+PKG3="$WORK/pkg3"; mkdir -p "$PKG3"
+cp -R "$PKG2/." "$PKG3/"
+rm -f "$PKG3/docs/process/P2-PLAN.md"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$PKG3/docs/GAPS.md"
+TI="$(new_target incomplete)"
+if bash "$PKG3/install.sh" "$TI" >/dev/null 2>&1; then
+  bad_ "an incomplete package installed silently (dangling stubs, no playbook)"
+else
+  rc=$?
+  [ "$rc" -eq 5 ] && ok_ "incomplete package refused (exit 5)" \
+    || bad_ "incomplete package refused with exit $rc, not the documented 5"
+fi
+# verifier F1: the refusal must precede ALL writes — a refusal that fires after
+# the copy loop leaves dangling stubs and LIVE hooks behind.
+if [ -e "$TI/CLAUDE.md.wow" ] || [ -d "$TI/.claude" ] || [ -d "$TI/docs/process" ] \
+   || [ -d "$TI/scripts/wow" ] || grep -q wow-v2 "$TI/CLAUDE.md" 2>/dev/null \
+   || ls "$(cd "$TI" && git rev-parse --git-path hooks)"/commit-msg >/dev/null 2>&1; then
+  bad_ "refusal fired but the target was written anyway (F1: dangling stubs / live hooks)"
+else
+  ok_ "refused target left untouched (F1: nothing written before the check)"
+fi
+
+# verifier F3: the consult mirrors _gap_rows strictness — fail CLOSED, never open.
+PKG4="$WORK/pkg4"; mkdir -p "$PKG4"; cp -R "$PKG2/." "$PKG4/"
+TC="$(new_target consult)"
+printf '| # | Taxonomy | Gap | Owner | Discharge |\n|---|---|---|---|---|\n| G-01 | x | blocks-install (scope: *) | PO | later |\n' > "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok_ "legacy-shaped registry refuses install (F3 fail-closed, exit $rc)" \
+  || bad_ "legacy-shaped registry did not refuse (exit $rc) — fail-open"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-13 | x | PO | blocks-everything | s | d | ev:commit{abc1234} |\n' > "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok_ "unknown effect refuses install (F3 closed enum)" \
+  || bad_ "unknown effect did not refuse (exit $rc) — the silent downgrade returns"
+rm -f "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok_ "absent package registry refuses install (F3 subject-absent)" \
+  || bad_ "absent registry did not refuse (exit $rc)"
+# OBL-PKG-11 stated control: an advisory row must NOT refuse.
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-14 | x | PO | advisory | s | d | ev:commit{abc1234} |\n' > "$PKG4/docs/GAPS.md"
+bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1 \
+  && ok_ "advisory row does not refuse (OBL-PKG-11 control)" \
+  || bad_ "advisory row refused the install — the consult is an off switch"
+
 # ---- 8. every gate is reachable from a documented command ----------------
+# grep must read to EOF (no -q on a live pipeline): under lib.sh's pipefail,
+# `| grep -q` closes the pipe at first match, gates.sh dies of SIGPIPE, and the
+# pipeline FAILS despite the match — a buffering race that passes on one
+# machine and fails on another (TF-01, found in the engine-v0.5.x session).
 for g in $( cd "$T" && python3 -c "import json;print(' '.join(json.load(open('scripts/wow/formats.json'))['sweep']['always']+json.load(open('scripts/wow/formats.json'))['sweep']['p5_only']))" ); do
-  ( cd "$T" && ./scripts/wow/gates.sh sweep --p5 2>&1 | grep -q "$g" ) \
+  ( cd "$T" && ./scripts/wow/gates.sh sweep --p5 2>&1 | grep "$g" >/dev/null ) \
     && ok_ "sweep --p5 runs $g" || bad_ "$g is in no sweep — a gate nothing calls is inert"
 done
 printf -- '- [ ] transition ABC-1 to Done\n' > "$T/runs/quick/jira-queue.md"

@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.5.0
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.6.0
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ Canonical package: this repository. Per-repo install = `./install.sh <target-rep
 1. Writes/updates the **WoW section** of the target's `CLAUDE.md` (between `<!-- wow-v2:start/end -->` markers; rest of CLAUDE.md untouched). The section is passed to the rewrite as a file, never as a regex replacement string — a backslash in the router text used to abort the rewrite (or duplicate the marker block) while the installer reported success.
 2. Copies `docs/process/` (playbooks) and `scripts/wow/`: `gates.sh`, **`gates.py`** (the engine gates.sh delegates to), `formats.json`, `status.mjs`, `tests/`, `permissions-policy.json`, and **`GATES-SPEC.md`** (so the repo's CLAUDE.md router can cite a path that exists locally). `wow.config.json` is created once from a template and never overwritten — it holds repo-local truth.
 3. Writes `.claude/commands/wow-*.md` stubs (below) and installs git hooks: **commit-msg** (GATE-1 — message validation cannot run in pre-commit) and **pre-commit** (GATE-5 + GATE-11 on staged files).
-4. Idempotent; re-run to upgrade. Version stamp in `wow.config.json`; `install.sh --check` diffs installed vs canonical.
+4. Before writing anything, install.sh consults the package's own `docs/GAPS.md`: an open `blocks-install` row whose `scope:` matches the target refuses the install with exit 4, citing the row (`--check` is exempt — reporting drift is never harm). Idempotent; re-run to upgrade. Version stamp in `wow.config.json`; `install.sh --check` diffs installed vs canonical.
 No npm, no third-party installer, no vendored engine — plain files owned in our repos.
 
 **Where the hooks go.** To the directory git actually reads: `core.hooksPath` when the repo sets one (husky, lefthook and the `pre-commit` framework all do), otherwise the **common git dir**, so **every worktree inherits them** — executor enforcement is free. Writing to `.git/hooks` unconditionally is how a repo can end up with zero enforcement while every self-check reports a healthy install, so both `--check` and `status.mjs` report the resolved directory and how it was chosen.
@@ -67,13 +67,15 @@ Everything install.sh writes is **repo-scoped** (CLAUDE.md markers, docs/process
 ## Migration (per repo, at pilot start)
 
 > Cite these steps by their bold names, not their numbers — the list renumbers as it grows (pilot N4).
+>
+> **The pre-freeze window is open by design** (review PR-6): until `migrated_from_gsd` flips, nothing mechanical stops `/gsd:*` writing `.planning/`. Accept it consciously: keep the window short (reconciliation in one sitting where possible), and land migration commits with `[WOW:migrate]` — legal only while `.planning/` exists and the freeze is unflipped; it dies with the migration (review PR-4).
 
 1. Freeze `.planning/` read-only (git — no deletions; it is history).
-2. Lift durables into `docs/`: REQUIREMENTS (active REQ rows only, restated statuses reconciled once), GAPS + surface index, TRACEABILITY, codebase map (from `.planning/codebase/`), specs-in-flight → `docs/spec/`.
+2. Lift durables into `docs/`: REQUIREMENTS (active REQ rows only, restated statuses reconciled once), GAPS (+ surface index where the repo has one — the prodsim-style machine-readable table mapping coverage surfaces to gap ids; skip if absent), TRACEABILITY, codebase map (from `.planning/codebase/` where it exists, else write the first map at P0), specs-in-flight → `docs/spec/`. Before day one, write the per-artifact source→destination list for THIS repo (review PR-8) — the generic step names don't survive contact with a repo whose layout predates them.
 3. Derive nothing from STATE.md except by human review; its counters are untrusted (documented parse-miss corruption).
 4. **Re-home or retire legacy invariants BEFORE enabling GATE-11** (added v0.5.4, pilot #2): any pre-existing assertion that reads `.planning/` as its subject goes permanently green against frozen history the moment the freeze flips — the inert-gate class. Each such check is either re-pointed at the lifted homes (`docs/REQUIREMENTS.md`, `runs/`) or retired with a recorded reason. The freeze is not flipped until this list is empty.
 5. First WoW run starts at `/wow-ground` for the target area. `settings.local.json` regeneration at first P5 is a **reviewed merge, not a wipe** (added v0.5.4): generate from `permissions-policy.json`, then diff against the accreted file and carry forward entries the migration window actually uses (verify commands above all); dropped entries are listed for PO confirmation. A wipe on day one strips the run of its own verify permissions.
-6. **Brownfield vacuity warning** (added v0.5.4): gates whose durable homes don't exist yet (no REQUIREMENTS rows, no codebase map, no runs/) pass vacuously until reconciliation builds those homes — reconciliation is the precondition for non-vacuous gates, not cleanup. The check is a **written artifact, not a thought** (v0.5.5, pilot residual on #4): the install step produces `docs/install-vacuity.md` — one table, gate by gate, subject home exists / does not — committed with the install. Filled by hand until OBL-PKG-09 automates it; a green sweep in a repo with empty homes certifies nothing, and now says so on disk.
+6. **Brownfield vacuity warning** (added v0.5.4): gates whose durable homes don't exist yet (no REQUIREMENTS rows, no codebase map, no runs/) pass vacuously until reconciliation builds those homes — reconciliation is the precondition for non-vacuous gates, not cleanup. The check is a **written artifact, not a thought** (v0.5.5, pilot residual on #4): WRITE `docs/install-vacuity.md` by hand as part of this step (the installer will emit it automatically once OBL-PKG-09 lands — until then the operator is the emitter, and the artifact is still mandatory) — one table, gate by gate, subject home exists / does not — committed with the install. Filled by hand until OBL-PKG-09 automates it; a green sweep in a repo with empty homes certifies nothing, and now says so on disk.
 7. Jira: create the pilot epic at first G1 — no retro-import of GSD history (archived `.planning/` remains the reference).
 
 ## Reversibility (added v0.5.4)
