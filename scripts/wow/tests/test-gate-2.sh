@@ -46,4 +46,31 @@ printf '# SPEC\nCovers REQ-001, REQ-999 and REQ-555.\n' > "$FIX/docs/spec/SPEC-x
 assert_rejects "governing spec's own new REQ still binds (positive control)" "$FIX" "no row in" \
   gate-2 --run 260813-x-r1
 
+
+# ---- PF-d (pilot #2, v0.6.1): non-REQ requirement id schemes ----------------
+# Pre-fix, a repo whose ids are not REQ-nnn produced an empty named-set and the
+# empty set was permissive — GATE-2 green, permanently, for the wrong reason.
+FIX2="$(setup_fixture_repo)"
+mkdir -p "$FIX2/docs" "$FIX2/runs/260101-t-r1"
+printf '| id | R | S |\n|---|---|---|\n| PLAT-M3-14 | a | COMPLETED ev:commit{abc1234} |\n' \
+  > "$FIX2/docs/REQUIREMENTS.md"
+printf '# PLAN\nWork on PLAT-M3-14 only.\n' > "$FIX2/runs/260101-t-r1/PLAN.md"
+assert_rejects "unconfigured: id-shaped rows the pattern cannot read fail LOUDLY (PF-d/FR-1)" \
+  "$FIX2" "requirement_id" gate-2 --run 260101-t-r1
+
+# Configured via wow.config.json (repo-local truth): the real scheme binds.
+printf '{"migrated_from_gsd": false, "requirement_id": "^PLAT-M3-[0-9]{2}$"}\n' \
+  > "$FIX2/scripts/wow/wow.config.json"
+printf '# PLAN\nWork on PLAT-M3-14 and PLAT-M3-99.\n' > "$FIX2/runs/260101-t-r1/PLAN.md"
+assert_rejects "configured scheme: a named id with no row binds" "$FIX2" "has no row in" \
+  gate-2 --run 260101-t-r1
+
+# Positive control: named row exists, updated in the run; a backticked id in a
+# notes row is a mention, not an unreadable row.
+printf '# PLAN\nWork on PLAT-M3-14 only.\n' > "$FIX2/runs/260101-t-r1/PLAN.md"
+( cd "$FIX2" && git add -A >/dev/null && git commit -qm "cfg [WOW:publish]" )
+printf '| id | R | S |\n|---|---|---|\n| PLAT-M3-14 | a | COMPLETED ev:commit{def5678} |\n| `PLAT-M2-01` | historical, untracked mention | - |\n' \
+  > "$FIX2/docs/REQUIREMENTS.md"
+assert_accepts "configured scheme: updated row passes; backticked id is a mention (control)" \
+  "$FIX2" gate-2 --run 260101-t-r1
 finish

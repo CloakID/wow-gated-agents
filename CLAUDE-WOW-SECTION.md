@@ -1,4 +1,4 @@
-# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.6.0
+# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.6.1
 
 > Drop this section into your repo's CLAUDE.md (or equivalent agent memory file). Target ≤60 lines resident; everything else loads on phase entry.
 
@@ -14,7 +14,7 @@
 - Defect or anomaly found → **debug lane**: `/wow-debug`. Exit only via PO classification (never straight to a fix).
 - Change with known scope AND ≤2 files AND no interface/schema change AND reversible AND no new dependency AND no prod config → **quick lane**: `/wow-quick`.
 - Everything else → **main lane**, entered at the phase the work is in: `/wow-spec`, `/wow-plan`, `/wow-run`, `/wow-report`, `/wow-publish`. New work starts at `/wow-spec` (or `/wow-ground` if the codebase map for the area is stale — machine-checked, see P0).
-- Every commit must carry a lane reference (`[T:…]`, `[Q:…]`, `[D:…]`) — GATE-1 (commit-msg hook) blocks laneless commits. If you find yourself editing files with no active lane, stop and route.
+- Every commit must carry exactly one lane reference — `[T:…]` (main), `[Q:…]` (quick), `[D:…]` (debug), `[WOW:publish]` (framework/process publishing), or `[WOW:migrate]` (GSD-migration window only: `.planning/` present, freeze not yet flipped). GATE-1 (commit-msg hook) blocks the rest. If you find yourself editing files with no active lane, stop and route. Full definitions: `docs/process/LANES.md`.
 
 Each `/wow-*` command loads its playbook from `docs/process/`. Do not execute a phase from memory.
 

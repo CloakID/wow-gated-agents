@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.6.0
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.6.1
 
 ## Prerequisites
 
@@ -17,7 +17,7 @@ Nothing else is assumed — no npm, no package manager, no CI service. Where a h
 
 Canonical package: this repository. Per-repo install = `./install.sh <target-repo>`:
 1. Writes/updates the **WoW section** of the target's `CLAUDE.md` (between `<!-- wow-v2:start/end -->` markers; rest of CLAUDE.md untouched). The section is passed to the rewrite as a file, never as a regex replacement string — a backslash in the router text used to abort the rewrite (or duplicate the marker block) while the installer reported success.
-2. Copies `docs/process/` (playbooks) and `scripts/wow/`: `gates.sh`, **`gates.py`** (the engine gates.sh delegates to), `formats.json`, `status.mjs`, `tests/`, `permissions-policy.json`, and **`GATES-SPEC.md`** (so the repo's CLAUDE.md router can cite a path that exists locally). `wow.config.json` is created once from a template and never overwritten — it holds repo-local truth.
+2. Copies `docs/process/` (playbooks) and `scripts/wow/`: `gates.sh`, **`gates.py`** (the engine gates.sh delegates to), `formats.json`, `status.mjs`, `tests/`, `permissions-policy.json`, and **`GATES-SPEC.md`** (so the repo's CLAUDE.md router can cite a path that exists locally). `wow.config.json` is created once from a template and never overwritten — it holds repo-local truth: the Jira project key, `migrated_from_gsd`, and (v0.6.1, PF-d) `requirement_id` — set it when the repo's requirement identities are not `REQ-nnn` (e.g. `"^PLAT-M3-[0-9]{2}$"`), so GATE-2 and status.mjs read the real rows instead of an empty set.
 3. Writes `.claude/commands/wow-*.md` stubs (below) and installs git hooks: **commit-msg** (GATE-1 — message validation cannot run in pre-commit) and **pre-commit** (GATE-5 + GATE-11 on staged files).
 4. Before writing anything, install.sh consults the package's own `docs/GAPS.md`: an open `blocks-install` row whose `scope:` matches the target refuses the install with exit 4, citing the row (`--check` is exempt — reporting drift is never harm). Idempotent; re-run to upgrade. Version stamp in `wow.config.json`; `install.sh --check` diffs installed vs canonical.
 No npm, no third-party installer, no vendored engine — plain files owned in our repos.

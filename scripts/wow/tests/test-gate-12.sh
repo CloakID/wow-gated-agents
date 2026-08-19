@@ -93,4 +93,25 @@ assert_accepts "empty table remains a valid empty registry (control)" "$FIX" gat
 # Unknown kind is an error, not a bypass.
 assert_rejects "unknown --kind" "$FIX" "unknown --kind" gate-12 --kind yolo
 
+
+# ---- PF-c (pilot #2, v0.6.1): GAPS.md is single-table by construction -------
+# A second table whose first cells are id-shaped is read as (malformed) gap
+# rows — deliberate per FR-1 — and the failure message must SAY so, because it
+# surfaces late, from an edit that looks like formatting.
+gaps << G
+$HDR
+| D-DEFERRED-03 | Postgres KB, PLAT-M3-10..13 |
+G
+assert_rejects "second id-shaped table: message states the single-table rule" "$FIX" \
+  "exactly ONE table" gate-12 --kind feature
+
+# Control: the same row with a backticked id is a mention and parses clean —
+# alongside a real obligation row, as in any live registry (F9's zero-row
+# detector is a different guard and keeps its own tests above).
+gaps << G
+$HDR
+| OBL-T-42 | impl_gap | m | advisory | run | lands | ev:commit{abc1234} |
+| \`D-DEFERRED-03\` | Postgres KB, PLAT-M3-10..13 |
+G
+assert_accepts "backticked ids in a second table are mentions (control)" "$FIX" gate-12 --kind feature
 finish

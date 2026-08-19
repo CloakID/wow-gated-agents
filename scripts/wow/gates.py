@@ -398,6 +398,16 @@ def _has_reference(line, skip_first_cell=False):
     return False
 
 
+def _mask_inline_code(line):
+    """PF-a (pilot #2, v0.6.0): a citation inside backticks is a MENTION, not a
+    claim. GATE-3 neither flags a backticked template as malformed nor accepts
+    a backticked citation as satisfying evidence — fail-safe in both
+    directions. Only the evidence/reference scans use the masked line; cell and
+    status parsing still see the original (backticks there are decoration,
+    handled by cell_decoration)."""
+    return re.sub(r"`[^`]*`", "", line)
+
+
 def _is_separator(line):
     return re.match(r"^\s*\|[\s:|-]+\|\s*$", line) is not None
 
@@ -445,12 +455,13 @@ def gate_3(paths=None):
                             status_idx = idx
                 continue
 
-            for bad in _evidence_problems(line):
+            masked = _mask_inline_code(line)   # PF-a: mentions are not claims
+            for bad in _evidence_problems(masked):
                 msgs.append("%s:%d malformed citation '%s' — does not match the %s shape in "
                             "formats.json" % (p, i, bad, bad.split("{")[0].split(":")[-1]))
 
-            has_ev = _has_evidence(line)
-            has_ref = _has_reference(line, skip_first_cell=is_row)
+            has_ev = _has_evidence(masked)
+            has_ref = _has_reference(masked, skip_first_cell=is_row)
             cells = _cells(line) if is_row else []
             prev_cells = cells if is_row else None
             checked = cells if status_idx is None else (
@@ -494,14 +505,45 @@ def gate_3(paths=None):
 # --------------------------------------------------------------------------
 # GATE-2 — REQ ids named by the active spec/plan have UPDATED rows
 # --------------------------------------------------------------------------
+def _req_id_pattern():
+    """PF-d (pilot #2, v0.6.0): the requirement id shape is repo-local truth.
+    wow.config.json may set `requirement_id`; `ids.requirement` is the default.
+    A brownfield repo keeps its stable, non-renumberable identities instead of
+    choosing between breaking every citation and a permanently-green GATE-2."""
+    return cfg().get("requirement_id") or F["ids"]["requirement"]
+
+
+def _req_row_re():
+    """The row regex is DERIVED from the effective id pattern by substituting
+    into requirements_row_schema.row (placeholder `{req}`), so gate-2's
+    discovery and the row parser can never disagree about the id shape."""
+    return re.compile(F["requirements_row_schema"]["row"]
+                      .replace("{req}", _req_id_pattern().strip("^$")))
+
+
 def _req_rows():
+    """Returns (rows, unreadable). `unreadable` lists REQUIREMENTS.md table
+    rows whose first cell is id-shaped but which the effective row regex
+    cannot read — FR-1's rule applied to gate-2 (PF-d): a registry whose rows
+    the schema cannot read must fail LOUDLY, never parse as empty. First
+    cells wrapped in backticks are mentions, not rows (PF-a convention)."""
     schema = F["requirements_row_schema"]
-    rows = {}
-    for line in lines_of(rp(schema["file"])):
-        m = re.match(schema["row"], line)
+    row_re = _req_row_re()
+    idish = re.compile(r"^\|\s*~{0,2}([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)\s*~{0,2}\s*\|")
+    rows, unreadable = {}, []
+    for i, line in enumerate(lines_of(rp(schema["file"])), 1):
+        m = row_re.match(line)
         if m:
             rows[m.group("req")] = line
-    return rows
+            continue
+        if _is_separator(line):
+            continue
+        im = idish.match(line)
+        if im and any(ch.isdigit() for ch in im.group(1)):
+            unreadable.append("%s:%d first cell %r is id-shaped but the effective "
+                              "requirement pattern %r cannot read this row"
+                              % (schema["file"], i, im.group(1), _req_id_pattern()))
+    return rows, unreadable
 
 
 def _req_rows_touched(run_id):
@@ -509,7 +551,7 @@ def _req_rows_touched(run_id):
     lines. 'A row exists' is not what GATE-2 asks for — it asks for an updated
     row, and a row untouched since a previous milestone is the failure case."""
     schema = F["requirements_row_schema"]
-    req_pat = F["ids"]["requirement"].strip("^$")
+    req_pat = _req_id_pattern().strip("^$")
     diffs = []
     base = fill(F["branch_patterns"]["base_ref"], run_id=run_id) if run_id else None
     if base and git("rev-parse", "--verify", "--quiet", base).strip():
@@ -562,7 +604,7 @@ def _governing_sources(run_id):
 
 def gate_2(run_id=None, spec=None):
     schema = F["requirements_row_schema"]
-    req_pat = F["ids"]["requirement"].strip("^$")
+    req_pat = _req_id_pattern().strip("^$")
     scoped = bool(run_id or spec)
     pre_msgs = []
     if not scoped:
@@ -580,10 +622,19 @@ def gate_2(run_id=None, spec=None):
     for s in sorted(set(sources)):
         for m in re.finditer(req_pat, read(rp(s))):
             named.add(m.group(0))
+    rows, unreadable = _req_rows()
+    if unreadable:
+        # PF-d / FR-1: id-shaped rows the pattern cannot read must fail loudly,
+        # never contribute to an empty-and-therefore-permissive named set.
+        return False, pre_msgs + unreadable + [
+            "%d requirement row(s) exist that GATE-2 cannot read — if this repo's "
+            "requirement ids are not %s, set `requirement_id` in wow.config.json "
+            "(repo-local truth, never overwritten by install)"
+            % (len(unreadable), F["ids"]["requirement"])]
     if not named:
-        return True, pre_msgs + ["no REQ ids named by the active spec/plan"]
+        return True, pre_msgs + ["no requirement ids (pattern %s) named by the "
+                                 "active spec/plan" % _req_id_pattern()]
 
-    rows = _req_rows()
     missing = sorted(r for r in named if r not in rows)
     if missing:
         return False, pre_msgs + ["REQ id named by the active spec/plan has no row in %s: %s"
@@ -816,8 +867,12 @@ def _gap_rows():
             continue
         cells = _cells(ln)
         if len(cells) < len(gr["columns"]):
-            problems.append("gap row has %d cells, schema needs %d: %s"
-                            % (len(cells), len(gr["columns"]), cells[0] if cells else ln[:40]))
+            problems.append("gap row has %d cells, schema needs %d: %s — note %s holds exactly "
+                            "ONE table (FORMATS §12): any table whose first cell is id-shaped is "
+                            "read as gap rows, so non-obligation tables belong in a sibling "
+                            "document (or backtick their ids: a backticked id is a mention)"
+                            % (len(cells), len(gr["columns"]),
+                               cells[0] if cells else ln[:40], gr["file"]))
             continue
         row = dict(zip(gr["columns"], cells))
         row["open"] = not re.match(gr["discharged_id"], row["id"].strip())
@@ -1402,6 +1457,41 @@ def check_parity():
     for gid in sorted(engine - set(spec_rows.keys())):
         msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
                     "declarations of the gate set disagree" % gid)
+    # ---- reverse direction for lane refs (PF-b, pilot #2 on v0.6.0) ---------
+    # check_parity asked only "does the engine have what the docs declare?" —
+    # engine-ahead-of-docs was invisible. Every commit-trailer kind must be
+    # documented in each lane surface (LANES.md and the resident router), or an
+    # operator will not know a legal lane exists at exactly the moment it is
+    # the only legal one ([WOW:migrate] was the first instance).
+    lane_surfaces = []
+    for rel in F["parity"]["lane_docs"]:
+        if os.path.isfile(rp(rel)):
+            lane_surfaces.append((rel, read(rp(rel))))
+        else:
+            msgs.append("lane doc %s (parity.lane_docs) does not exist — reverse trailer "
+                        "parity has no doc side there" % rel)
+    router = None
+    for rel in F["parity"]["router_locations"]:
+        if os.path.isfile(rp(rel)):
+            router = (rel, read(rp(rel)))
+            break
+    if router:
+        lane_surfaces.append(router)
+    else:
+        msgs.append("no router doc found (%s) — reverse trailer parity has no router side "
+                    "to compare, and that is not a pass"
+                    % ", ".join(F["parity"]["router_locations"]))
+    for kind in sorted(F["commit_trailers"]["kinds"]):
+        lit = F["commit_trailers"]["kinds"][kind].get("doc_literal")
+        if not lit:
+            msgs.append("commit_trailers.kinds.%s has no doc_literal — reverse parity cannot "
+                        "check what it cannot name" % kind)
+            continue
+        for rel, txt in lane_surfaces:
+            if lit not in txt:
+                msgs.append("trailer %s (kind %s) is in formats.json but undocumented in %s "
+                            "— engine-ahead-of-docs, the direction the parity sweep could "
+                            "not see (PF-b)" % (lit, kind, rel))
     # ---- version authority --------------------------------------------------
     ch = rp("CHANGELOG.md")
     if not os.path.isfile(ch):

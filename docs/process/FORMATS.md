@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.0
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.1
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -10,7 +10,8 @@
 - **Cross-phase stable IDs (unit-scoped; survive P3→P4→SPEC vN+1):** deviations `DEV-U<n>-<nn>` · parks `PARK-U<n>-<nn>` · verifier findings `VF-U<n>-<nn>` · plan defects `DEF-plan-<nn>` · cannot-validate `CV-<run-id>-<nn>`.
 - **Branches:** `wow/<run-id>/base` (run base) · `wow/<run-id>/U<n>` (one per unit) · `wow/<run-id>/int` (integration). Merge rules in P3 — executors never merge/rebase/push shared branches.
 - **Quick:** `runs/quick/<YYMMDD>-<slug>/NOTE.md`. **Debug:** `runs/debug/<slug>.md` → `resolved/`.
-- **Commit trailer (GATE-1, commit-msg hook):** exactly one of `[T:<task-id>]`, `[Q:runs/quick/<dir>]`, `[D:<debug-slug>]`, `[WOW:publish]`.
+- **Commit trailer (GATE-1, commit-msg hook):** exactly one of `[T:<task-id>]`, `[Q:runs/quick/<dir>]`, `[D:<debug-slug>]`, `[WOW:publish]`, `[WOW:migrate]` (migration window only) — full semantics in LANES.md.
+- **Requirement ids (GATE-2, status.mjs):** default `REQ-nnn` (`ids.requirement`). A brownfield repo whose requirement identities are another stable shape sets `requirement_id` in `wow.config.json` (repo-local truth, never overwritten by install) — added v0.6.1, pilot #2 PF-d, so adoption never forces renumbering and never buys a permanently-vacuous GATE-2. Rows the effective pattern cannot read fail loudly.
 - **ADR:** `docs/adr/NNN-<slug>.md`, sequential, immutable once accepted.
 
 ## 2. Claim labels — CONVENTION (reviewed at gates, not gated)
@@ -105,7 +106,7 @@ Good probe surfaces, in preference order: published OpenAPI/schema document · v
 
 ## 12. Obligations — "X must happen before Y" (added v0.5.2, pilot feedback PF-03/F-6)
 
-The framework has single homes for facts, decisions and routes; obligations get one too — and it is **not a new artifact**: `docs/GAPS.md` is the obligation registry. An obligation is a gap record whose discharge is future work (an owed audit, a mandated follow-up, a precondition for the next feature). It survives run archival because GAPS.md is durable — nothing that must outlive a run may live only in `runs/` (GATE-7 escrow check).
+The framework has single homes for facts, decisions and routes; obligations get one too — and it is **not a new artifact**: `docs/GAPS.md` is the obligation registry. **The registry file holds exactly ONE table** (stated v0.6.1, pilot #2 PF-c): row discovery matches any id-shaped first cell anywhere in the file — deliberate per FR-1, so an unreadable row fails loudly instead of parsing as empty — which means a second table whose first cells are id-shaped will be read as malformed gap rows. Put non-obligation tables in a sibling document; an id wrapped in backticks is a mention and is not row-matched. An obligation is a gap record whose discharge is future work (an owed audit, a mandated follow-up, a precondition for the next feature). It survives run archival because GAPS.md is durable — nothing that must outlive a run may live only in `runs/` (GATE-7 escrow check).
 
 Record fields (schema in formats.json `gap_row`): id · taxonomy tag · **owner** (who discharges) · **effect** — closed controlled vocabulary: `advisory` | `blocks-new-feature-work` (consumer: GATE-12 refuses new-feature `/wow-spec`) | `blocks-install` (consumer: install.sh — reads the PACKAGE's own registry before writing and refuses install/upgrade into any target matched by an open row's `scope:`; rows carry `scope:` = repo name list or `*`, default `*` — added v0.5.5/v0.5.6, pilot N3+D1). An unrecognized effect value is a **validation failure, loudly** — never a silent downgrade to non-blocking. **Effect transitions are witnessed** (PO decision 2026-08-18, review PR-5): any change to an open row's `effect` carries an in-row note `effect: <old>→<new> <date>` plus fresh `ev:` — the sweep's transition check (engine round 3, OBL-PKG-16) fails an unwitnessed change, and GAPS.md is a scan target. Escape any literal `|` inside a cell as `\|` **only in the trailing ev cell** — an escaped pipe in an earlier cell shifts every column after it (review PR-7) · successor · discharge condition · `ev:` on creation and on discharge.
 

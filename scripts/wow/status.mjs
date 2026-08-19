@@ -38,6 +38,14 @@ const rx = (pat, flags) => new RegExp(String(pat).replace(/\(\?P<\w+>/g, '('), f
 const fill = (tpl, vars) => Object.entries(vars)
   .reduce((s, [k, v]) => s.split(`{${k}}`).join(v), tpl);
 
+// wow.config.json is repo-local truth (never overwritten by install). PF-d:
+// `requirement_id` may override ids.requirement — status.mjs is GATE-2's dual
+// consumer and must honor the same effective pattern, or enforcement and
+// status derivation disagree about what a requirement row is.
+let CFG = {};
+try { CFG = JSON.parse(readFileSync(join(HERE, 'wow.config.json'), 'utf8')); } catch { CFG = {}; }
+const reqIdPattern = () => CFG.requirement_id || F.ids.requirement;
+
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
 const runFilter = args.includes('--run') ? args[args.indexOf('--run') + 1] : null;
@@ -87,7 +95,7 @@ function installation() {
 // ---------------------------------------------------------------- requirements
 function requirements() {
   const schema = F.requirements_row_schema;
-  const rowRe = rx(schema.row);
+  const rowRe = rx(fill(schema.row, { req: reqIdPattern().replace(/^\^|\$$/g, '') }));
   const vocab = F.status_vocab.allowed;
   const evRe = new RegExp(F.evidence.any);
   const deco = new RegExp(F.status_vocab.cell_decoration, 'g');

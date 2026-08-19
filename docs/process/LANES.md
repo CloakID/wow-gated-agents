@@ -1,4 +1,14 @@
-# LANES — quick & debug playbooks + precedence — DRAFT v0.5.2
+# LANES — quick & debug playbooks + precedence — DRAFT v0.6.1
+
+## Lane refs (GATE-1) **[ORCH]**
+
+Every commit carries exactly one lane ref; GATE-1 (commit-msg hook) blocks the rest. The full set — this list and `formats.json commit_trailers` are two declarations of the same set, and the parity sweep compares them both ways (v0.6.1, PF-b):
+
+- `[T:<run-id>.T<nn>]` — main lane; must resolve to a task **row** in that run's `PLAN.md`.
+- `[Q:runs/quick/<dir>]` — quick lane; the dir must exist.
+- `[D:<slug>]` — debug lane; `runs/debug/<slug>.md` must exist (investigation is read-only, so a `[D:]` commit carries the debug record itself, never a fix).
+- `[WOW:publish]` — package/process publishing commits (P5 and framework maintenance); resolves to nothing by design.
+- `[WOW:migrate]` — migration-window commits only (lifting durables out of `.planning/`): legal **only** while `.planning/` exists AND `migrated_from_gsd` is still false. Greenfield repos and post-freeze repos reject it (added v0.6.0, PR-4).
 
 ## Precedence rules **[ORCH]**
 

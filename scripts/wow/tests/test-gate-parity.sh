@@ -6,6 +6,13 @@ source "$(dirname "$0")/lib.sh"
 FIX="$(setup_fixture_repo)"
 echo "PARITY"
 
+# PF-b's reverse trailer check needs a doc side in the fixture: give it lane
+# docs that document every trailer, so the ORIGINAL parity cases still isolate
+# their own causes. The reverse direction gets its own cases at the end.
+mkdir -p "$FIX/docs/process"
+printf 'Lane refs: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/docs/process/LANES.md"
+printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/CLAUDE.md"
+
 spec() { cat > "$FIX/scripts/wow/GATES-SPEC.md"; }
 rows_1_12() { for n in $(seq 1 12); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }
 
@@ -56,4 +63,23 @@ assert_rejects "stale header vs version-titled commit" "$FIX" "last-modifying co
   && git add -A >/dev/null && git commit -qm "v0.2.0: fix header [WOW:publish]" )
 assert_accepts "header matches its last-modifying commit" "$FIX" parity
 
+
+# ---- PF-b (pilot #2, v0.6.1): reverse direction for lane refs ---------------
+# check_parity only asked "does the engine have what the docs declare?" —
+# [WOW:migrate] lived in formats.json/engine/tests and was invisible to an
+# operator working from LANES.md or the router.
+lanes_full() { printf 'Lane refs: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/docs/process/LANES.md"; }
+lanes_full
+printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/CLAUDE.md"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "v0.2.0: lane docs [WOW:publish]" ) >/dev/null 2>&1
+assert_accepts "all trailers documented in LANES.md and router (control)" "$FIX" parity
+
+printf 'Lane refs: [T: [Q: [D: [WOW:publish]\n' > "$FIX/docs/process/LANES.md"
+assert_rejects "trailer in formats.json but missing from LANES.md" "$FIX" "undocumented in" parity
+lanes_full
+
+rm -f "$FIX/CLAUDE.md"
+assert_rejects "no router doc at all" "$FIX" "no router doc" parity
+printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/CLAUDE.md"
+assert_accepts "restored (control)" "$FIX" parity
 finish

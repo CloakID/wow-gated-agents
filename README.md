@@ -21,6 +21,17 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.6.1-draft
+
+The second pilot (a brownfield repo migrated off its legacy framework) ran v0.6.0 for a day and filed four findings; all four are fixed here, doc+engine+tests together.
+
+- **Requirement ids are repo-configurable** (`requirement_id` in `wow.config.json`, default `REQ-nnn`). Before, a repo whose stable requirement identities had any other shape got a GATE-2 that passed green *permanently* — the empty named-set was permissive. Now the repo's real scheme binds, and id-shaped `REQUIREMENTS.md` rows the effective pattern cannot read fail loudly instead of parsing as "nothing to check". `status.mjs` honors the same override.
+- **Inline code is a mention, not a claim.** GATE-3 flagged a registry that documents its own citation formats in backticks — red before any work existed. Backticked spans are now invisible to the evidence scan in both directions: a template isn't flagged, and a backticked citation can't green a status.
+- **The parity sweep gained its reverse direction for lane refs**: every commit trailer the engine accepts must be documented in `LANES.md` and the resident router, or parity fails — `[WOW:migrate]` had been engine-real and doc-invisible at exactly the moment it was the only legal lane.
+- **`docs/GAPS.md` is single-table by construction, and now says so** (FORMATS §12, and in the failure message that fires when a second id-shaped table trips row discovery).
+
+The suite is at **165 assertions**; each fix's tests were proven by disabling the fix.
+
 ## What's new in v0.6.0-draft
 
 v0.5.0 shipped the engine; **v0.6.0 makes the framework govern itself** — and was built under its own rules.

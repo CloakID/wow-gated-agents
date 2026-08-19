@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.6.0-draft",
+  "version": "0.6.1-draft",
   "ids": {
     "run": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*$",
     "unit": "^U[1-9][0-9]*$",
@@ -41,26 +41,32 @@
     "kinds": {
       "task": {
         "pattern": "\\[T:([0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*\\.T[0-9]{2})\\]",
-        "resolves": "task_in_plan"
+        "resolves": "task_in_plan",
+        "doc_literal": "[T:"
       },
       "quick": {
         "pattern": "\\[Q:(runs/quick/[0-9]{6}-[a-z0-9][a-z0-9-]*)\\]",
-        "resolves": "dir_exists"
+        "resolves": "dir_exists",
+        "doc_literal": "[Q:"
       },
       "debug": {
         "pattern": "\\[D:([a-z0-9][a-z0-9-]*)\\]",
-        "resolves": "debug_file_exists"
+        "resolves": "debug_file_exists",
+        "doc_literal": "[D:"
       },
       "publish": {
         "pattern": "(\\[WOW:publish\\])",
-        "resolves": "none"
+        "resolves": "none",
+        "doc_literal": "[WOW:publish]"
       },
       "migrate": {
         "pattern": "(\\[WOW:migrate\\])",
         "resolves": "mid_migration",
-        "$comment": "review PR-4: migration commits (lifting durables from .planning into docs/) had no legal lane ref, training operators to fake [WOW:publish]. Valid ONLY mid-migration: .planning/ exists AND migrated_from_gsd is still false. Greenfield repos and post-freeze repos reject it."
+        "$comment": "review PR-4: migration commits (lifting durables from .planning into docs/) had no legal lane ref, training operators to fake [WOW:publish]. Valid ONLY mid-migration: .planning/ exists AND migrated_from_gsd is still false. Greenfield repos and post-freeze repos reject it.",
+        "doc_literal": "[WOW:migrate]"
       }
-    }
+    },
+    "$doc_literal_comment": "PF-b: the literal an operator-facing doc must contain for this trailer to count as documented. Consumed by check_parity's reverse direction: every kind must appear in each of parity.lane_docs and one of parity.router_locations."
   },
   "branch_patterns": {
     "base": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/base$",
@@ -352,14 +358,15 @@
   "requirements_row_schema": {
     "$comment": "docs/REQUIREMENTS.md. Technical status, evidence-backed.",
     "file": "docs/REQUIREMENTS.md",
-    "row": "^\\|\\s*(?P<req>REQ-[0-9]{3})\\s*\\|(?P<rest>.*)\\|$",
+    "row": "^\\|\\s*(?P<req>{req})\\s*\\|(?P<rest>.*)\\|$",
     "status_column_vocab": "status_vocab.allowed",
     "evidence_required_for": [
       "COMPLETED",
       "FAILED"
     ],
     "must_be_updated_in_run": true,
-    "$updated_comment": "GATE-2 says 'updated technical-status row', not 'a row exists'. A REQ whose row predates the run and was never touched is exactly the phase-close failure the gate is for, so the row must appear in the run's diff."
+    "$updated_comment": "GATE-2 says 'updated technical-status row', not 'a row exists'. A REQ whose row predates the run and was never touched is exactly the phase-close failure the gate is for, so the row must appear in the run's diff.",
+    "$row_comment": "PF-d (pilot #2, v0.6.0): {req} is substituted with the EFFECTIVE requirement id pattern — wow.config.json `requirement_id` if set, else ids.requirement. A brownfield repo with stable non-REQ identities (e.g. PLAT-M3-nn) configures the pattern instead of renumbering or running a permanently-vacuous GATE-2. Rows whose first cell is id-shaped but unreadable by the effective pattern FAIL GATE-2 loudly (FR-1's rule applied here). Dual consumers: gates.py and status.mjs."
   },
   "jira_mapping": {
     "$comment": "FORMATS §10, GATE-10. Expected-consistent pairs. Out-of-mapping = divergence, classified never merged.",
@@ -718,6 +725,14 @@
       "scripts/wow/GATES-SPEC.md",
       "GATES-SPEC.md"
     ],
-    "schema_token": "`([a-z][a-z0-9_]*(?:_schema|_frontmatter|_row))`"
+    "schema_token": "`([a-z][a-z0-9_]*(?:_schema|_frontmatter|_row))`",
+    "lane_docs": [
+      "docs/process/LANES.md"
+    ],
+    "router_locations": [
+      "CLAUDE-WOW-SECTION.md",
+      "CLAUDE.md"
+    ],
+    "$reverse_comment": "PF-b (pilot #2, v0.6.0): check_parity was one-directional — engine-ahead-of-docs was invisible ([WOW:migrate] absent from LANES.md and the router). lane_docs must each document every commit-trailer kind's doc_literal; router_locations is a fallback list (package repo uses CLAUDE-WOW-SECTION.md, installed repos the CLAUDE.md wow section)."
   }
 }

@@ -49,4 +49,17 @@ printf '| Task | Verify | Status | Done-means |\n|---|---|---|---|\n| T01 | `tes
   > "$FIX/docs/r-header.md"
 assert_accepts "'OK' in a Done-means column of a table with a Status header" "$FIX" \
   gate-3 --paths docs/r-header.md
+
+# ---- PF-a (pilot #2, v0.6.1): inline code is a mention, not a claim ---------
+# A self-describing doc (a registry documenting its own citation conventions in
+# backticks) was red before any work existed. Templates in inline code must not
+# be flagged...
+printf 'Evidence citations follow FORMATS (`ev:cmd{... => ... @ISO}`, `ev:commit{sha}`, `ev:jira{KEY}`).\n' > "$FIX/docs/r-mention.md"
+assert_accepts "backticked citation templates are mentions, not claims (PF-a)" "$FIX" \
+  gate-3 --paths docs/r-mention.md
+
+# ...and fail-safe the other way: a backticked citation cannot SATISFY a status.
+printf '| REQ-001 | thing | COMPLETED | `ev:commit{abc1234}` |\n' > "$FIX/docs/r-mention-ev.md"
+assert_rejects "a backticked citation cannot satisfy a status (PF-a)" "$FIX" "without an ev: citation" \
+  gate-3 --paths docs/r-mention-ev.md
 finish
