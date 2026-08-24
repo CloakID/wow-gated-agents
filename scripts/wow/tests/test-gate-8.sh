@@ -259,4 +259,86 @@ autonomy: decide-and-log
 | 260813-x-r1.T01 | do a | `pytest a` | a works |
 P
 assert_rejects "PLAN missing required sections" "$FIX" "required_sections" gate-8 --run 260813-x-r1
+
+# ---- F-13 (v0.6.3): a plan with units and ZERO parsed tasks fails loudly ----
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | T01 |
+| AC-2 | T01 |
+P
+assert_rejects "bare task ids parse to zero tasks — loud, not healthy-looking (F-13)" "$FIX" \
+  "ZERO parseable task" gate-8 --run 260813-x-r1
+
+# ---- F-28 (v0.6.3): normative language outside units binds nobody ----------
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Amendments
+
+AM-01: executors must never print the credential expansion.
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "normative rule in an amendment section reaches no manifest (F-28)" "$FIX" \
+  "reaches NO executor manifest" gate-8 --run 260813-x-r1
+
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Contracts
+
+C-1: executors must never print the credential expansion.
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_accepts "the same rule in the Contracts block is delivered to every manifest (F-28 control)" \
+  "$FIX" gate-8 --run 260813-x-r1
 finish

@@ -202,4 +202,28 @@ owns:
 P
 assert_accepts "signed plan is frozen — no retroactive reds" "$FIX" gate-13 --run 260824-x-r1
 
+
+# F-13's shape, applied here: units with zero parseable tasks must not lint
+# nothing and pass.
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| T01 | do a | `set -e; ! grep bad x` | works | bare id, unreadable |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | T01 |
+P
+assert_rejects "zero parseable tasks cannot pass the verify lint (F-13)" "$FIX" \
+  "ZERO task rows" gate-13 --run 260824-x-r1
 finish

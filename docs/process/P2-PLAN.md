@@ -1,4 +1,4 @@
-# P2 — PLAN — DRAFT v0.6.2
+# P2 — PLAN — DRAFT v0.6.3
 Entry: `/wow-plan <run-id>` · Output: `runs/<run-id>/PLAN.md` (ORCH-owned, machine-parseable per formats.json `plan_schema`) · Gate: **G2 = GATE-8 + GATE-13 lint → adversarial review → PO sign-off** → Jira stories/tasks.
 Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contracts if replanning.
 
@@ -23,6 +23,7 @@ Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contract
    ```
 
    GATE-8 checks ownership overlaps (incl. ORCH-owned files), coverage-matrix totality against the SPEC's AC rows, a verify command in every task's **Verify** column (located by header, not position), and that PLAN.md parses against `plan_schema`. Fix until green — reviewer time is not spent on grep-able defects.
+   A rule that binds **every** unit goes in the plan's `## Contracts` block — P3 appends it to every executor manifest; normative language anywhere else outside a unit section reaches nobody and GATE-8 rejects it (v0.6.3, F-28). Tasks whose evidence cannot be re-derived by a verifier (destroyed by the procedure, credential contractually human-held, destructive to re-run) are marked `audit-only: <why>` in the plan — HERE, in front of the PO at G2, never by the ORCH at verifier-spawn time (v0.6.3, F-30).
    **GATE-13** (v0.6.2, F-9) checks the task table's **Non-vacuity column** — one cell per task naming a plausible wrong answer the Verify rejects, citing something runnable, or `MANUAL` — and lints Verify cells for idioms that each shipped a real inert check (`lint-ok: <reason>` accepts one deliberately and visibly). This is the discipline G2a review applies ad hoc, required uniformly and machine-checked: a Verify never shown failing is only believed to check.
 2. Spawn reviewer AGENT (fresh context; input = SPEC + PLAN only). **Judgment scope only:** contract gaps between units · premise checks on plan-level verifies ("does this verify test the product or the harness?") · unit-sizing sanity · autonomy-contract adequacy vs risk. Findings → revise → delta re-review (FORMATS §7).
 

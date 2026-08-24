@@ -20,12 +20,16 @@ mkdir -p "$FIX/runs/260813-x-r1"
 printf '# PLAN\nspec: docs/spec/SPEC-x-v1.md\nCovers REQ-001 and REQ-999.\n' \
   > "$FIX/runs/260813-x-r1/PLAN.md"
 ( cd "$FIX" && git add -A >/dev/null && git commit -qm "reqs [WOW:publish]" )
-assert_rejects "rows exist but none updated in the run" "$FIX" "never updated in run" \
+# F-09 (v0.6.3): the sweep form is a consistency lint — at G2 no work has run
+# and an un-updated row is the HONEST state, not a failure.
+assert_accepts "sweep form: rows exist, none updated — legal before phase close (F-09)" "$FIX" \
   gate-2 --run 260813-x-r1
+assert_rejects "close form: rows exist but none updated in the run" "$FIX" "never updated in run" \
+  gate-2 --close --run 260813-x-r1
 
 printf '| REQ | R | S |\n|---|---|---|\n| REQ-001 | a | COMPLETED ev:commit{abc1234} |\n| REQ-999 | b | COMPLETED ev:commit{abc1234} |\n' \
   > "$FIX/docs/REQUIREMENTS.md"
-assert_accepts "rows updated in the run" "$FIX" gate-2 --run 260813-x-r1
+assert_accepts "close form: rows updated in the run" "$FIX" gate-2 --close --run 260813-x-r1
 # ---- G-11 (OBL-PKG-07): scope is the GOVERNING spec/plan, never widened -----
 # Pre-fix, gate_2 walked every .md under runs/<id>/ and followed spec references
 # out to other specs — a HANDOFF pointer to an unsigned draft pulled that

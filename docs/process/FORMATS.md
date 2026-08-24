@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.2
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.3
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -7,10 +7,10 @@
 - **Spec:** `docs/spec/SPEC-<feature>-v<N>.md`, feature = kebab, ≤24 chars. Version bumps only at G4.
 - **Main-lane run:** `runs/<YYMMDD>-<slug>-r<N>/` — slug = spec feature; `r<N>` = iteration. Example: `runs/260812-user-auth-r1/`.
 - **Unit / task:** `U<n>` · `<run-id>.T<nn>` (e.g. `260812-user-auth-r1.T04`).
-- **Cross-phase stable IDs (unit-scoped; survive P3→P4→SPEC vN+1):** deviations `DEV-U<n>-<nn>` · parks `PARK-U<n>-<nn>` · verifier findings `VF-U<n>-<nn>` · plan defects `DEF-plan-<nn>` · cannot-validate `CV-<run-id>-<nn>`.
+- **Cross-phase stable IDs (unit-scoped; survive P3→P4→SPEC vN+1):** deviations `DEV-U<n>-<nn>` · parks `PARK-U<n>-<nn>` · verifier findings `VF-U<n>-<nn>` · plan defects `DEF-plan-<nn>` · cannot-validate `CV-<run-id>-U<n>-<nn>` (v0.6.3, F-17: the unit segment IS the allocator — unit membership partitions the number space, so parallel verifiers in fresh contexts cannot collide; the legacy run-scoped form without `U<n>` stays valid for existing records) · plan amendments `AM-<nn>` (v0.6.3, F-29: date, decider, what changed, whether it widens scope — a signed artifact modified after signing carries at least one, checked by GATE-9).
 - **Branches:** `wow/<run-id>/base` (run base) · `wow/<run-id>/U<n>` (one per unit) · `wow/<run-id>/int` (integration). Merge rules in P3 — executors never merge/rebase/push shared branches.
 - **Quick:** `runs/quick/<YYMMDD>-<slug>/NOTE.md`. **Debug:** `runs/debug/<slug>.md` → `resolved/`.
-- **Commit trailer (GATE-1, commit-msg hook):** exactly one of `[T:<task-id>]`, `[Q:runs/quick/<dir>]`, `[D:<debug-slug>]`, `[WOW:publish]`, `[WOW:migrate]` (migration window only) — full semantics in LANES.md.
+- **Commit trailer (GATE-1, commit-msg hook):** exactly one of `[T:<task-id>]` (task work), `[T:<run-id>]` (bare form, v0.6.3 F-08/F-10: a run's PHASE artifacts — the P1 spec and HANDOFF, P4's reconciled spec/divergence/RUN-REPORT — so the artifact a PO signs is in git at the moment of signing), `[Q:runs/quick/<dir>]`, `[D:<debug-slug>]`, `[WOW:publish]`, `[WOW:migrate]` (migration window only) — full semantics in LANES.md. Trailers in backticks or fenced/indented blocks are **mentions and do not count** (F-07) — a commit may discuss lanes.
 - **Requirement ids (GATE-2, status.mjs):** default `REQ-nnn` (`ids.requirement`). A brownfield repo whose requirement identities are another stable shape sets `requirement_id` in `wow.config.json` (repo-local truth, never overwritten by install) — added v0.6.1, pilot #2 PF-d, so adoption never forces renumbering and never buys a permanently-vacuous GATE-2. Rows the effective pattern cannot read fail loudly.
 - **ADR:** `docs/adr/NNN-<slug>.md`, sequential, immutable once accepted.
 
@@ -22,7 +22,7 @@ Apply to load-bearing claims in specs and reports; quality is a review judgment.
 ## 3. Evidence citations (`ev:`) — ENFORCED subset (GATE-3)
 
 Format: `ev:<type>{<locator>}`:
-- `ev:cmd{<command> => <exit|summary> @<ISO8601>}` · `ev:file{<path>#<anchor>}` (content anchors preferred; `file:line` must pass GATE-5) · `ev:commit{<sha≥7>}` · `ev:jira{<KEY-123>}` · `ev:url{<https://…>}`
+- `ev:cmd{<command> => <exit|summary> @<ISO8601>}` · `ev:file{<path>#<anchor>}` (content anchors preferred; `file:line` must pass GATE-5) · `ev:commit{<sha≥7>}` · `ev:jira{<KEY-123>}` · `ev:url{<https://…>}` · `ev:attest{<who>: <claim> @<ISO8601>}` (v0.6.3, F-27: evidence for a task placed with a human IS a person's decision — 'the operator read one row and declined the next statement' has no command to cite, and dressing it as ev:cmd records a human decision in a shell command's grammar). **An `ev:` token whose kind is outside this set is a GATE-3 failure** — previously a malformed known kind failed loudly while an invented kind was silently not-a-citation, and the invented kind is the author who believes they are complying.
 **Enforced rule (GATE-3):** any row/claim using an evidence-required status token (§4: `COMPLETED`, `FAILED`) or *done / verified / deployed / fixed* as a status carries an `ev:` citation in the same row/sentence — and the citation must match its own type's shape above. `ev:cmd{it worked}` is not a citation; `ev:cmd{pytest -q => 0 @2026-08-14}` is. Reference-class statuses (`BLOCKED`/`PARKED`/`DEFERRED`) carry their §4 reference in the same row: an `ev:` citation or a stable id (`PARK-U2-01`, `DEV-U1-03`, `VF-…`, `DEF-plan-…`, `CV-…`); the row's own subject id does not count as a reference to anything. Nothing else is citation-gated.
 
 The body admits **one level of balanced braces** (v0.6.2, frisbii braces finding) — awk action blocks, jq object construction and regex quantifiers are citable. Deeper nesting cannot be expressed, and GATE-3 says exactly that rather than calling the citation malformed. Anything in inline code (backticks) is a **mention, not a claim** (v0.6.1): never flagged, never satisfying — so prose *about* this format is safe to write.
@@ -33,15 +33,19 @@ The body admits **one level of balanced braces** (v0.6.2, frisbii braces finding
 
 Where a scanned table has a header row naming a **Status / State / Result** column, only that column is status-checked; a table with no header is checked in full. Otherwise an ordinary `OK` in a *Done-means* or *Verify* cell reads as a forbidden synonym, and a gate that cries wolf is a gate someone disables.
 
+**A status-shaped cell that is not gradeable fails** (v0.6.3, F-14): a cell beginning with an UPPERCASE status token followed by anything other than evidence or a reference id — `COMPLETED — verdict NO on both instances` — used to equal no vocabulary member and fall through every branch in silence, on the most consequential completion claim of a run. Sanctioned shapes: a bare status; status + `ev:` citation; status + reference id; the cascade form.
+
+**A findings index points, it does not claim** (v0.6.3, F-31): a summary table re-asserting dispositions is a second home for facts the sections already cite (and `CLOSED` is not in any vocabulary). The sanctioned index is navigational — each finding links the section that answers it, and the disposition lives where the evidence does.
+
 **Verdicts are not statuses** (v0.6.2, F-10). A status describes the work; a verdict is an independent judgement *about* it, and a task can be `COMPLETED` by its executor and `FAIL` its verifier — that pair is the most important signal a run produces. A **Grade / Verdict** column is checked against its own vocabulary: `PASS` · `PASS-with-carry-forwards` (CV id in the same row) · `FAIL` (VF id in the same row). Verdict words outside a Grade/Verdict column remain forbidden synonyms.
 
 ## 5. Cannot-validate record
 
 ```
-CV-<run-id>-<nn>: <claim>
+CV-<run-id>-U<n>-<nn>: <claim>
   reason / workaround / successor / discharge
 ```
-(fields as v0.3; discharge = the observable event that closes the record.)
+(fields as v0.3; discharge = the observable event that closes the record.) **Allocation (v0.6.3, F-17):** the verifier allocates the number inside its own unit segment — three parallel verifiers correctly following the old run-scoped shape all allocated `-01`, and a CV record is exactly the id that outlives the run. Legacy run-scoped ids in existing records stay valid.
 
 ## 6. Codebase-map front-matter (P0 freshness, GATE-6) — git-only
 
@@ -61,6 +65,8 @@ paths: ["src/auth/**", "helm/auth/**"]
 ## 7. Gate-failure recovery
 
 Fix-forward within the phase (repair artifact, re-run gate), **max 2 attempts** → then PARK + escalate at next gate. Never bypass; gate changes = PO sign-off + updated non-vacuity test.
+
+**What the counter counts (v0.6.3, F-21):** the bound is per **failure of a fix**, not per check — attempt 1 is the fix, attempt 2 is the corrected fix; a verifier finding that the check as SIGNED already missed (a newly-surfaced pre-existing limit, reachable by neither the amendment nor its correction) is a **carry-forward** (CV record + registry row), not a spent attempt. When the fix's author is the ORCH, the **PO classifies** which of the two a finding is — an unspecified counter is decided by the party with the most at stake in the answer, and the ORCH grading its own amendment is that party.
 
 ## 8. HANDOFF.md (per run, ≤80 lines, overwritten, **ORCH-owned**)
 

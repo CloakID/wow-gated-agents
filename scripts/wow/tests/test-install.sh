@@ -237,4 +237,27 @@ else
   echo "  FAIL 81-line handoff misreported (status='$OVER')"; FAIL=$((FAIL+1))
 fi
 rm -rf "$T/runs/260824-h-r1"
+
+# ---- F-06 (v0.6.3): permissions policy is seeded once, then repo-owned ------
+POL="scripts/wow/permissions-policy.json"
+if [ -f "$T/$POL" ]; then
+  printf '{"permissions":{"allow":["Bash(kubectl get:*)"],"deny":[]}}\n' > "$T/$POL"
+  # capture first, grep second: --check exits 1 on ANY drift, and under
+  # pipefail that fails the pipeline exactly when grep matches (TF-01's cousin
+  # — this assertion was inverted-vacuous until a mutation run caught it).
+  CHK_OUT="$( cd "$PKG_DIR" && bash install.sh --check "$T" 2>&1 )" || true
+  if printf '%s' "$CHK_OUT" | grep "DRIFTED.*permissions-policy" >/dev/null; then
+    echo "  FAIL the repo's own policy reported as DRIFTED (F-06: next upgrade would wipe it)"; FAIL=$((FAIL+1))
+  else
+    echo "  ok   repo-edited policy is not drift (F-06)"; PASS=$((PASS+1))
+  fi
+  ( cd "$PKG_DIR" && bash install.sh "$T" >/dev/null 2>&1 )
+  if grep -q kubectl "$T/$POL"; then
+    echo "  ok   re-install does not overwrite the repo's policy (F-06)"; PASS=$((PASS+1))
+  else
+    echo "  FAIL re-install overwrote the repo-owned policy (F-06)"; FAIL=$((FAIL+1))
+  fi
+else
+  echo "  FAIL $POL was never seeded into the target"; FAIL=$((FAIL+1))
+fi
 finish

@@ -101,4 +101,18 @@ PY
 assert_rejects "[WOW:migrate] after the freeze flipped" "$FIX" "migration is over" gate-1 "$MSGF"
 rm -f "$MSGF"
 
+
+# ---- F-07 (v0.6.3): mentions are not claims, for trailers too ---------------
+printf 'Drop lane addendum [WOW:publish]\n\nDocuments what `[WOW:migrate]` and `[Q:...]` used to mean.\n' > "$FIX/msg-mention"
+assert_accepts "backticked trailer mentions in the body do not count (F-07)" "$FIX" gate-1 msg-mention
+printf 'Explain [WOW:publish]\n\n```\n[WOW:migrate]\n```\n' > "$FIX/msg-fenced"
+assert_accepts "fenced trailer does not count (F-07)" "$FIX" gate-1 msg-fenced
+printf 'Both bare [WOW:publish]\n\nAnd also bare [D:some-bug] in prose.\n' > "$FIX/msg-twobare"
+assert_rejects "two BARE trailers still reject (F-07 control)" "$FIX" "expected exactly one" gate-1 msg-twobare
+
+# ---- F-08/F-10 (v0.6.3): bare [T:<run-id>] carries phase artifacts ----------
+printf 'P1 spec signed at G1 [T:260813-real-r1]\n' > "$FIX/msg-barerun"
+assert_accepts "bare [T:<run-id>] resolves to the run directory" "$FIX" gate-1 msg-barerun
+printf 'P1 spec [T:260899-ghost-r1]\n' > "$FIX/msg-barerun-ghost"
+assert_rejects "bare run form still requires the directory to exist" "$FIX" "does not exist" gate-1 msg-barerun-ghost
 finish

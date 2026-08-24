@@ -217,10 +217,25 @@ def gate_1(msgfile):
                 break
     prefix = ct.get("strip_comment_prefix")
     body = "\n".join(l for l in lines[:cut] if not (prefix and l.startswith(prefix)))
+    # F-07 (v0.6.3): a body that MENTIONS a trailer was counted as carrying it,
+    # so the most relevant commits — the ones about lane behaviour — were the
+    # hardest to write. Same mention-vs-claim rule as GATE-3: backticked spans
+    # and fenced/indented blocks do not count. A trailer meant to bind is
+    # written bare.
+    scan = re.sub(r"`[^`]*`", "", body)
+    scan_lines, fenced = [], False
+    for l in scan.split("\n"):
+        if l.strip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced or l.startswith("    "):
+            continue
+        scan_lines.append(l)
+    scan = "\n".join(scan_lines)
 
     hits = []
     for name, spec in ct["kinds"].items():
-        for m in re.finditer(spec["pattern"], body):
+        for m in re.finditer(spec["pattern"], scan):
             hits.append((name, m.group(1)))
     if len(hits) == 0:
         return False, ["no lane reference. Expected exactly one of "
@@ -247,6 +262,15 @@ def gate_1(msgfile):
     if how == "dir_exists":
         return (True, []) if os.path.isdir(rp(value)) else \
             (False, ["lane ref [Q:%s] names a directory that does not exist" % value])
+    if how == "run_dir_exists":
+        # F-08/F-10 (v0.6.3): the bare form [T:<run-id>] carries a run's
+        # PHASE-level artifacts (P1 spec + HANDOFF, P4 reconciled spec /
+        # divergence / RUN-REPORT) — the run directory may exist before its
+        # plan, so the artifact a PO signs is in git at the moment of signing.
+        d = os.path.join(rp(P["runs_dir"]), value)
+        return (True, []) if os.path.isdir(d) else \
+            (False, ["lane ref [T:%s] (bare run form) names a run directory that does not "
+                     "exist — create runs/%s/ first" % (value, value)])
     if how == "debug_file_exists":
         rl = F["runs_layout"]
         for tpl in (rl["debug"], rl["debug_resolved"]):
@@ -393,6 +417,9 @@ def _evidence_problems(line):
         if pat and not re.search(pat, whole):
             bad.append(whole)
     for pm in re.finditer(ev["opener"], line):
+        # F-27 (v0.6.3): the opener is generic, so an INVENTED kind is caught
+        # here too — previously ev:po-attest{...} was not a malformed citation
+        # but no citation at all, and the scan simply did not see it.
         if not any(s <= pm.start() < e for s, e in spans):
             bad.append(line[pm.start():pm.start() + 60])
     return bad
@@ -427,6 +454,21 @@ def _mask_inline_code(line):
     status parsing still see the original (backticks there are decoration,
     handled by cell_decoration)."""
     return re.sub(r"`[^`]*`", "", line)
+
+
+def _mask_inline_code_doc(text):
+    """F-05 (pilot #2, v0.6.1): the per-line mask leaked on a code span that
+    wraps a line break, which CommonMark permits — the closer paired forward
+    with the next opener and every subsequent span shifted by one. Mask across
+    the whole document instead, replacing each span with its own newlines so
+    line numbering is preserved. A candidate containing a blank line is left
+    alone (CommonMark: a code span cannot contain one), which also keeps a
+    stray unpaired backtick from masking half the file."""
+    def repl(m):
+        if re.search(r"\n\s*\n", m.group(0)):
+            return m.group(0)
+        return "\n" * m.group(0).count("\n")
+    return re.sub(r"`[^`]+`", repl, text, flags=re.S).split("\n")
 
 
 def _is_separator(line):
@@ -466,6 +508,7 @@ def gate_3(paths=None):
         status_idx = None      # which column of the current table holds status
         verdict_idx = None     # which column holds the verifier verdict (F-10)
         prev_cells = None
+        doc_masked = _mask_inline_code_doc(read(full))   # F-05: spans may wrap lines
         for i, line in enumerate(lines_of(full), 1):
             s = line.strip()
             if s.startswith("```"):
@@ -487,17 +530,25 @@ def gate_3(paths=None):
                             verdict_idx = idx
                 continue
 
-            masked = _mask_inline_code(line)   # PF-a: mentions are not claims
+            # PF-a: mentions are not claims; F-05: mask document-wide so spans
+            # wrapping a line break stay masked.
+            masked = doc_masked[i - 1] if i - 1 < len(doc_masked) else _mask_inline_code(line)
             for bad in _evidence_problems(masked):
+                kind = bad.split("{")[0].split(":")[-1]
                 body = bad.split("{", 1)[1] if "{" in bad else ""
-                if "{" in body:
+                if kind not in F["evidence"]["types"]:
+                    msgs.append("%s:%d unknown evidence kind '%s' in '%s' — the vocabulary is "
+                                "%s. An invented kind is not a citation and satisfies nothing "
+                                "(F-27)" % (p, i, kind, bad,
+                                            "|".join(sorted(F["evidence"]["types"]))))
+                elif "{" in body:
                     msgs.append("%s:%d citation '%s' — the citation format admits ONE level of "
                                 "balanced braces; deeper nesting cannot be expressed. Restructure "
                                 "the command or cite a file (frisbii braces finding)"
                                 % (p, i, bad))
                 else:
                     msgs.append("%s:%d malformed citation '%s' — does not match the %s shape in "
-                                "formats.json" % (p, i, bad, bad.split("{")[0].split(":")[-1]))
+                                "formats.json" % (p, i, bad, kind))
 
             has_ev = _has_evidence(masked)
             has_ref = _has_reference(masked, skip_first_cell=is_row)
@@ -523,6 +574,13 @@ def gate_3(paths=None):
                                         "(F-10: a judgement carries its record)"
                                         % (p, i, v, need.replace("_", "-")))
 
+            # F-19 residual: when a row fails for a missing citation but an ev:
+            # opener IS on the line, the real defect is usually a citation the
+            # row was mangled around — say so instead of naming the wrong fix.
+            ev_hint = ("" if not re.search(F["evidence"]["opener"], masked) else
+                       " (an ev: token IS present on this row — an unescaped '|' inside a "
+                       "citation splits the table cell, and an invalid shape satisfies nothing; "
+                       "see FORMATS §3)")
             for c in checked:
                 bare = re.sub(sv["cell_decoration"], "", c).strip()
                 if not bare:
@@ -536,7 +594,8 @@ def gate_3(paths=None):
                         msgs.append("%s:%d cascade status '%s' with no blocker reference"
                                     % (p, i, bare))
                 elif up in ev_required and not has_ev:
-                    msgs.append("%s:%d status %s without an ev: citation" % (p, i, bare))
+                    msgs.append("%s:%d status %s without an ev: citation%s"
+                                % (p, i, bare, ev_hint))
                 elif up in ref_required and not has_ref:
                     msgs.append("%s:%d status %s without a %s in the same row"
                                 % (p, i, bare, ref_required[up]))
@@ -544,8 +603,43 @@ def gate_3(paths=None):
                     msgs.append("%s:%d done-word '%s' used as a status without an ev: citation"
                                 % (p, i, bare))
                 elif up in forbidden and up not in allowed:
-                    msgs.append("%s:%d '%s' is not in the status vocabulary (%s)"
-                                % (p, i, bare, ", ".join(sorted(allowed))))
+                    hint = (" — a verdict belongs under a Grade/Verdict header, not a status "
+                            "column (F-20)" if up in [v.upper() for v in verdict_vocab] else "")
+                    msgs.append("%s:%d '%s' is not in the status vocabulary (%s)%s"
+                                % (p, i, bare, ", ".join(sorted(allowed)), hint))
+                else:
+                    # F-14 (v0.6.3): a cell that BEGINS with a status token and
+                    # is not a bare status equalled no vocabulary member and
+                    # fell through every branch in silence — 'COMPLETED —
+                    # verdict NO' was the run's most consequential claim and
+                    # the gate said nothing. Trailing evidence or a reference
+                    # id is the sanctioned shape; trailing prose is not.
+                    parts = bare.split(None, 1)
+                    # Only a token WRITTEN as a status (uppercase) opens the
+                    # F-14 branch — 'blocked by PARK-U1-01' in a prose cell is
+                    # description, 'COMPLETED — verdict NO' is an ungradeable
+                    # claim.
+                    w = parts[0] if parts and parts[0].isupper() else ""
+                    if w and (w in allowed or w in forbidden or w.lower() in done_words):
+                        rest = parts[1] if len(parts) > 1 else ""
+                        rest = re.sub(F["evidence"]["any"], "", rest)
+                        for key in sv["reference_id_patterns"]:
+                            rest = re.sub(F["ids"][key].strip("^$"), "", rest)
+                        rest = rest.strip(" .,;:—–-")
+                        if rest:
+                            msgs.append("%s:%d cell '%s' begins with status token '%s' but is "
+                                        "not a bare status — a row that looks like a status row "
+                                        "and is not gradeable must not pass quietly (F-14)"
+                                        % (p, i, bare[:60], w))
+                        elif w in ev_required and not has_ev:
+                            msgs.append("%s:%d status %s without an ev: citation%s"
+                                        % (p, i, w, ev_hint))
+                        elif w in ref_required and not has_ref:
+                            msgs.append("%s:%d status %s without a %s in the same row"
+                                        % (p, i, w, ref_required[w]))
+                        elif w in forbidden and w not in allowed:
+                            msgs.append("%s:%d '%s' is not in the status vocabulary (%s)"
+                                        % (p, i, w, ", ".join(sorted(allowed))))
 
             m = re.search(sv["status_prefix"], line, re.I)
             if m:
@@ -658,7 +752,14 @@ def _governing_sources(run_id):
     return srcs, notes
 
 
-def gate_2(run_id=None, spec=None):
+def gate_2(run_id=None, spec=None, close=False):
+    """F-09 (v0.6.3): two forms, mirroring GATE-9's own design. The SWEEP form
+    is a consistency lint — every named requirement id has a row at all, and
+    unreadable rows fail loudly. The CLOSE form (--close, at G4/P4) adds the
+    updated-row requirement. Pre-split, the updated-row check fired the moment
+    PLAN.md landed: at G2 no work has run, so the gate had no phase where it
+    was both in scope and satisfiable before P4 — and updating the row at G2
+    to appease it would claim a technical status the run has not earned."""
     schema = F["requirements_row_schema"]
     req_pat = _req_id_pattern().strip("^$")
     scoped = bool(run_id or spec)
@@ -696,6 +797,10 @@ def gate_2(run_id=None, spec=None):
         return False, pre_msgs + ["REQ id named by the active spec/plan has no row in %s: %s"
                                   % (schema["file"], ", ".join(missing))]
     msgs = pre_msgs + ["%d REQ id(s) checked, all have rows" % len(named)]
+    if not close:
+        msgs.append("consistency form: updated-row check binds at phase close "
+                    "(gate-2 --close, at G4/P4) — F-09")
+        return True, msgs
     if run_id and schema.get("must_be_updated_in_run"):
         touched = _req_rows_touched(run_id)
         stale = sorted(r for r in named if r not in touched)
@@ -755,18 +860,31 @@ def gate_4(run_id=None):
 # GATE-6 — codebase-map freshness (git) + external-dep freshness (probe hash)
 # --------------------------------------------------------------------------
 def _frontmatter(path):
+    """F-12 (v0.6.3): the YAML block-list form is what a YAML-literate author
+    writes by default, and the parser used to read it as an empty scalar —
+    which downstream became a freshness gate that could never go stale. Block
+    lists now parse; the empty-value case is handled loudly by the callers."""
     fmspec = F["frontmatter"]
     ls = lines_of(path)
     if not ls or ls[0].strip() != fmspec["fence"]:
         return None
-    fm, i = {}, 1
+    fm, i, last_key = {}, 1, None
     while i < len(ls) and ls[i].strip() != fmspec["fence"]:
-        m = re.match(fmspec["key_value"], ls[i].strip())
+        raw = ls[i]
+        item = re.match(r"^\s+-\s+(.*)$", raw)
+        if item and last_key is not None:
+            if not isinstance(fm[last_key], list):
+                fm[last_key] = [fm[last_key]] if str(fm[last_key]).strip() else []
+            fm[last_key].append(item.group(1).strip().strip('"\''))
+            i += 1
+            continue
+        m = re.match(fmspec["key_value"], raw.strip())
         if m:
             v = m.group(2).strip()
             if v.startswith("["):
                 v = [x.strip().strip('"\'') for x in v.strip("[]").split(",") if x.strip()]
             fm[m.group(1)] = v
+            last_key = m.group(1)
         i += 1
     return fm
 
@@ -865,6 +983,20 @@ def _area_fresh(area, run_id):
         if k not in fm:
             return False, "%s front-matter missing '%s'" % (rel, k)
     paths = fm["paths"] if isinstance(fm["paths"], list) else [fm["paths"]]
+    paths = [x for x in paths if str(x).strip()]
+    # F-12 (v0.6.3): an empty paths list ran `git log -- ''`, git REFUSED the
+    # command, the helper swallowed stderr, and the gate reported fresh — it
+    # was not observing "no commits touched the map", it was observing a
+    # failed invocation and could not tell the two apart. A gate that cannot
+    # run its own check must not report the result of having passed it.
+    if not paths:
+        return False, ("map '%s' resolves to an EMPTY paths list — the freshness check cannot "
+                       "run, and that is not fresh. Front-matter paths take the inline "
+                       "[a, b] or block-list form (F-12)" % area)
+    if not git("rev-parse", "--verify", "--quiet", "%s^{commit}" % fm["verified_against"]).strip():
+        return False, ("map '%s' verified_against %r is not a commit this repo can resolve — "
+                       "the freshness check cannot run, and that is not fresh (F-12)"
+                       % (area, fm["verified_against"]))
     out = git("log", "--oneline", "%s..HEAD" % fm["verified_against"], "--", *paths)
     if out.strip():
         n = len(out.strip().split("\n"))
@@ -1039,6 +1171,10 @@ def gate_13(run_id=None):
     if not plan["units"]:
         return False, ["%s parses into no units — a plan the schema cannot read is not a plan "
                        "with proven verifies" % plan_rel]
+    if sum(len(u["tasks"]) for u in plan["units"]) == 0:
+        return False, ["%s parses into units but ZERO task rows — GATE-13 cannot lint verifies "
+                       "it cannot see; task ids must be fully qualified (%s) (F-13's shape, "
+                       "applied here before it applied)" % (plan_rel, F["ids"]["task"])]
     msgs = []
     exempt = ps["task_verify_exempt_marker"]
     nv_name = ps["non_vacuity_column"]
@@ -1293,6 +1429,37 @@ def gate_8(run_id):
     if not plan["units"]:
         msgs.append("PLAN.md declares no units, or unit headings do not match the schema "
                     "(### U<n> — <title>)")
+    # F-13 (v0.6.3): bare task ids parsed to ZERO tasks and both task rules held
+    # vacuously — 29 verify commands the gate never read, while ownership and
+    # coverage kept grading and the gate looked healthy. The AC set already had
+    # this guard; the task list now has the same one.
+    if plan["units"] and sum(len(u["tasks"]) for u in plan["units"]) == 0:
+        msgs.append("plan declares %d unit(s) and ZERO parseable task rows — task ids must be "
+                    "fully qualified (%s); a task list the schema cannot read is not a task "
+                    "list with nothing to check (F-13)"
+                    % (len(plan["units"]), F["ids"]["task"]))
+    # F-28 (v0.6.3): the unit section is the only channel to an executor, so
+    # normative language outside every unit and outside the Contracts block
+    # binds nobody — a credential-safety rule was gated, committed, and inert.
+    npat = ps.get("normative_pattern")
+    if npat:
+        in_unit, in_contracts = False, False
+        for ln_no, ln in enumerate(read(path).split("\n"), 1):
+            if re.match(ps["unit_heading"], ln):
+                in_unit, in_contracts = True, False
+                continue
+            if re.match(r"^##\s", ln):
+                in_unit = False
+                in_contracts = bool(re.match(
+                    fill(ps["section_heading"], name=re.escape(ps["contracts_section"])), ln))
+                continue
+            if in_unit or in_contracts or ln.lstrip().startswith("#"):
+                continue
+            if re.search(npat, ln):
+                msgs.append("PLAN.md:%d normative language outside a unit section or the "
+                            "'## %s' block reaches NO executor manifest (F-28): '%s' — move "
+                            "the rule where its audience will be handed it"
+                            % (ln_no, ps["contracts_section"], ln.strip()[:70]))
     files = tracked_files()
 
     # (a) ownership: no overlap, no ORCH-owned file claimed
@@ -1404,6 +1571,18 @@ def _governing_artifact(gate, run_id, spec):
     if kind == "spec":
         if spec:
             return spec
+        if run_id:
+            # F-15 (v0.6.3): with --run and no --spec this fell through to a
+            # sorted glob and graded whichever spec sorts LAST — a different
+            # run's spec, chosen alphabetically. Resolve through the named
+            # run's plan the way GATE-2's _governing_sources does, and refuse
+            # rather than guess when that fails (the G-11 principle).
+            plan_rel = fill(F["plan_schema"]["file"], run_id=run_id)
+            if os.path.isfile(rp(plan_rel)):
+                m = re.search(F["plan_schema"]["spec_header"], read(rp(plan_rel)), re.M)
+                if m:
+                    return m.group(1)
+            return None
         specs = matching_docs([P["specs_glob"]])
         return specs[-1] if specs else None
     return None
@@ -1420,13 +1599,28 @@ def gate_9(artifacts=None, gate=None, run_id=None, spec=None):
                            % (gate, ", ".join(sorted(jm["closing_gates"])))]
         a = _governing_artifact(gate, run_id, spec)
         if not a:
+            if run_id:
+                return False, ["%s cannot resolve its governing %s from run %s (no plan, or no "
+                               "spec: header) — refusing to guess from a glob; pass --spec "
+                               "(F-15)" % (gate, jm["closing_gates"][gate], run_id)]
             return False, ["%s closes against a %s artifact, and none was found — pass --spec or "
                            "--run" % (gate, jm["closing_gates"][gate])]
         head = "\n".join(read(rp(a)).split("\n")[:jm["header_lines"]])
-        if not re.search(pat, head, re.M):
-            return False, ["%s cannot close: %s has no 'signed: <date> ev:jira{KEY-nn}' record "
-                           "in its header" % (gate, a)]
-        msgs.append("%s closure record present in %s" % (gate, a))
+        m = re.search(pat, head, re.M)
+        if not m:
+            return False, ["%s cannot close: %s has no 'signed: [G<n>] <date> ev:jira{KEY-nn}' "
+                           "record in its header" % (gate, a)]
+        # F-15 (v0.6.3): the record used to carry no gate token, so any gate's
+        # sign-off satisfied any gate — a superseded spec's G1 record closed
+        # G4. A token, when present, must match; legacy tokenless records
+        # remain valid.
+        if m.group(1) and m.group(1) != gate:
+            return False, ["%s cannot close against %s: its record signs %s, not %s — a sign-off "
+                           "attests the gate it names (F-15)" % (gate, a, m.group(1), gate)]
+        msgs.append("%s closure record present in %s%s"
+                    % (gate, a, " (gate token %s)" % m.group(1) if m.group(1) else
+                       " (legacy tokenless record — new sign-offs carry the gate: "
+                       "'signed: %s <date> ev:jira{...}')" % gate))
         artifacts = artifacts or [a]
 
     if artifacts is None:
@@ -1444,7 +1638,20 @@ def gate_9(artifacts=None, gate=None, run_id=None, spec=None):
             msgs.append("%s claims SIGNED but has no 'signed: <date> ev:jira{KEY-nn}' record" % a)
         if has_record and not claims_signed:
             msgs.append("%s carries a signed: record but its status is not SIGNED" % a)
-    bad = [m for m in msgs if "claims SIGNED" in m or "not SIGNED" in m]
+        # F-29 (v0.6.3): real runs amend signed artifacts — legitimately, by PO
+        # decision — and nothing recorded that the text changed after the
+        # signature. A signed artifact modified after the commit that
+        # introduced its record must carry an AM-<nn> amendment record, so a
+        # PO signing at the next gate sees how much postdates the signature.
+        if has_record:
+            intro = git("log", "--format=%H", "-1", "-S", has_record.group(0), "--", a).strip()
+            after = git("log", "--format=%H", "%s..HEAD" % intro, "--", a).strip() if intro else ""
+            dirty = intro and bool(git("diff", "--name-only", "HEAD", "--", a).strip())
+            if (after or dirty) and not re.search(F["ids"]["amendment"].strip("^$"), txt):
+                msgs.append("%s was modified after the commit that introduced its signed: record "
+                            "and carries no AM-<nn> amendment record — the signature line and "
+                            "the text it signs are drifting apart with no trace (F-29)" % a)
+    bad = [m for m in msgs if "claims SIGNED" in m or "not SIGNED" in m or "F-29" in m]
     return (len(bad) == 0), msgs
 
 
@@ -1548,7 +1755,8 @@ def run_gate(name, args):
             return False, ["gate-1 needs the commit message file (the commit-msg hook passes $1)"]
         return gate_1(positional[0])
     if name == "gate-2":
-        return gate_2(run_id=_opt(args, "--run"), spec=_opt(args, "--spec"))
+        return gate_2(run_id=_opt(args, "--run"), spec=_opt(args, "--spec"),
+                      close=("--close" in args))
     if name == "gate-3":
         return gate_3(_list_opt(args, "--paths") or None)
     if name == "gate-4":
@@ -1729,6 +1937,8 @@ def sweep(args):
             a = ["--sweep"] + a
         if g == "gate-7" and "--p5" in args:
             a = ["--p5"] + a
+        if g == "gate-2" and "--p5" in args:
+            a = ["--close"] + a   # F-09: at publish the work has happened; the close form binds
         ok, msgs = run_gate(g, a)
         total += 1
         print("%s %s" % ("PASS" if ok else "FAIL", g))

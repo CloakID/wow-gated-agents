@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.6.2-draft",
+  "version": "0.6.3-draft",
   "ids": {
     "run": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*$",
     "unit": "^U[1-9][0-9]*$",
@@ -9,7 +9,7 @@
     "park": "^PARK-U[1-9][0-9]*-[0-9]{2}$",
     "verifier_finding": "^VF-U[1-9][0-9]*-[0-9]{2}$",
     "plan_defect": "^DEF-plan-[0-9]{2}$",
-    "cannot_validate": "^CV-[0-9]{6}-[a-z0-9-]+-r[1-9][0-9]*-[0-9]{2}$",
+    "cannot_validate": "^CV-[0-9]{6}-[a-z0-9-]+-r[1-9][0-9]*-(?:U[1-9][0-9]*-)?[0-9]{2}$",
     "requirement": "^REQ-[0-9]{3}$",
     "assumption": "^A-[0-9]{2}$",
     "acceptance_criterion": "^AC-[0-9]{1,3}$",
@@ -17,7 +17,8 @@
     "spec_file": "^SPEC-[a-z0-9-]{1,24}-v[1-9][0-9]*\\.md$",
     "quick_dir": "^[0-9]{6}-[a-z0-9][a-z0-9-]*$",
     "debug_file": "^[a-z0-9][a-z0-9-]*\\.md$",
-    "obligation": "^OBL-[A-Z0-9]+-[0-9]{2}$"
+    "obligation": "^OBL-[A-Z0-9]+-[0-9]{2}$",
+    "amendment": "^AM-[0-9]{2}$"
   },
   "paths": {
     "$comment": "Every repo-relative location the gates and status.mjs read. Inlining any of these in a consumer is the defect this section exists to prevent.",
@@ -64,6 +65,12 @@
         "resolves": "mid_migration",
         "$comment": "review PR-4: migration commits (lifting durables from .planning into docs/) had no legal lane ref, training operators to fake [WOW:publish]. Valid ONLY mid-migration: .planning/ exists AND migrated_from_gsd is still false. Greenfield repos and post-freeze repos reject it.",
         "doc_literal": "[WOW:migrate]"
+      },
+      "run": {
+        "pattern": "\\[T:([0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*)\\]",
+        "resolves": "run_dir_exists",
+        "doc_literal": "[T:",
+        "$comment": "F-08/F-10 (v0.6.3): P1 and P4 artifacts had no trailer that resolves — the spec a PO signs at G1 and the reconciled spec/divergence/RUN-REPORT at G4 sat outside git at the moment of signing, and the improvisation pressure (borrow a task id, fake a publish) is the class PR-4 existed to stop. The bare form [T:<run-id>] (no .Tnn suffix) resolves to the run DIRECTORY, which may exist before its plan. Phase-level artifacts of a run commit under it; task work still requires the fully-qualified form."
       }
     },
     "$doc_literal_comment": "PF-b: the literal an operator-facing doc must contain for this trailer to count as documented. Consumed by check_parity's reverse direction: every kind must appear in each of parity.lane_docs and one of parity.router_locations."
@@ -124,6 +131,7 @@
       "SUCCEEDED",
       "PASSED",
       "PASS",
+      "FAIL",
       "OK",
       "WORKING",
       "WONTFIX",
@@ -167,7 +175,8 @@
       "FAIL": "verifier_finding",
       "PASS-with-carry-forwards": "cannot_validate"
     },
-    "$verdict_comment": "F-10 (v0.6.2): a STATUS describes the work (executor); a VERDICT is an independent judgement about it (verifier). P3 mandates the grade and GATE-3 was rejecting it — 56 hits in one run, 10 of them the mandated PASS. Where a table names a Grade/Verdict column, that column is checked against verdict_vocab instead of the status vocabulary; FAIL must carry a VF id and PASS-with-carry-forwards a CV id in the same row. COMPLETED+FAIL is the most important pair a run produces — collapsing them loses it."
+    "$verdict_comment": "F-10 (v0.6.2): a STATUS describes the work (executor); a VERDICT is an independent judgement about it (verifier). P3 mandates the grade and GATE-3 was rejecting it — 56 hits in one run, 10 of them the mandated PASS. Where a table names a Grade/Verdict column, that column is checked against verdict_vocab instead of the status vocabulary; FAIL must carry a VF id and PASS-with-carry-forwards a CV id in the same row. COMPLETED+FAIL is the most important pair a run produces — collapsing them loses it.",
+    "$fail_comment": "FAIL is a verdict, not a status (F-20): bare FAIL in a status column previously matched NO branch and passed in silence; it now trips the synonym check with a pointer at Grade/Verdict headers. FAILED remains the status."
   },
   "claim_labels": {
     "$comment": "FORMATS §2. CONVENTION, reviewed at gates, NOT gated. status.mjs reports density; gates.sh must never reject on these.",
@@ -180,21 +189,23 @@
   },
   "evidence": {
     "$comment": "FORMATS §3. ENFORCED subset — GATE-3 requires one of these alongside an evidence-required status or a done-word, AND requires it to be well formed per types below.",
-    "any": "ev:(cmd|file|commit|jira|url)\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
-    "kind": "ev:(cmd|file|commit|jira|url)\\{((?:[^{}]|\\{[^{}]*\\})+)\\}",
+    "any": "ev:(cmd|file|commit|jira|url|attest)\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
+    "kind": "ev:(cmd|file|commit|jira|url|attest)\\{((?:[^{}]|\\{[^{}]*\\})+)\\}",
     "types": {
       "cmd": "ev:cmd\\{.+?=>.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^{}]|\\{[^{}]*\\})*\\}",
       "file": "ev:file\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
       "commit": "ev:commit\\{[0-9a-f]{7,40}\\}",
       "jira": "ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
-      "url": "ev:url\\{https?://(?:[^{}]|\\{[^{}]*\\})+\\}"
+      "url": "ev:url\\{https?://(?:[^{}]|\\{[^{}]*\\})+\\}",
+      "attest": "ev:attest\\{[^{}:]+:\\s*.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^{}]|\\{[^{}]*\\})*\\}"
     },
     "validate_shape": true,
     "$validate_shape_comment": "GATE-3 once accepted ev:cmd{i ran it and it was fine} because only `any` was applied. A citation that cites nothing checkable satisfies the letter of the gate and defeats its purpose, so each occurrence is now matched against its own type pattern.",
     "file_line_citation": "ev:file\\{([^#}]+):([0-9]+)\\}",
     "$file_line_comment": "GATE-5 preflight target. Content anchors (path#anchor) are preferred and are not line-checked.",
-    "opener": "ev:(cmd|file|commit|jira|url)\\{",
-    "$braces_comment": "frisbii braces finding (v0.6.2): the body admits ONE level of balanced braces, so awk action blocks, jq object construction and regex quantifiers are citable. Deeper nesting cannot be expressed: `opener` catches an ev: prefix the kind regex cannot parse, and the diagnostic says THE FORMAT cannot express it — never that the writer's citation is malformed for the wrong reason. Backticked citations are mentions (v0.6.1 PF-a) and are not scanned at all."
+    "opener": "ev:([a-z][a-z0-9-]*)\\{",
+    "$braces_comment": "frisbii braces finding (v0.6.2): the body admits ONE level of balanced braces, so awk action blocks, jq object construction and regex quantifiers are citable. Deeper nesting cannot be expressed: `opener` catches an ev: prefix the kind regex cannot parse, and the diagnostic says THE FORMAT cannot express it — never that the writer's citation is malformed for the wrong reason. Backticked citations are mentions (v0.6.1 PF-a) and are not scanned at all.",
+    "$attest_comment": "F-27 (v0.6.3): evidence for a task placed with a human IS a person's decision — 'the operator read one row and declined to issue the next statement' has no command to cite, and dressing it as ev:cmd records a human decision in the grammar of a shell command. ev:attest{who: claim @date}. The opener is now GENERIC: an ev: token whose kind is outside evidence.types is a GATE-3 failure — a malformed known kind failed loudly while an invented kind was silently invisible, and the invented kind is the author who believes they are complying."
   },
   "scan_targets": {
     "$comment": "The document set GATE-3 and GATE-5 sweep. GATES-SPEC names these docs in prose; this is their machine home.",
@@ -362,10 +373,13 @@
     "unit_body_end": "^##\\s",
     "$unit_body_end_comment": "A unit's body ends at the next level-2 section. Without this the last unit swallowed the Coverage matrix, whose rows name task ids and were read as task rows.",
     "non_vacuity_column": "Non-vacuity",
-    "$non_vacuity_comment": "F-9 / GATE-13 (v0.6.2): one cell per task naming a plausible wrong answer the Verify rejects, citing something runnable (gate-4's proof rule), or MANUAL for a PO-owned row. Deliberately NOT in task_table_columns: GATE-8 must keep passing signed historical plans; GATE-13 owns the column and binds only while the plan is unsigned."
+    "$non_vacuity_comment": "F-9 / GATE-13 (v0.6.2): one cell per task naming a plausible wrong answer the Verify rejects, citing something runnable (gate-4's proof rule), or MANUAL for a PO-owned row. Deliberately NOT in task_table_columns: GATE-8 must keep passing signed historical plans; GATE-13 owns the column and binds only while the plan is unsigned.",
+    "contracts_section": "Contracts",
+    "$contracts_comment": "F-28 (v0.6.3): the unit section is the only channel to an executor (P3: manifest = unit section + interface contracts + CONVENTIONS, nothing else), so a rule that binds EVERY unit needs a home P3 delivers — a credential-safety prohibition written into an amendment section was gated, committed, and read by nobody. P3 appends '## Contracts' to every executor manifest; GATE-8 flags normative language outside unit sections and this block.",
+    "normative_pattern": "(?i)\\b(must not|must never|never [a-z]+|is forbidden|shall not|must\\b)"
   },
   "report_row_schema": {
-    "$comment": "RUN-REPORT.md and reports/*.md rows. One line per row. GATE-3 uses `row` to decide which lines are status rows and `sections` to check the report is complete.",
+    "$comment": "RUN-REPORT.md location and required sections. F-14 (v0.6.3): this schema USED to carry a `row` regex whose comment claimed GATE-3 consumed it — no engine ever read it, and its digit-excluding status class contradicted status_vocab.cascade_form two keys away. An unread schema that looks authoritative is a third source of truth; deleted rather than wired, because GATE-3's real row handling (status_vocab) is the single home.",
     "file": "runs/{run_id}/RUN-REPORT.md",
     "sections": [
       "completed",
@@ -376,7 +390,6 @@
       "defects",
       "new-gaps"
     ],
-    "row": "^\\|\\s*(?P<id>[^|]+?)\\s*\\|\\s*(?P<status>[A-Z][A-Z()a-z:._-]*)\\s*\\|\\s*(?P<detail>.*)\\|$",
     "evidence_required_for": [
       "COMPLETED",
       "FAILED"
@@ -452,7 +465,7 @@
       "claim_marker": "\\b(mcp\\s+(is\\s+)?(unavailable|unreachable|offline)|offline)\\b",
       "$claim_comment": "How a divergence record says 'I could not reach Jira'. Saying it obliges an open jira-queue item; otherwise the deferral is recorded nowhere that will be chased."
     },
-    "signoff_record": "^signed:\\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\\s+ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
+    "signoff_record": "^signed:(?:\\s+(G[0-9]+))?\\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\\s+ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
     "signed_status_token": "^status:.*\\bSIGNED\\b",
     "status_header": "^status:\\s*(.+)$",
     "header_lines": 25,
@@ -462,7 +475,8 @@
       "G1": "spec",
       "G2": "plan",
       "G4": "spec"
-    }
+    },
+    "$signoff_gate_comment": "F-15 (v0.6.3): the record may carry the gate it attests — 'signed: G4 2026-08-24 ev:jira{K-1}'. When present, gate-9 --gate G<n> requires it to MATCH: a G1 record on a superseded spec was closing G4. Legacy tokenless records remain valid (a date and a key), but new sign-offs should carry the token; the sweep lint accepts both."
   },
   "non_vacuity": {
     "$comment": "GATE-4. An invariant declares a rule; a non-vacuity proof shows the rule can fail. The proof must cite something runnable — an ev: citation or a path that exists — because 'non-vacuity: yes' is not a proof.",
@@ -576,7 +590,6 @@
       "scripts/wow/gates.py",
       "scripts/wow/formats.json",
       "scripts/wow/status.mjs",
-      "scripts/wow/permissions-policy.json",
       "scripts/wow/GATES-SPEC.md"
     ],
     "engine_dirs": [
@@ -626,7 +639,11 @@
         "python3": "gates.sh is a thin wrapper; gates.py is the engine. install.sh also uses python3 to rewrite the CLAUDE.md section in place.",
         "node": "status.mjs only. Gates do not need node; a repo without node loses derived status, not enforcement."
       }
-    }
+    },
+    "seed_files": [
+      "scripts/wow/permissions-policy.json"
+    ],
+    "$seed_comment": "F-06 (v0.6.3): which commands THIS repo's verify steps may run is repo-local truth by definition (a k8s platform needs kubectl, a Java service gradle) — shipping it in engine_files meant --check reported the repo's own policy as DRIFTED and the next upgrade overwrote it (observed: 18 designed vs 234 accreted, overlap zero). Seeded once from the package template, then owned by the repo, like wow.config.json; --check reports MISSING but never drift."
   },
   "gates": {
     "GATE-1": {

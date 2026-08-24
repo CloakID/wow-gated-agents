@@ -252,4 +252,41 @@ verified_against_hash: $HASH
 # map
 D
 assert_accepts "allowlisted repo-local probe runs and matches (control)" "$FIX" gate-6 --deps vendor-api
+
+# ---- F-12 (v0.6.3): YAML block-list paths parse; empty paths are LOUD -------
+mkdir -p "$FIX/docs/codebase" "$FIX/src2"
+printf 'x\n' > "$FIX/src2/a.py"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "block-list fixture [WOW:publish]" )
+SHA="$(cd "$FIX" && git rev-parse HEAD)"
+cat > "$FIX/docs/codebase/blockmap.md" <<D
+---
+area: blockmap
+verified_against: $SHA
+paths:
+  - src2/a.py
+---
+# map
+D
+assert_accepts "block-list paths parse; nothing touched since (F-12)" "$FIX" gate-6 --area blockmap
+printf 'y\n' >> "$FIX/src2/a.py"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "touch mapped path [WOW:publish]" )
+assert_rejects "block-list map goes STALE when a mapped path moves (F-12)" "$FIX" "STALE" gate-6 --area blockmap
+cat > "$FIX/docs/codebase/blockmap.md" <<D
+---
+area: blockmap
+verified_against: $SHA
+paths:
+---
+# map
+D
+assert_rejects "empty paths cannot report fresh — a failed check is not a pass (F-12)" "$FIX" "EMPTY paths" gate-6 --area blockmap
+cat > "$FIX/docs/codebase/blockmap.md" <<D
+---
+area: blockmap
+verified_against: 999999deadbeef
+paths: [src2/a.py]
+---
+# map
+D
+assert_rejects "unresolvable verified_against cannot report fresh (F-12)" "$FIX" "not a commit this repo can resolve" gate-6 --area blockmap
 finish

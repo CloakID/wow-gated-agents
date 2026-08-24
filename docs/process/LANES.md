@@ -1,10 +1,11 @@
-# LANES — quick & debug playbooks + precedence — DRAFT v0.6.1
+# LANES — quick & debug playbooks + precedence — DRAFT v0.6.3
 
 ## Lane refs (GATE-1) **[ORCH]**
 
-Every commit carries exactly one lane ref; GATE-1 (commit-msg hook) blocks the rest. The full set — this list and `formats.json commit_trailers` are two declarations of the same set, and the parity sweep compares them both ways (v0.6.1, PF-b):
+Every commit carries exactly one lane ref; GATE-1 (commit-msg hook) blocks the rest. Trailers in backticks or fenced/indented blocks are mentions and do not count (F-07) — a commit about lane behaviour can name the trailers it discusses. The full set — this list and `formats.json commit_trailers` are two declarations of the same set, and the parity sweep compares them both ways (v0.6.1, PF-b):
 
 - `[T:<run-id>.T<nn>]` — main lane; must resolve to a task **row** in that run's `PLAN.md`.
+- `[T:<run-id>]` — bare form (v0.6.3, F-08/F-10): a run's **phase-level artifacts** (P1 spec + HANDOFF, P4 reconciled spec / divergence / RUN-REPORT); resolves to the run directory, which may exist before its plan. Task work still uses the fully-qualified form — a borrowed task id on phase work is the improvisation this form exists to end.
 - `[Q:runs/quick/<dir>]` — quick lane; the dir must exist.
 - `[D:<slug>]` — debug lane; `runs/debug/<slug>.md` must exist (investigation is read-only, so a `[D:]` commit carries the debug record itself, never a fix).
 - `[WOW:publish]` — package/process publishing commits (P5 and framework maintenance); resolves to nothing by design.

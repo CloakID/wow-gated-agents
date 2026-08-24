@@ -91,4 +91,30 @@ assert_accepts "awk action block inside a citation body" "$FIX" gate-3 --paths d
 
 printf '| REQ-001 | thing | COMPLETED | ev:cmd{jq -e picked {a:{b:1}} shape => ok @2026-08-24} |\n' > "$FIX/docs/r-nest2.md"
 assert_rejects "two-level nesting: the diagnostic names the format, not the writer" "$FIX" "cannot be expressed" gate-3 --paths docs/r-nest2.md
+
+# ---- F-05 (v0.6.3): the mask is document-wide — spans may wrap a line break --
+printf '> span `id | tag | owner |\n> more` and templates (`ev:cmd{x => y @ISO}`, `ev:jira{KEY}`)\n' > "$FIX/docs/r-wrapspan.md"
+assert_accepts "code span wrapping a line break stays a mention (F-05)" "$FIX" gate-3 --paths docs/r-wrapspan.md
+# ...and a stray unpaired backtick must not mask a genuine bare malformed citation.
+printf 'stray ` here\n| REQ-001 | x | COMPLETED | ev:cmd{no arrow here} |\n' > "$FIX/docs/r-stray.md"
+assert_rejects "unpaired backtick does not hide a malformed citation (F-05 control)" "$FIX" "malformed citation" gate-3 --paths docs/r-stray.md
+
+# ---- F-27 (v0.6.3): unknown ev: kinds fail loudly; ev:attest exists ---------
+printf '| T01 | COMPLETED | ev:po-attest{PO: approved @2026-08-24} |\n' > "$FIX/docs/r-unkind.md"
+assert_rejects "an invented evidence kind is a loud failure, not invisible (F-27)" "$FIX" "unknown evidence kind" gate-3 --paths docs/r-unkind.md
+printf '| T01 | COMPLETED | ev:attest{PO: read the row and declined the next statement @2026-08-24} |\n' > "$FIX/docs/r-attest.md"
+assert_accepts "ev:attest records a human decision as itself (F-27)" "$FIX" gate-3 --paths docs/r-attest.md
+printf '| T01 | COMPLETED | ev:attest{no who separator @2026-08-24} |\n' > "$FIX/docs/r-attest-bad.md"
+assert_rejects "attest without the who: separator is malformed" "$FIX" "malformed citation" gate-3 --paths docs/r-attest-bad.md
+
+# ---- F-14 (v0.6.3): an ungradeable status-shaped cell must not pass quietly --
+printf '| T03 | COMPLETED — verdict NO on both instances | prose |\n' > "$FIX/docs/r-ungradeable.md"
+assert_rejects "status token + trailing prose is ungradeable, not invisible (F-14)" "$FIX" "not a bare status" gate-3 --paths docs/r-ungradeable.md
+# Sanctioned shapes stay legal: status + citation, status + reference id.
+printf '| T04 | COMPLETED ev:commit{abc1234} | done cell |\n| T05 | PARKED PARK-U1-01 | note |\n' > "$FIX/docs/r-gradeable.md"
+assert_accepts "status + citation / + reference in one cell stay legal (F-14 control)" "$FIX" gate-3 --paths docs/r-gradeable.md
+
+# ---- F-20 residual: bare FAIL outside a verdict column is caught, with a map -
+printf '| T01 | task went | FAIL | |\n' > "$FIX/docs/r-fail-loose.md"
+assert_rejects "bare FAIL outside a Grade/Verdict column" "$FIX" "Grade/Verdict header" gate-3 --paths docs/r-fail-loose.md
 finish

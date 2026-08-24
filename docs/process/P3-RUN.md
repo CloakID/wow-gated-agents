@@ -1,4 +1,4 @@
-# P3 — RUN — DRAFT v0.5.0
+# P3 — RUN — DRAFT v0.6.3
 Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits · No human in the loop by design.
 
 ## [ORCH] — branch & merge model (the parallel-execution contract)
@@ -7,12 +7,15 @@ Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits ·
 - Executors commit **only** to their unit branch. **Only the ORCH merges.** After a unit's verifier PASS: rebase `U<n>` onto `int`, merge into `int` — sequentially, in wave order. No force-push anywhere; `main` is never touched mid-run.
 - **Conflict policy:** conflicts inside a unit's owned paths are impossible by construction (GATE-8 partitioned them) — if one occurs it is a **plan defect** `DEF-plan-<nn>`: log it, ORCH resolves (owner unit's version wins unless integration contract says otherwise), record `ev:commit`. Conflicts in generated/lock files: resolve by regeneration, never hand-merge.
 - Integration wave executes on `int` (same executor/verifier discipline). Run reaches `main` only after integration verify passes — PR or fast-forward per `wow.config.json`.
+- **Mid-run plan amendment (added v0.6.3, F-16):** a PO decision may amend the signed PLAN mid-run (new task, widened ownership, changed contract) — record it as an `AM-<nn>` line in the plan (FORMATS, F-29). After ANY plan amendment the **ORCH merges the run base into every live unit branch**; a unit blocked on an unmerged amendment is an ORCH action, not a park. Base→unit happens at wave open AND after each amendment — the second case is the one that was undescribed and cost a full agent cycle.
 
 ## [ORCH] — orchestrate
 
-1. Start 3–4 concurrent executors, fresh context each. Executor manifest = its unit's PLAN section + interface contracts + CONVENTIONS + the `[AGENT]` sections of this file. **Nothing else.**
+1. Start 3–4 concurrent executors, fresh context each. Executor manifest = its unit's PLAN section + **the plan's `## Contracts` block (every unit, always — F-28: the unit section is the only channel to an executor, so a rule that binds all units lives there or reaches nobody)** + interface contracts + CONVENTIONS + the `[AGENT]` sections of this file. **Nothing else.**
 2. After each unit's executor finishes → spawn its **verifier AGENT** (fresh context; different model where possible; manifest = that unit's SPEC ACs + contracts + verify commands + `[AGENT] verifier` section; **never the implementer transcript**).
 3. Verifier findings (`VF-U<n>-<nn>`) → fix wave in executor context → **re-validate every fix** (verifier context, delta scope). Loop until clean or parked (FORMATS §7).
+3b. **A defect in a contracted CHECK (added v0.6.3, F-22):** when the fix is a plan amendment, its only possible author is the ORCH (FORMATS §9) — the one actor with a standing interest in the grade. So a plan-amendment-as-fix gets its own delta verifier whose manifest **names the amendment as the object under test** and instructs premise-failure attempts against it ("assume nothing is fixed until you have made the check fail on purpose"), and the amendment states what coverage it gives up. This path was improvised once and found a real hole on its first outing (VF-U5-02).
+4a. **Wave boundaries — reconciliation walk (added v0.6.3, F-25):** executors exit their context and never return to their rows, so a `BLOCKED`/`PARKED`/`FAILED` row whose blocker was discharged elsewhere stays wrong until someone walks back — ten stale rows across five reports in one measured run, and the derived view false for days. At every wave boundary the ORCH walks open parks and BLOCKED/FAILED rows and closes any whose named blocker is discharged, **preserving the original grade in a dated reconciliation note** (the contemporaneous observation is not rewritten away). The Jira side is the SAME step, not a separate one: transition each unit's story as its executor finishes and its verifier passes — seven stories at Intake through four waves was one structural omission, recorded on both sides of the git/Jira split.
 4. **Wave boundaries — cascade rule (ORCH only, never executors):** mark every task downstream of a PARKED/BLOCKED task as `BLOCKED(cascade:<source-id>)`; independent tasks proceed. **If >50% of the next wave is cascade-blocked, terminate the run early → P4.**
 5. Tier escalation per P2 §tiers at wave boundaries. Assemble RUN-REPORT.md from `reports/*.md`; maintain HANDOFF.md. (PLAN, RUN-REPORT, HANDOFF, jira-queue are ORCH-owned — FORMATS §9.)
 
@@ -25,9 +28,9 @@ Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits ·
 
 ## [AGENT] — verifier
 
-- Re-derive pass/fail per AC and per task verify command — run them yourself; record your own `ev:`. Do not trust recorded results.
+- Two verification modes (added v0.6.3, F-30). **Re-derive** (default): run every AC and task verify yourself; record your own `ev:`; do not trust recorded results. **Audit** — for tasks the PLAN marks `audit-only: <why>` (evidence destroyed by the procedure itself, credential contractually held by a human, re-run destructive/costly): do not re-run; instead check that every contracted clause has a citation, that each recorded conclusion follows from the recorded output, and that **each recorded check could have failed** — a check whose evidence reads identically under a wrong outcome is the finding. The PLAN marks audit-only tasks at P2, in front of the PO at G2 — never the ORCH at spawn time, which lets the party under review scope the verifier away from its weakest evidence.
 - Attempt the premise failure on flagged ACs: check the thing the AC is *about*, not the harness.
-- Grade: PASS / PASS-with-carry-forwards (CV records, FORMATS §5) / FAIL (`VF-U<n>-<nn>` with evidence). Write only `reports/U<n>-verify.md`. If you need context, read code and contracts, not transcripts.
+- Grade: PASS / PASS-with-carry-forwards (CV records, FORMATS §5) / FAIL (`VF-U<n>-<nn>` with evidence) — **tabulate grades under a `Grade` or `Verdict` header** (GATE-3 checks that column against the verdict vocabulary, FORMATS §4; a grade in a Status/Result column reads as a status and is rejected). Write only `reports/U<n>-verify.md`. If you need context, read code and contracts, not transcripts.
 
 ## RUN-REPORT.md structure [ORCH]
 `completed / failed / blocked / parked / deviations / defects / new-gaps` — rows per FORMATS §4–5, every completion row evidence-cited (GATE-3), one line per row.

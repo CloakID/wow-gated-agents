@@ -56,6 +56,7 @@ I = json.load(open(sys.argv[1]))["install"]
 q = lambda xs: " ".join(shlex.quote(str(x)) for x in xs)
 print("WOW_VERSION=%s" % shlex.quote(json.load(open(sys.argv[1]))["version"]))
 print("ENGINE_FILES=(%s)" % q(I["engine_files"]))
+print("SEED_FILES=(%s)"   % q(I.get("seed_files", [])))
 print("ENGINE_DIRS=(%s)"  % q(I["engine_dirs"]))
 print("CONFIG_FILE=%s"    % shlex.quote(I["config_file"]))
 print("HOOK_NAMES=(%s)"   % q(I["hooks"]))
@@ -185,6 +186,9 @@ for ef in "${ENGINE_FILES[@]}"; do
   # the package repo installing onto itself sources some files from their target path
   [ -e "$SOURCE/$src_rel" ] || [ -e "$SOURCE/$ef" ] || MISSING_SRC="$MISSING_SRC $ef"
 done
+for sf in "${SEED_FILES[@]}"; do
+  [ -e "$SOURCE/$sf" ] || MISSING_SRC="$MISSING_SRC $sf"
+done
 # verifier F1: the refusal must happen BEFORE we write a single file — the old
 # placement announced exit 5 after the copy loop, the CLAUDE.md rewrite, the
 # stubs and both hooks had already landed in the target.
@@ -254,6 +258,23 @@ for f in "${ENGINE_FILES[@]}"; do
     */GATES-SPEC.md) copy_as "$(basename "$f")" "$f" ;;
     *)               copy "$f" ;;
   esac
+done
+
+# 1b. seed files (F-06, v0.6.3) — copied ONCE from the package template, then
+# owned by the repo. permissions-policy.json describes which commands THIS
+# repo's verify steps may run; treating it as an engine file meant --check
+# reported the repo's own policy as DRIFTED and the next upgrade overwrote it.
+for sf in "${SEED_FILES[@]}"; do
+  if [ ! -e "$TARGET/$sf" ]; then
+    if [ "$CHECK" -eq 1 ]; then drift "MISSING  $sf"
+    else
+      mkdir -p "$TARGET/$(dirname "$sf")"
+      cp "$SOURCE/$sf" "$TARGET/$sf"
+      say "seeded   $sf (template — now repo-owned, never overwritten)"
+    fi
+  else
+    say "ok       $sf (repo-owned, not compared to the package)"
+  fi
 done
 
 # 2. wow.config.json — created once, never overwritten (it holds repo-local truth)

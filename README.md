@@ -21,6 +21,20 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.6.3-draft
+
+The brownfield pilot came back from three production-grade runs with twenty-seven findings — a different class than before: not "the engine doesn't match the docs" but *"the process punishes the operator who follows it exactly."* Four were already answered by v0.6.2 (both pilots independently converged on the plan-verify gap that became GATE-13). The rest land here.
+
+- **Every phase can now commit its own artifacts**: the bare `[T:<run-id>]` lane form carries P1/P4 phase artifacts, so the document a PO signs is in git at the moment of signing — and trailer *mentions* in backticks no longer count, so a commit may discuss lanes.
+- **GATE-2 has two forms** (sweep = consistency lint, `--close` = the updated-row rule at phase close) — it previously had no phase where it was both in scope and satisfiable.
+- **GATE-9 grades the artifact it was asked about** (resolving through the named run, refusing to guess), records may name the gate they attest, and a signed artifact amended afterward must say so (`AM-<nn>`).
+- **The empty-is-permissive family is closed at every reported instance**: block-list front-matter parses (a freshness gate could never go stale), zero-parsed-task plans fail loudly, ungradeable status cells fail instead of falling through, CV ids can't collide.
+- **Human evidence is first-class** (`ev:attest`), and an invented evidence kind fails loudly instead of being silently invisible.
+- **The permissions policy is repo-owned** (seeded once, never overwritten), selects credential material by location rather than filename spelling, denies writes alongside reads, and its comment claims only what it delivers.
+- **The process layer absorbed what three runs taught**: mid-run amendment mechanics, a fix-forward counter that counts fixes rather than checks, independent re-validation of ORCH-authored fixes, wave-boundary reconciliation on both sides of the git/Jira split, a plan-level Contracts block that actually reaches every executor, and audit-mode verification for evidence that cannot be re-run.
+
+The suite is at **223 assertions**, every fix mutation-proven.
+
 ## What's new in v0.6.2-draft
 
 The first pilot (greenfield) came back after three real runs with eleven upstream files; seven findings were live and all seven are fixed, doc+engine+tests together.
