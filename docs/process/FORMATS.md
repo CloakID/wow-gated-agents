@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.1
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.2
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -25,11 +25,15 @@ Format: `ev:<type>{<locator>}`:
 - `ev:cmd{<command> => <exit|summary> @<ISO8601>}` · `ev:file{<path>#<anchor>}` (content anchors preferred; `file:line` must pass GATE-5) · `ev:commit{<sha≥7>}` · `ev:jira{<KEY-123>}` · `ev:url{<https://…>}`
 **Enforced rule (GATE-3):** any row/claim using an evidence-required status token (§4: `COMPLETED`, `FAILED`) or *done / verified / deployed / fixed* as a status carries an `ev:` citation in the same row/sentence — and the citation must match its own type's shape above. `ev:cmd{it worked}` is not a citation; `ev:cmd{pytest -q => 0 @2026-08-14}` is. Reference-class statuses (`BLOCKED`/`PARKED`/`DEFERRED`) carry their §4 reference in the same row: an `ev:` citation or a stable id (`PARK-U2-01`, `DEV-U1-03`, `VF-…`, `DEF-plan-…`, `CV-…`); the row's own subject id does not count as a reference to anything. Nothing else is citation-gated.
 
+The body admits **one level of balanced braces** (v0.6.2, frisbii braces finding) — awk action blocks, jq object construction and regex quantifiers are citable. Deeper nesting cannot be expressed, and GATE-3 says exactly that rather than calling the citation malformed. Anything in inline code (backticks) is a **mention, not a claim** (v0.6.1): never flagged, never satisfying — so prose *about* this format is safe to write.
+
 ## 4. Status vocabulary (report rows, requirement rows)
 
 `COMPLETED` (ev required) · `FAILED` (ev of failure) · `BLOCKED` (blocker ref; cascade form `BLOCKED(cascade:<source-id>)`) · `PARKED` (park record ref) · `DEFERRED` (successor + discharge) · `OPEN`. No synonyms (gates reject status-like words outside this vocabulary).
 
 Where a scanned table has a header row naming a **Status / State / Result** column, only that column is status-checked; a table with no header is checked in full. Otherwise an ordinary `OK` in a *Done-means* or *Verify* cell reads as a forbidden synonym, and a gate that cries wolf is a gate someone disables.
+
+**Verdicts are not statuses** (v0.6.2, F-10). A status describes the work; a verdict is an independent judgement *about* it, and a task can be `COMPLETED` by its executor and `FAIL` its verifier — that pair is the most important signal a run produces. A **Grade / Verdict** column is checked against its own vocabulary: `PASS` · `PASS-with-carry-forwards` (CV id in the same row) · `FAIL` (VF id in the same row). Verdict words outside a Grade/Verdict column remain forbidden synonyms.
 
 ## 5. Cannot-validate record
 
@@ -62,6 +66,8 @@ Fix-forward within the phase (repair artifact, re-run gate), **max 2 attempts** 
 
 Sections: `position` · `active-constraints` (blocking checkboxes) · `parked` (ids + one-liners) · `pointers` (manifest refs only).
 
+The 80-line limit counts as `wc -l` does (v0.6.2 — the previous counter included the trailing newline, so no conforming file could ever reach 80). The limit is **advisory** (PO decision 2026-08-24): status.mjs reports the overage; no gate blocks on it — a long handoff must not block publishing at the moment continuity matters most.
+
 ## 9. ORCH-owned files (excluded from unit ownership — GATE-8 rejects units claiming them)
 
 `runs/<id>/PLAN.md` · `runs/<id>/RUN-REPORT.md` · `runs/<id>/HANDOFF.md` · `runs/<id>/jira-queue.md`. AGENTs write **only** `runs/<id>/reports/U<n>.md` (executor) and `runs/<id>/reports/U<n>-verify.md` (verifier). ORCH assembles RUN-REPORT from report files.
@@ -85,7 +91,7 @@ The diff lives in `runs/<run-id>/divergence-<gate>.md` as a table with **Item | 
 
 ## 11. External-dependency maps (`docs/deps/<name>.md`) — added v0.4.1, from pilot feedback PF-01
 
-Facts about third-party surfaces (external APIs, SaaS platforms, vendor services) live in `docs/deps/<name>.md` — **not** `docs/codebase/`, because git-based freshness (§6) is meaningless for surfaces you don't version. Front-matter:
+Facts about third-party surfaces (external APIs, SaaS platforms, vendor services) live in `docs/deps/<name>.md` — **not** `docs/codebase/`, because git-based freshness (§6) is meaningless for surfaces you don't version. The `probe:` line is executed as shell, so what it may **be** is part of the schema (v0.6.2, frisbii S-2): its first word must match `probe_allowed` in formats.json (default: a repo-local script — the request wrapper), overridable via `probe_command_pattern` in `wow.config.json`. Checked **before** execution; a disallowed probe fails loudly and is never run — and never falls through to the calendar branch. Front-matter:
 
 ```yaml
 ---

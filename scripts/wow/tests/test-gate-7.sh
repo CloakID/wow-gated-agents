@@ -42,4 +42,22 @@ assert_rejects "DEFERRED row with no registry counterpart (escrow)" "$FIX" "escr
 printf '| 260816-x-r1.T02 | impl_gap | run | advisory | r2 | done in r2 | ev:file{runs/260816-x-r1/RUN-REPORT.md} |\n' >> "$FIX/docs/GAPS.md"
 assert_accepts "DEFERRED row escrowed" "$FIX" gate-7
 
+
+# ---- S-6 (v0.6.2): a phantom run — an empty dir archiving strands -----------
+mkdir -p "$FIX/runs/260820-ghost-r1/reports"
+assert_rejects "empty run-id dir is a phantom, not an active run (S-6)" "$FIX" "phantom run" gate-7
+rmdir "$FIX/runs/260820-ghost-r1/reports" "$FIX/runs/260820-ghost-r1"
+# Control is the fixture itself: runs/260816-x-r1 holds files and stays legal.
+assert_accepts "runs holding files are not phantoms (control)" "$FIX" gate-7
+
+# ---- F-11 (v0.6.2, --p5 only): the run branch may not be behind main --------
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "base [WOW:publish]" \
+  && git branch -M main && git checkout -qb wow/260816-x-r1/int \
+  && git checkout -q main && printf 'grant\n' > grant.txt && git add grant.txt \
+  && git commit -qm "grant lands on main [WOW:publish]" \
+  && git checkout -q wow/260816-x-r1/int )
+assert_rejects "run branch behind main at --p5 (F-11)" "$FIX" "BEHIND" gate-7 --p5
+assert_accepts "same branch, no --p5: mid-run being behind is legal" "$FIX" gate-7
+( cd "$FIX" && git merge -q --no-edit main >/dev/null 2>&1 )
+assert_accepts "main merged in: publish may proceed (control)" "$FIX" gate-7 --p5
 finish

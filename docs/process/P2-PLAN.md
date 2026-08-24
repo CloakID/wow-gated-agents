@@ -1,5 +1,5 @@
-# P2 — PLAN — DRAFT v0.5.0
-Entry: `/wow-plan <run-id>` · Output: `runs/<run-id>/PLAN.md` (ORCH-owned, machine-parseable per formats.json `plan_schema`) · Gate: **G2 = GATE-8 lint → adversarial review → PO sign-off** → Jira stories/tasks.
+# P2 — PLAN — DRAFT v0.6.2
+Entry: `/wow-plan <run-id>` · Output: `runs/<run-id>/PLAN.md` (ORCH-owned, machine-parseable per formats.json `plan_schema`) · Gate: **G2 = GATE-8 + GATE-13 lint → adversarial review → PO sign-off** → Jira stories/tasks.
 Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contracts if replanning.
 
 ## [ORCH] — decompose
@@ -15,7 +15,7 @@ Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contract
 4. New invariants/checks ship with non-vacuity proofs (GATE-4).
 
 ## [ORCH] — G2a: lint, then review
-1. Run **GATE-6** and **GATE-8**, in that order — both mechanical, both cheap:
+1. Run **GATE-6**, **GATE-8** and **GATE-13**, in that order — all mechanical, all cheap:
 
    ```sh
    scripts/wow/gates.sh gate-6 --run <run-id>   # areas: + deps: freshness (FORMATS §6, §11)
@@ -23,6 +23,7 @@ Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contract
    ```
 
    GATE-8 checks ownership overlaps (incl. ORCH-owned files), coverage-matrix totality against the SPEC's AC rows, a verify command in every task's **Verify** column (located by header, not position), and that PLAN.md parses against `plan_schema`. Fix until green — reviewer time is not spent on grep-able defects.
+   **GATE-13** (v0.6.2, F-9) checks the task table's **Non-vacuity column** — one cell per task naming a plausible wrong answer the Verify rejects, citing something runnable, or `MANUAL` — and lints Verify cells for idioms that each shipped a real inert check (`lint-ok: <reason>` accepts one deliberately and visibly). This is the discipline G2a review applies ad hoc, required uniformly and machine-checked: a Verify never shown failing is only believed to check.
 2. Spawn reviewer AGENT (fresh context; input = SPEC + PLAN only). **Judgment scope only:** contract gaps between units · premise checks on plan-level verifies ("does this verify test the product or the harness?") · unit-sizing sanity · autonomy-contract adequacy vs risk. Findings → revise → delta re-review (FORMATS §7).
 
 ## [PO] — G2b sign-off checklist

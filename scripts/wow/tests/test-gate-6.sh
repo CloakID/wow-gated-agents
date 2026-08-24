@@ -28,6 +28,13 @@ dep() { cat > "$FIX/docs/deps/vendor-api.md"; }
 
 assert_rejects "declared dep with no map" "$FIX" "no dependency map" gate-6 --deps vendor-api
 
+# The hash-rule fixtures below use bare printf probes; the default allowlist
+# (repo-local scripts only, S-2) would refuse them before execution, so the
+# fixture exercises the wow.config.json override — the same repo-local-truth
+# path a real repo uses to name its request wrapper.
+printf '{"migrated_from_gsd": false, "probe_command_pattern": "^printf "}\n' \
+  > "$FIX/scripts/wow/wow.config.json"
+
 # The probe emits the vendor surface; the gate hashes its stdout.
 # Portable sha256: coreutils ships sha256sum, macOS ships shasum, and python3 is
 # a prerequisite anyway. Hardcoding one of them made the suite OS-specific.
@@ -204,4 +211,45 @@ assert_accepts "well-formed plan declaring areas over a fresh map (positive cont
   gate-6 --run 260816-good-r1
 
 
+
+# ---- S-2 (v0.6.2): the probe is allowlisted BEFORE it runs ------------------
+# The pilot's demonstration: a probe that wrote a marker file ran, and the gate
+# passed. The half of this test with teeth is that the marker DOES NOT EXIST —
+# a gate that rejects the map after running the command has prevented nothing.
+printf '{"migrated_from_gsd": false}\n' > "$FIX/scripts/wow/wow.config.json"
+dep <<D
+---
+dependency: vendor-api
+kind: external-api
+verified: 2026-08-13
+probe: touch S-2-marker && printf 'surface-v1'
+verified_against_hash: $HASH
+---
+# map
+D
+assert_rejects "probe outside the allowed pattern is refused (S-2)" "$FIX" "outside the allowed command pattern" gate-6 --deps vendor-api
+if [ -e "$FIX/S-2-marker" ]; then
+  echo "  FAIL the disallowed probe RAN (marker exists) — refusing after execution prevents nothing"
+  FAIL=$((FAIL+1))
+else
+  echo "  ok   disallowed probe never executed (no marker)"; PASS=$((PASS+1))
+fi
+
+# Control: a probe matching the default allowlist (a repo-local script) runs.
+cat > "$FIX/scripts/probe-vendor.sh" <<'S'
+#!/bin/sh
+printf 'surface-v1'
+S
+chmod +x "$FIX/scripts/probe-vendor.sh"
+dep <<D
+---
+dependency: vendor-api
+kind: external-api
+verified: 2026-08-13
+probe: scripts/probe-vendor.sh
+verified_against_hash: $HASH
+---
+# map
+D
+assert_accepts "allowlisted repo-local probe runs and matches (control)" "$FIX" gate-6 --deps vendor-api
 finish

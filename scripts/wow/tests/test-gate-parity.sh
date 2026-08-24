@@ -14,7 +14,7 @@ printf 'Lane refs: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/docs/proce
 printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/CLAUDE.md"
 
 spec() { cat > "$FIX/scripts/wow/GATES-SPEC.md"; }
-rows_1_12() { for n in $(seq 1 12); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }
+rows_1_12() { for n in $(seq 1 13); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }  # through 13 since v0.6.2
 
 # Subject-absent: no spec side at all.
 assert_rejects "no GATES-SPEC.md anywhere" "$FIX" "not a pass" parity
@@ -24,13 +24,13 @@ rows_1_12 | spec
 assert_accepts "spec table == engine registry" "$FIX" parity
 
 # The founding failure: a spec-only gate with no marker and no obligation.
-{ rows_1_12; printf '| GATE-13 | imaginary | nowhere | nothing |\n'; } | spec
+{ rows_1_12; printf '| GATE-14 | imaginary | nowhere | nothing |\n'; } | spec
 assert_rejects "spec-only gate, no marker" "$FIX" "no engine counterpart" parity
 
 # Marked, with the obligation OPEN: legal spec-first change.
 mkdir -p "$FIX/docs"
 printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-08 | impl_gap | m | advisory | run | lands | ev:commit{abc1234} |\n' > "$FIX/docs/GAPS.md"
-{ rows_1_12; printf '| GATE-13 | [DESIGNED-NOT-IMPLEMENTED — OBL-T-08] imaginary | nowhere | nothing |\n'; } | spec
+{ rows_1_12; printf '| GATE-14 | [DESIGNED-NOT-IMPLEMENTED — OBL-T-08] imaginary | nowhere | nothing |\n'; } | spec
 assert_accepts "spec-only gate, marked, obligation open" "$FIX" parity
 
 # Marked, but the obligation is NOT open: a marker pointing at nothing.

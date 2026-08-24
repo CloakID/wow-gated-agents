@@ -214,4 +214,27 @@ printf -- '- [ ] transition ABC-1 to Done\n' > "$T/runs/quick/jira-queue.md"
   && bad_ "GATE-7 did not block the P5 sweep on an unresolved jira-queue" \
   || ok_ "GATE-7 blocks the P5 sweep (the check P5 actually runs)"
 rm -f "$T/runs/quick/jira-queue.md"
+
+# ---- HANDOFF count (v0.6.2, frisbii off-by-one) -----------------------------
+# split('\n') counted the trailing newline: 80 meant 79, and five commits in
+# pilot #1 trimmed a file that was already right. Count as wc -l does.
+# ($T is the installed fixture repo from the cases above.)
+mkdir -p "$T/runs/260824-h-r1"
+{ printf '## position\nhere\n'; for i in $(seq 3 80); do printf 'line %s\n' "$i"; done; } \
+  > "$T/runs/260824-h-r1/HANDOFF.md"
+LINES="$(wc -l < "$T/runs/260824-h-r1/HANDOFF.md" | tr -d ' ')"
+OVER="$(cd "$T" && node scripts/wow/status.mjs --json | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runs'] if x['id']=='260824-h-r1'][0]; print(r['handoffOverLimit'], r['handoffLines'])")"
+if [ "$LINES" = "80" ] && [ "$OVER" = "False 80" ]; then
+  echo "  ok   handoff at exactly 80 lines is AT the limit, not over"; PASS=$((PASS+1))
+else
+  echo "  FAIL 80-line handoff misreported (wc=$LINES, status='$OVER')"; FAIL=$((FAIL+1))
+fi
+printf 'line 81\n' >> "$T/runs/260824-h-r1/HANDOFF.md"
+OVER="$(cd "$T" && node scripts/wow/status.mjs --json | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runs'] if x['id']=='260824-h-r1'][0]; print(r['handoffOverLimit'], r['handoffLines'])")"
+if [ "$OVER" = "True 81" ]; then
+  echo "  ok   81 lines is over the limit (a counter that rejects everything is ruled out)"; PASS=$((PASS+1))
+else
+  echo "  FAIL 81-line handoff misreported (status='$OVER')"; FAIL=$((FAIL+1))
+fi
+rm -rf "$T/runs/260824-h-r1"
 finish

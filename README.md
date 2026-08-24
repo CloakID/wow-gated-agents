@@ -21,6 +21,19 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.6.2-draft
+
+The first pilot (greenfield) came back after three real runs with eleven upstream files; seven findings were live and all seven are fixed, doc+engine+tests together.
+
+- **GATE-13 — plan Verify non-vacuity.** A task's `Verify` command is the sole mechanical arbiter of `COMPLETED`, and nothing required it to be shown failing — the pilot shipped nine inert verifies in one run, three of them past adversarial review. Every task now carries a `Non-vacuity` cell naming the wrong answer its Verify rejects (or `MANUAL`), and a lint flags five idioms that each shipped a real vacuous check. Binds at G2, on unsigned plans only. Designed and proven by the pilot; adopted whole.
+- **Verdicts are not statuses.** A verifier following its own playbook produced reports GATE-3 rejected (56 hits). Grade/Verdict columns now have their own vocabulary — `PASS` / `PASS-with-carry-forwards` (+CV id) / `FAIL` (+VF id) — because a status describes work and a verdict judges it, and `COMPLETED`+`FAIL` is the most important pair a run produces.
+- **Citations can contain braces** (one balanced level — `awk '{…}'`, jq objects, regex quantifiers), and when the format still can't express something, the diagnostic says *that* instead of blaming the writer's citation.
+- **Dependency probes are allowlisted before they run.** A probe is shell; the pilot demonstrated one writing a marker file while the gate passed. The first word must now match the allowed pattern (default: your repo's request wrapper) — checked before execution, never falling back to the calendar rule.
+- **P5 owns the merge to main** (new step 0), and the destructive permissions regeneration refuses on a branch behind main — the pilot showed it would have silently deleted a grant that took a PO decision and two blocked waves to establish.
+- **Phantom runs are refused**: archiving strands empty run directories that status derivation then reports as active, visible only to the person who published. Also fixed: the HANDOFF line counter was off by one ("80" meant 79 — five commits trimmed a file that was already right); the limit itself is now explicitly advisory.
+
+The suite is at **193 assertions**; every fix was proven by disabling it and watching exactly its own tests go red.
+
 ## What's new in v0.6.1-draft
 
 The second pilot (a brownfield repo migrated off its legacy framework) ran v0.6.0 for a day and filed four findings; all four are fixed here, doc+engine+tests together.

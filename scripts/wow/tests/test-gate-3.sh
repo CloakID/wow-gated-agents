@@ -62,4 +62,33 @@ assert_accepts "backticked citation templates are mentions, not claims (PF-a)" "
 printf '| REQ-001 | thing | COMPLETED | `ev:commit{abc1234}` |\n' > "$FIX/docs/r-mention-ev.md"
 assert_rejects "a backticked citation cannot satisfy a status (PF-a)" "$FIX" "without an ev: citation" \
   gate-3 --paths docs/r-mention-ev.md
+
+# ---- F-10 (v0.6.2): a verdict is not a status -------------------------------
+# P3 mandates the verifier grade; pre-fix, following the playbook produced 56
+# GATE-3 hits. A Grade/Verdict column is checked against verdict_vocab.
+printf '| Unit | Grade | Notes |\n|---|---|---|\n| U1 | PASS | clean |\n' > "$FIX/docs/r-verdict.md"
+assert_accepts "PASS in a Grade column is a verdict, not a synonym (F-10)" "$FIX" gate-3 --paths docs/r-verdict.md
+
+printf '| Unit | Grade | Notes |\n|---|---|---|\n| U1 | FAIL | broke |\n' > "$FIX/docs/r-vfail.md"
+assert_rejects "FAIL verdict without a VF id" "$FIX" "without a verifier-finding reference" gate-3 --paths docs/r-vfail.md
+
+printf '| Unit | Grade | Notes |\n|---|---|---|\n| U1 | FAIL | VF-U1-01 |\n' > "$FIX/docs/r-vfail-ok.md"
+assert_accepts "FAIL verdict carrying its VF record" "$FIX" gate-3 --paths docs/r-vfail-ok.md
+
+printf '| Unit | Grade | Notes |\n|---|---|---|\n| U1 | PASS-with-carry-forwards | see notes |\n' > "$FIX/docs/r-vcf.md"
+assert_rejects "PASS-w-CF verdict without a CV id" "$FIX" "without a cannot-validate reference" gate-3 --paths docs/r-vcf.md
+
+printf '| Unit | Grade | Notes |\n|---|---|---|\n| U1 | SHIPPED | - |\n' > "$FIX/docs/r-vbad.md"
+assert_rejects "a non-verdict word in a Grade column" "$FIX" "not in the verdict vocabulary" gate-3 --paths docs/r-vbad.md
+
+# PASS outside a Grade/Verdict column stays a forbidden synonym (control).
+printf '| REQ-001 | thing | PASS | |\n' > "$FIX/docs/r-passloose.md"
+assert_rejects "PASS outside a verdict column is still a synonym (control)" "$FIX" "not in the status vocabulary" gate-3 --paths docs/r-passloose.md
+
+# ---- braces (v0.6.2): the body admits one level of balanced braces ----------
+printf "| REQ-001 | thing | COMPLETED | ev:cmd{awk '{print \$2}' f => 3 rows @2026-08-24} |\n" > "$FIX/docs/r-awk.md"
+assert_accepts "awk action block inside a citation body" "$FIX" gate-3 --paths docs/r-awk.md
+
+printf '| REQ-001 | thing | COMPLETED | ev:cmd{jq -e picked {a:{b:1}} shape => ok @2026-08-24} |\n' > "$FIX/docs/r-nest2.md"
+assert_rejects "two-level nesting: the diagnostic names the format, not the writer" "$FIX" "cannot be expressed" gate-3 --paths docs/r-nest2.md
 finish

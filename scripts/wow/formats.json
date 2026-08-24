@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.6.1-draft",
+  "version": "0.6.2-draft",
   "ids": {
     "run": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*$",
     "unit": "^U[1-9][0-9]*$",
@@ -73,7 +73,14 @@
     "unit": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/U[1-9][0-9]*$",
     "integration": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/int$",
     "base_ref": "wow/{run_id}/base",
-    "$base_ref_comment": "GATE-2 and GATE-5 use this to answer 'what did this run modify?': the diff from the run base to HEAD, plus the working tree. Absent base branch -> the run's own commits cannot be isolated and the modified set degrades to staged + unstaged changes."
+    "$base_ref_comment": "GATE-2 and GATE-5 use this to answer 'what did this run modify?': the diff from the run base to HEAD, plus the working tree. Absent base branch -> the run's own commits cannot be isolated and the modified set degrades to staged + unstaged changes.",
+    "main_candidates": [
+      "origin/main",
+      "main",
+      "origin/master",
+      "master"
+    ],
+    "$main_comment": "F-11 (v0.6.2): the refs gate-7 --p5 tries, in order, as the published branch the run must not be behind. Repo-local override: `main_branch` in wow.config.json. None resolving is a loud failure, not a skip."
   },
   "status_vocab": {
     "$comment": "FORMATS §4. No synonyms. evidence_required members need an ev: citation in the same row or sentence; reference_required members need either an ev: citation or one of reference_id_patterns (GATE-3).",
@@ -146,7 +153,21 @@
     ],
     "$status_columns_comment": "When a scanned table has a header row naming one of these, only that column is status-checked. Checking every cell made 'OK' and 'PASS' in a Done-means or Verify column read as forbidden synonyms. A table with no header row is still checked in full.",
     "status_prefix": "\\b(status|result)\\s*:\\s*([A-Za-z][A-Za-z-]*)",
-    "cell_decoration": "[*`_]"
+    "cell_decoration": "[*`_]",
+    "verdict_vocab": [
+      "PASS",
+      "PASS-with-carry-forwards",
+      "FAIL"
+    ],
+    "verdict_columns": [
+      "Grade",
+      "Verdict"
+    ],
+    "verdict_reference_required": {
+      "FAIL": "verifier_finding",
+      "PASS-with-carry-forwards": "cannot_validate"
+    },
+    "$verdict_comment": "F-10 (v0.6.2): a STATUS describes the work (executor); a VERDICT is an independent judgement about it (verifier). P3 mandates the grade and GATE-3 was rejecting it — 56 hits in one run, 10 of them the mandated PASS. Where a table names a Grade/Verdict column, that column is checked against verdict_vocab instead of the status vocabulary; FAIL must carry a VF id and PASS-with-carry-forwards a CV id in the same row. COMPLETED+FAIL is the most important pair a run produces — collapsing them loses it."
   },
   "claim_labels": {
     "$comment": "FORMATS §2. CONVENTION, reviewed at gates, NOT gated. status.mjs reports density; gates.sh must never reject on these.",
@@ -159,19 +180,21 @@
   },
   "evidence": {
     "$comment": "FORMATS §3. ENFORCED subset — GATE-3 requires one of these alongside an evidence-required status or a done-word, AND requires it to be well formed per types below.",
-    "any": "ev:(cmd|file|commit|jira|url)\\{[^}]+\\}",
-    "kind": "ev:(cmd|file|commit|jira|url)\\{([^}]+)\\}",
+    "any": "ev:(cmd|file|commit|jira|url)\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
+    "kind": "ev:(cmd|file|commit|jira|url)\\{((?:[^{}]|\\{[^{}]*\\})+)\\}",
     "types": {
-      "cmd": "ev:cmd\\{.+?=>.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}[^}]*\\}",
-      "file": "ev:file\\{[^}]+\\}",
+      "cmd": "ev:cmd\\{.+?=>.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^{}]|\\{[^{}]*\\})*\\}",
+      "file": "ev:file\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
       "commit": "ev:commit\\{[0-9a-f]{7,40}\\}",
       "jira": "ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
-      "url": "ev:url\\{https?://[^}]+\\}"
+      "url": "ev:url\\{https?://(?:[^{}]|\\{[^{}]*\\})+\\}"
     },
     "validate_shape": true,
     "$validate_shape_comment": "GATE-3 once accepted ev:cmd{i ran it and it was fine} because only `any` was applied. A citation that cites nothing checkable satisfies the letter of the gate and defeats its purpose, so each occurrence is now matched against its own type pattern.",
     "file_line_citation": "ev:file\\{([^#}]+):([0-9]+)\\}",
-    "$file_line_comment": "GATE-5 preflight target. Content anchors (path#anchor) are preferred and are not line-checked."
+    "$file_line_comment": "GATE-5 preflight target. Content anchors (path#anchor) are preferred and are not line-checked.",
+    "opener": "ev:(cmd|file|commit|jira|url)\\{",
+    "$braces_comment": "frisbii braces finding (v0.6.2): the body admits ONE level of balanced braces, so awk action blocks, jq object construction and regex quantifiers are citable. Deeper nesting cannot be expressed: `opener` catches an ev: prefix the kind regex cannot parse, and the diagnostic says THE FORMAT cannot express it — never that the writer's citation is malformed for the wrong reason. Backticked citations are mentions (v0.6.1 PF-a) and are not scanned at all."
   },
   "scan_targets": {
     "$comment": "The document set GATE-3 and GATE-5 sweep. GATES-SPEC names these docs in prose; this is their machine home.",
@@ -239,7 +262,9 @@
       "$hash_comment": "gates.sh hashes the probe's stdout. A probe that itself ends in a digest command still works — it hashes a hash, deterministically — but emitting the raw surface content is preferred, so verified_against_hash stays reproducible with a single tool.",
       "$probe_trust_comment": "The probe is a shell command read from a repo file and executed by the gate. That is the same trust level as a git hook or a Makefile target, and it is why --no-probe exists: freshness then degrades to the max_age_days fallback rather than silently passing."
     },
-    "blocking": true
+    "blocking": true,
+    "probe_allowed": "^(?:\\./)?scripts/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*(?:\\s|$)",
+    "$probe_comment": "frisbii S-2 (v0.6.2): a probe: line is executed as shell, so what it may BE is part of the schema. The first executable word must match this pattern (default: a repo-local script, i.e. the request wrapper) — checked BEFORE execution, failing loudly with NO fallback to the calendar branch (a rejected probe silently reporting fresh is the failure mode). Repo-local override: `probe_command_pattern` in wow.config.json, like requirement_id."
   },
   "frontmatter": {
     "$comment": "YAML front-matter subset the gates parse, shared by codebase and dependency maps.",
@@ -335,7 +360,9 @@
       "runs/*/reports/U*-verify.md"
     ],
     "unit_body_end": "^##\\s",
-    "$unit_body_end_comment": "A unit's body ends at the next level-2 section. Without this the last unit swallowed the Coverage matrix, whose rows name task ids and were read as task rows."
+    "$unit_body_end_comment": "A unit's body ends at the next level-2 section. Without this the last unit swallowed the Coverage matrix, whose rows name task ids and were read as task rows.",
+    "non_vacuity_column": "Non-vacuity",
+    "$non_vacuity_comment": "F-9 / GATE-13 (v0.6.2): one cell per task naming a plausible wrong answer the Verify rejects, citing something runnable (gate-4's proof rule), or MANUAL for a PO-owned row. Deliberately NOT in task_table_columns: GATE-8 must keep passing signed historical plans; GATE-13 owns the column and binds only while the plan is unsigned."
   },
   "report_row_schema": {
     "$comment": "RUN-REPORT.md and reports/*.md rows. One line per row. GATE-3 uses `row` to decide which lines are status rows and `sections` to check the report is complete.",
@@ -484,7 +511,8 @@
     "quick_stale_days": 7,
     "$single_home_comment": "ORCH-owned files live once, in plan_schema.orch_owned_paths. A basename copy here would be a second home for one fact inside the single-home file itself.",
     "findings": "runs/{run_id}/FINDINGS.md",
-    "$findings_comment": "audit-run verdict table (PO decision 2026-08-18, review FR-9): named so escrow/GC/archival know it is load-bearing"
+    "$findings_comment": "audit-run verdict table (PO decision 2026-08-18, review FR-9): named so escrow/GC/archival know it is load-bearing",
+    "$handoff_comment": "handoff_max_lines counts as wc -l does (frisbii off-by-one, v0.6.2: split-on-newline counted the trailing newline, so 80 meant 79 and no conforming file could reach the stated limit). The limit is ADVISORY by PO decision 2026-08-24 — status.mjs reports the overage; no gate acts on it."
   },
   "legacy_freeze": {
     "$comment": "GATE-11. Inert unless wow.config.json sets the config key true. Frozen means frozen in every direction: additions, edits, renames AND deletions. Filtering deletions out of the staged set let `git rm -r .planning/` erase the history the gate exists to preserve.",
@@ -665,6 +693,11 @@
       "blocks": "P1 entry",
       "inert_when": null,
       "$comment": "Not in the sweep lists: it needs invocation context (--kind). The P1 command stub runs it; test-gate-12.sh proves the logic, test-install proves the stub names it."
+    },
+    "GATE-13": {
+      "where": "at G2, pre-review (with GATE-8)",
+      "blocks": "review",
+      "$comment": "F-9: plan Verify non-vacuity. Unsigned plans only — a signed plan is frozen and a retroactive rule would demand the edit the framework prohibits. The pilot implemented this as its local GATE-12 at v0.5.1; upstream the id 12 was already the obligation block, so it lands as GATE-13."
     }
   },
   "sweep": {
@@ -734,5 +767,16 @@
       "CLAUDE.md"
     ],
     "$reverse_comment": "PF-b (pilot #2, v0.6.0): check_parity was one-directional — engine-ahead-of-docs was invisible ([WOW:migrate] absent from LANES.md and the router). lane_docs must each document every commit-trailer kind's doc_literal; router_locations is a fallback list (package repo uses CLAUDE-WOW-SECTION.md, installed repos the CLAUDE.md wow section)."
+  },
+  "verify_lint": {
+    "$comment": "F-9 (v0.6.2): five idioms that each shipped a real inert Verify in pilot #1's run 260821-frisbii-ops-r1. A match is a GATE-13 failure unless the row carries the accept marker with a reason — accepting one deliberately and VISIBLY. A lint cannot catch the next vacuous idiom; that is what the Non-vacuity column is for. Python-regex flavor; consumed by gates.py only.",
+    "idioms": {
+      "bang-under-set-e": "(?s)^(?=.*\\bset\\s+-e\\b)(?=.*(?:[;&|({]\\s*|\\s)!\\s)",
+      "jq-default-on-absent-key": "\\bjq\\b.*(?<!:)//",
+      "length-on-object": "\\blength\\s*>\\s*0",
+      "jq-index-on-array": "\\bjq\\b.*\\bindex\\(",
+      "unguarded-merge-base": "(?s)^(?=[\\s\\S]*\\bgit merge-base\\b)(?![\\s\\S]*(?:rev-parse\\s+--verify|\\|\\|))"
+    },
+    "accept_marker": "lint-ok:"
   }
 }

@@ -75,7 +75,17 @@ def lines_of(path):
     return t.split("\n") if t else []
 
 
-def git(*args):
+def git(*args, **kw):
+    """rc=True returns the boolean success of the command instead of its
+    output — for predicates like merge-base --is-ancestor whose answer IS the
+    exit code (output-based calls cannot distinguish 'no' from 'no output')."""
+    if kw.get("rc"):
+        try:
+            subprocess.check_call(["git"] + list(args), cwd=ROOT,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            return False
     try:
         return subprocess.check_output(["git"] + list(args), cwd=ROOT,
                                        stderr=subprocess.DEVNULL).decode()
@@ -363,17 +373,28 @@ def gate_11(paths):
 # --------------------------------------------------------------------------
 def _evidence_problems(line):
     """Every ev: on the line must match its own type pattern. `any` alone let
-    ev:cmd{i ran it and it was fine} satisfy the evidence rule."""
+    ev:cmd{i ran it and it was fine} satisfy the evidence rule.
+
+    frisbii braces finding (v0.6.2): the body admits one level of balanced
+    braces. An ev: opener the kind regex cannot parse (deeper nesting, or an
+    unterminated body) is reported as THE FORMAT being unable to express it —
+    a diagnostic that misnames the cause sends the writer to fix the wrong
+    thing, and in pilot #1 it did."""
     ev = F["evidence"]
     if not ev.get("validate_shape"):
         return []
     bad = []
+    spans = []
     for m in re.finditer(ev["kind"], line):
+        spans.append(m.span())
         kind = m.group(1)
         whole = m.group(0)
         pat = ev["types"].get(kind)
         if pat and not re.search(pat, whole):
             bad.append(whole)
+    for pm in re.finditer(ev["opener"], line):
+        if not any(s <= pm.start() < e for s, e in spans):
+            bad.append(line[pm.start():pm.start() + 60])
     return bad
 
 
@@ -424,6 +445,14 @@ def gate_3(paths=None):
     forbidden = set(w.upper() for w in sv["forbidden_synonyms"])
     allowed = set(sv["allowed"])
     status_cols = set(c.lower() for c in sv["status_columns"])
+    # F-10 (v0.6.2): a status describes the work; a verdict is an independent
+    # judgement ABOUT it. P3 mandates the verifier grade and this gate was
+    # rejecting it. A Grade/Verdict column is checked against verdict_vocab
+    # instead — with its own evidence discipline (FAIL needs a VF id,
+    # PASS-with-carry-forwards a CV id, in the same row).
+    verdict_cols = set(c.lower() for c in sv.get("verdict_columns", []))
+    verdict_vocab = list(sv.get("verdict_vocab", []))
+    verdict_refs = dict(sv.get("verdict_reference_required", {}))
     targets = paths if paths else gated_docs()
     msgs = []
 
@@ -435,6 +464,7 @@ def gate_3(paths=None):
             continue
         in_fence = False
         status_idx = None      # which column of the current table holds status
+        verdict_idx = None     # which column holds the verifier verdict (F-10)
         prev_cells = None
         for i, line in enumerate(lines_of(full), 1):
             s = line.strip()
@@ -444,7 +474,7 @@ def gate_3(paths=None):
             if in_fence:
                 continue
             if not s:
-                status_idx, prev_cells = None, None
+                status_idx, verdict_idx, prev_cells = None, None, None
                 continue
 
             is_row = line.count("|") >= 2
@@ -453,19 +483,45 @@ def gate_3(paths=None):
                     for idx, h in enumerate(prev_cells):
                         if h.lower() in status_cols:
                             status_idx = idx
+                        if h.lower() in verdict_cols:
+                            verdict_idx = idx
                 continue
 
             masked = _mask_inline_code(line)   # PF-a: mentions are not claims
             for bad in _evidence_problems(masked):
-                msgs.append("%s:%d malformed citation '%s' — does not match the %s shape in "
-                            "formats.json" % (p, i, bad, bad.split("{")[0].split(":")[-1]))
+                body = bad.split("{", 1)[1] if "{" in bad else ""
+                if "{" in body:
+                    msgs.append("%s:%d citation '%s' — the citation format admits ONE level of "
+                                "balanced braces; deeper nesting cannot be expressed. Restructure "
+                                "the command or cite a file (frisbii braces finding)"
+                                % (p, i, bad))
+                else:
+                    msgs.append("%s:%d malformed citation '%s' — does not match the %s shape in "
+                                "formats.json" % (p, i, bad, bad.split("{")[0].split(":")[-1]))
 
             has_ev = _has_evidence(masked)
             has_ref = _has_reference(masked, skip_first_cell=is_row)
             cells = _cells(line) if is_row else []
             prev_cells = cells if is_row else None
-            checked = cells if status_idx is None else (
-                [cells[status_idx]] if status_idx < len(cells) else [])
+            if status_idx is not None:
+                checked = [cells[status_idx]] if status_idx < len(cells) else []
+            elif verdict_idx is not None:
+                checked = [c for idx, c in enumerate(cells) if idx != verdict_idx]
+            else:
+                checked = cells
+
+            if verdict_idx is not None and verdict_idx < len(cells):
+                v = re.sub(sv["cell_decoration"], "", cells[verdict_idx]).strip()
+                if v:
+                    if v not in verdict_vocab:
+                        msgs.append("%s:%d verdict '%s' is not in the verdict vocabulary (%s) — "
+                                    "F-10" % (p, i, v, ", ".join(verdict_vocab)))
+                    else:
+                        need = verdict_refs.get(v)
+                        if need and not re.search(F["ids"][need].strip("^$"), line):
+                            msgs.append("%s:%d verdict %s without a %s reference in the same row "
+                                        "(F-10: a judgement carries its record)"
+                                        % (p, i, v, need.replace("_", "-")))
 
             for c in checked:
                 bare = re.sub(sv["cell_decoration"], "", c).strip()
@@ -733,6 +789,17 @@ def _dep_fresh(name, probe=True):
         return False, "%s kind '%s' is not one of %s" % (rel, fm["kind"], spec["kinds"])
     cmd = fm.get("probe")
     if cmd and probe:
+        # frisbii S-2 (v0.6.2): the probe is executed as shell, so what it may
+        # BE is part of the schema. Checked BEFORE execution — a gate that
+        # rejects the map after running the command has prevented nothing —
+        # and with NO fall-through to the calendar branch: a rejected probe
+        # silently reporting fresh is exactly the failure mode.
+        allowed = cfg().get("probe_command_pattern") or spec["probe_allowed"]
+        if not re.match(allowed, cmd.strip()):
+            return False, ("%s probe %r is outside the allowed command pattern %r — probes route "
+                           "through the repo's request wrapper; not executed. Repo-local override: "
+                           "probe_command_pattern in wow.config.json (frisbii S-2)"
+                           % (name, cmd.strip()[:60], allowed))
         want = fm.get("verified_against_hash")
         if not want:
             return False, "%s defines a probe but no verified_against_hash" % name
@@ -938,11 +1005,114 @@ def gate_12(kind=None, ref=None):
 
 
 # --------------------------------------------------------------------------
+# GATE-13 — plan Verify non-vacuity (F-9, pilot #1; their local GATE-12)
+# --------------------------------------------------------------------------
+def gate_13(run_id=None):
+    """A task's Verify command is the sole mechanical arbiter of COMPLETED,
+    and GATE-4's scope predicate (invariant_marker) cannot see a markdown task
+    row — so the highest-volume checks in the system were the only ones never
+    required to be shown failing. Nine inert verifies shipped in one pilot
+    run; adversarial review caught six and missed three.
+
+    Two halves: (1) a Non-vacuity cell per task naming a plausible wrong
+    answer the Verify rejects, citing something runnable (gate-4's own proof
+    rule) or MANUAL; (2) a lint over Verify cells for idioms that each
+    shipped a real inert check, accepted only deliberately and visibly via
+    the lint-ok marker. Binds while the plan is UNSIGNED: a signed plan is
+    frozen, and a retroactive rule would demand exactly the edit the
+    framework prohibits."""
+    ps = F["plan_schema"]
+    vl = F["verify_lint"]
+    if not run_id:
+        run_id = discover_run()
+    if not run_id:
+        return False, ["nothing to check: pass --run or create a run. A gate invoked with no "
+                       "scope is not a pass."]
+    plan_rel = fill(ps["file"], run_id=run_id)
+    if not os.path.isfile(rp(plan_rel)):
+        return False, ["no %s — GATE-13 has nothing to check, and that is not a pass" % plan_rel]
+    head = "\n".join((read(rp(plan_rel)) or "").split("\n")[:F["jira_mapping"]["header_lines"]])
+    if re.search(F["jira_mapping"]["signoff_record"], head, re.M):
+        return True, ["plan is signed — a frozen artifact; GATE-13 binds while the plan is "
+                      "being written, at G2"]
+    plan = _parse_plan(rp(plan_rel))
+    if not plan["units"]:
+        return False, ["%s parses into no units — a plan the schema cannot read is not a plan "
+                       "with proven verifies" % plan_rel]
+    msgs = []
+    exempt = ps["task_verify_exempt_marker"]
+    nv_name = ps["non_vacuity_column"]
+    for u in plan["units"]:
+        if u["tasks"] and not u.get("nv_header_seen"):
+            msgs.append("unit %s's task table has no '%s' column — every Verify states the "
+                        "wrong answer it rejects, or the check is only believed to check (F-9)"
+                        % (u["id"], nv_name))
+        for t in u["tasks"]:
+            nv = (t.get("nonvac") or "").strip()
+            ver = (t.get("verify") or "").strip()
+            if u.get("nv_header_seen"):
+                if not nv:
+                    msgs.append("task %s has an empty %s cell — name the plausible wrong answer "
+                                "its Verify rejects, or mark it %s" % (t["id"], nv_name, exempt))
+                elif nv != exempt:
+                    if not (re.search(F["evidence"]["any"], nv)
+                            or any(os.path.exists(rp(x))
+                                   for x in re.findall(F["non_vacuity"]["proof_path_hint"], nv))):
+                        msgs.append("task %s %s cell cites nothing runnable: '%s' — a proof "
+                                    "names an ev: citation or an existing file (gate-4's rule)"
+                                    % (t["id"], nv_name, nv[:60]))
+            marker_ok = vl["accept_marker"] in nv or vl["accept_marker"] in ver
+            for idiom, pat in vl["idioms"].items():
+                if re.search(pat, ver) and not marker_ok:
+                    msgs.append("task %s Verify matches inert idiom '%s' (each of these shipped "
+                                "a real vacuous check in pilot #1): %r — fix it, or accept it "
+                                "deliberately and visibly with '%s <reason>'"
+                                % (t["id"], idiom, ver[:60], vl["accept_marker"]))
+    if not msgs:
+        n = sum(len(u["tasks"]) for u in plan["units"])
+        return True, ["%d task verify(s) carry non-vacuity statements; no inert idioms" % n]
+    return False, msgs
+
+
+# --------------------------------------------------------------------------
 # GATE-7 — P5 sweep
 # --------------------------------------------------------------------------
-def gate_7():
+def gate_7(p5=False):
     rl = F["runs_layout"]
     msgs = []
+    # frisbii S-6 (v0.6.2): archiving moves tracked paths; git tracks no empty
+    # directory, so runs/<id>/ can survive EMPTY in the publisher's tree and
+    # status derivation lists a phantom active run — visible to exactly one
+    # person, reproducible by nobody they ask. A run-id directory holding no
+    # files at all is refused. (Predicate is files-on-disk, not git-tracked:
+    # a brand-new run before its first commit is real, not phantom.)
+    rd = rp(P["runs_dir"])
+    if os.path.isdir(rd):
+        for entry in sorted(os.listdir(rd)):
+            if not re.match(F["ids"]["run"], entry):
+                continue
+            has_file = any(files for _b, _d, files in os.walk(os.path.join(rd, entry)))
+            if not has_file:
+                msgs.append("%s/%s holds no files at all — a phantom run left by archiving "
+                            "(git tracks no empty directory); prune it or status derivation "
+                            "reports it active (frisbii S-6)" % (P["runs_dir"], entry))
+    # F-11 (v0.6.2), at --p5 only: P5 step 5 regenerates permissions
+    # DESTRUCTIVELY from the tree it runs in. A run branch behind main would
+    # silently drop grants that landed on main through another lane, so the
+    # publish is refused until main is merged in (P5 step 0).
+    if p5:
+        candidates = [cfg().get("main_branch")] if cfg().get("main_branch") \
+            else F["branch_patterns"]["main_candidates"]
+        main_ref = next((c for c in candidates
+                         if c and git("rev-parse", "--verify", "--quiet", c).strip()), None)
+        if main_ref is None:
+            msgs.append("no published branch found (tried %s) — gate-7 --p5 cannot prove the run "
+                        "branch is not behind it, and that is not a pass; set main_branch in "
+                        "wow.config.json (F-11)" % ", ".join(candidates))
+        elif not git("merge-base", "--is-ancestor", main_ref, "HEAD", rc=True):
+            msgs.append("this branch is BEHIND %s — P5 step 5 regenerates permissions from this "
+                        "tree and would silently drop grants that landed on %s via another lane; "
+                        "merge it in first (P5 step 0, F-11)" % (main_ref, main_ref))
     for base, _dirs, files in os.walk(rp(P["runs_dir"])):
         if rl["jira_queue"] in files:
             p = os.path.join(base, rl["jira_queue"])
@@ -1038,8 +1208,9 @@ def _parse_plan(path):
                 else:
                     u["fields"][f] = None
 
-            task_col, verify_col, header = None, None, None
+            task_col, verify_col, nv_col, header = None, None, None, None
             u["missing_columns"] = []
+            u["nv_header_seen"] = False
             for line in body.split("\n"):
                 if line.count("|") < 2:
                     continue
@@ -1048,6 +1219,8 @@ def _parse_plan(path):
                     if header:
                         task_col = _table_column(header, ps["task_column"])
                         verify_col = _table_column(header, ps["verify_column"])
+                        nv_col = _table_column(header, ps.get("non_vacuity_column") or "")
+                        u["nv_header_seen"] = u["nv_header_seen"] or nv_col is not None
                         u["missing_columns"] = [c for c in ps["task_table_columns"]
                                                 if _table_column(header, c) is None]
                     continue
@@ -1056,7 +1229,8 @@ def _parse_plan(path):
                         else (cells[0] if cells else "")
                     ver = cells[verify_col] if verify_col is not None and verify_col < len(cells) \
                         else (cells[2] if len(cells) > 2 else "")
-                    u["tasks"].append({"id": tid, "verify": ver,
+                    nv = cells[nv_col] if nv_col is not None and nv_col < len(cells) else ""
+                    u["tasks"].append({"id": tid, "verify": ver, "nonvac": nv,
                                        "header_seen": verify_col is not None})
                 header = cells
             plan["units"].append(u)
@@ -1391,7 +1565,9 @@ def run_gate(name, args):
                       deps=(_list_opt(args, "--deps") or None),
                       probe=("--no-probe" not in args))
     if name == "gate-7":
-        return gate_7()
+        return gate_7(p5=("--p5" in args))
+    if name == "gate-13":
+        return gate_13(run_id=_opt(args, "--run"))
     if name == "gate-8":
         return gate_8(_opt(args, "--run"))
     if name == "gate-9":
@@ -1551,6 +1727,8 @@ def sweep(args):
             a = ["--run", run_id]
         if g == "gate-5":
             a = ["--sweep"] + a
+        if g == "gate-7" and "--p5" in args:
+            a = ["--p5"] + a
         ok, msgs = run_gate(g, a)
         total += 1
         print("%s %s" % ("PASS" if ok else "FAIL", g))
@@ -1570,7 +1748,7 @@ def main(argv):
         argv = [a for a in argv if a != "--quiet"]
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
-        print("usage: gates.sh <gate-1..gate-12|sweep [--p5]|list> [options]")
+        print("usage: gates.sh <gate-1..gate-13|sweep [--p5]|list> [options]")
         return 0
     cmd, args = argv[0], argv[1:]
     if cmd == "list":

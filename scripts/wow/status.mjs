@@ -174,11 +174,28 @@ function runs() {
     if (!runRe.test(d)) continue;
     if (runFilter && d !== runFilter) continue;
     const rd = join(dir, d);
+    // frisbii S-6 (v0.6.2): archiving strands empty run-id directories (git
+    // tracks no empty dir), and a name alone is not a run — it misleads
+    // exactly the person who published. A dir with no files anywhere in it
+    // is a phantom, not an active run. (Files-on-disk, not git-tracked: a
+    // brand-new run before its first commit is real.)
+    const hasAnyFile = (p) => lsdir(p).some(e => {
+      try { const st = statSync(join(p, e)); return st.isFile() || (st.isDirectory() && hasAnyFile(join(p, e))); }
+      catch { return false; }
+    });
+    if (!hasAnyFile(rd)) continue;
     const handoff = read(rp(fill(rl.handoff, { run_id: d })));
     const report = read(rp(fill(F.report_row_schema.file, { run_id: d })));
     const posRe = new RegExp(fill(rl.handoff_section_heading, { name: rl.handoff_sections[0] }), 'm');
     const pos = handoff.match(posRe);
-    const handoffLines = handoff ? handoff.split('\n').length : 0;
+    // Count as wc -l does: a POSIX text file ends with a newline, and the
+    // split's trailing empty element is that newline, not an 81st line —
+    // pre-fix, "80" meant 79 and no conforming file could reach the stated
+    // limit (frisbii off-by-one, v0.6.2). The limit itself is ADVISORY (PO
+    // 2026-08-24): reported here, acted on by no gate.
+    const hLines = handoff ? handoff.split('\n') : [];
+    if (hLines.length && hLines[hLines.length - 1] === '') hLines.pop();
+    const handoffLines = hLines.length;
     const counts = {};
     for (const v of F.status_vocab.allowed) {
       counts[v] = (report.match(new RegExp(`\\b${v}\\b`, 'g')) || []).length;
