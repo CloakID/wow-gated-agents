@@ -476,7 +476,13 @@ def _is_separator(line):
 
 
 def _cells(line):
-    return [c.strip() for c in line.strip().strip("|").split("|")]
+    """F-18 (v0.6.4): an escaped pipe `\|` is cell CONTENT anywhere — a field
+    that carries a shell command must not be delimited by a character shells
+    use. This retires FORMATS §12's old 'escape only in the trailing ev cell'
+    caveat: earlier-cell escapes no longer shift columns, because the split
+    honors them."""
+    parts = re.split(r"(?<!\\)\|", line.strip().strip("|"))
+    return [c.strip().replace("\\|", "|") for c in parts]
 
 
 def gate_3(paths=None):
@@ -738,10 +744,21 @@ def _governing_sources(run_id):
     srcs, notes = [], []
     plan_rel = fill(F["plan_schema"]["file"], run_id=run_id)
     if not os.path.isfile(rp(plan_rel)):
-        notes.append("run %s has no %s — no governing spec to resolve; "
-                     "REQ scope is empty rather than guessed from run prose"
-                     % (run_id, plan_rel))
-        return srcs, notes
+        # F-36 (v0.6.4): archiving moved the plan and the gate reported
+        # "nothing to check" — a failing gate laundered into a passing one at
+        # the last gate a run ever faces. The archived plan is still the
+        # governing record; read it from where it lives.
+        arch_rel = os.path.join(F["runs_layout"]["archive_dir"], run_id,
+                                os.path.basename(plan_rel))
+        if os.path.isfile(rp(arch_rel)):
+            plan_rel = arch_rel
+            notes.append("run %s is archived — governing plan read from %s (F-36)"
+                         % (run_id, arch_rel))
+        else:
+            notes.append("run %s has no %s — no governing spec to resolve; "
+                         "REQ scope is empty rather than guessed from run prose"
+                         % (run_id, plan_rel))
+            return srcs, notes
     srcs.append(plan_rel)
     m = re.search(F["plan_schema"]["spec_header"], read(rp(plan_rel)), re.M)
     if m:
@@ -776,9 +793,41 @@ def gate_2(run_id=None, spec=None, close=False):
         srcs, notes = _governing_sources(run_id)
         sources.extend(srcs)
         pre_msgs.extend(notes)
+    # F-17 (v0.6.4): declarations over scan. A literal text scan made the
+    # obligation set "the ids that happen to be spelled out" — a range enrolled
+    # two of five rows, and any scanned doc that DISCUSSED an id adopted it,
+    # so a repo's own record of its gate defects was unwritable. When the spec
+    # header declares `requirements:` or any unit declares `governs:`, those
+    # declarations ARE the set; mention is no longer claim.
+    declared = set()
     for s in sorted(set(sources)):
-        for m in re.finditer(req_pat, read(rp(s))):
-            named.add(m.group(0))
+        txt = read(rp(s))
+        m = re.search(schema["spec_declaration"],
+                      "\n".join(txt.split("\n")[:F["jira_mapping"]["header_lines"]]), re.M)
+        if m:
+            for dm in re.finditer(req_pat, m.group(1)):
+                declared.add(dm.group(0))
+        for pat_name in ("inline_list_field", "list_field"):
+            for gm in re.finditer(fill(F["plan_schema"][pat_name], name="governs"), txt, re.M):
+                for dm in re.finditer(req_pat, gm.group(1)):
+                    declared.add(dm.group(0))
+    if declared:
+        named = declared
+        pre_msgs.append("obligation set from declarations (requirements:/governs:) — %d id(s); "
+                        "mention is not claim (F-17)" % len(named))
+    else:
+        for s in sorted(set(sources)):
+            for m in re.finditer(req_pat, read(rp(s))):
+                named.add(m.group(0))
+        if named:
+            pre_msgs.append("obligation set built by TEXT SCAN — a range or prose reference "
+                            "does not enroll a row; declare requirements:/governs: to make the "
+                            "set explicit (F-17)")
+    if scoped and run_id and not sources:
+        if not os.path.isdir(rp(P["runs_dir"], run_id)):
+            return False, pre_msgs + [
+                "run %s exists neither active nor archived — a closing gate whose scope "
+                "resolves to nothing reports UNGRADED, never passed (F-36)" % run_id]
     rows, unreadable = _req_rows()
     if unreadable:
         # PF-d / FR-1: id-shaped rows the pattern cannot read must fail loudly,
@@ -1211,9 +1260,49 @@ def gate_13(run_id=None):
 
 
 # --------------------------------------------------------------------------
+# GATE-14 — personal data in staged run evidence (frisbii PII composition)
+# --------------------------------------------------------------------------
+def gate_14(paths=None, staged=False):
+    """Two correct rules composed into committing 159 third-party customer
+    records with every gate green: capture-the-response-whole (evidence
+    discipline) + a legitimately widened spec scope. The framework had a rule
+    about what must be captured and none about what may be COMMITTED.
+
+    Scans staged files under a run's evidence path for populated
+    personal-data field names. Heuristic by design — the visible escape
+    marker (`pii-ok: <reason>`) makes a deliberate capture possible and
+    visible, and P3's declared-trim convention keeps a scrubbed capture
+    honest about having been trimmed."""
+    ps = F["pii_scan"]
+    if staged:
+        paths = staged_files()
+    if paths is None:
+        return False, ["gate-14 needs --staged or --paths: a gate invoked with no scope is "
+                       "not a pass"]
+    msgs = []
+    for p in paths:
+        if not any(fnmatch.fnmatch(p, g) for g in ps["paths"]):
+            continue
+        txt = read_staged(p) if staged else read(rp(p))
+        if not txt:
+            continue
+        if ps["accept_marker"] in txt:
+            continue
+        for i, line in enumerate(txt.split("\n"), 1):
+            for fld in ps["field_names"]:
+                if re.search(ps["field_pattern"].replace("{field}", re.escape(fld)), line):
+                    msgs.append("%s:%d populated personal-data field '%s' in run evidence — "
+                                "third-party data does not land in git by default. Scrub it "
+                                "(record the trim, P3), or mark the FILE 'pii-ok: <reason>' to "
+                                "commit it deliberately and visibly" % (p, i, fld))
+                    break
+    return (len(msgs) == 0), msgs
+
+
+# --------------------------------------------------------------------------
 # GATE-7 — P5 sweep
 # --------------------------------------------------------------------------
-def gate_7(p5=False):
+def gate_7(p5=False, run_id=None):
     rl = F["runs_layout"]
     msgs = []
     # frisbii S-6 (v0.6.2): archiving moves tracked paths; git tracks no empty
@@ -1227,11 +1316,27 @@ def gate_7(p5=False):
         for entry in sorted(os.listdir(rd)):
             if not re.match(F["ids"]["run"], entry):
                 continue
-            has_file = any(files for _b, _d, files in os.walk(os.path.join(rd, entry)))
-            if not has_file:
-                msgs.append("%s/%s holds no files at all — a phantom run left by archiving "
+            # frisbii S-6 addendum (v0.6.4): one git question is not enough.
+            # Tracked file => a run. No tracked but untracked-unignored file
+            # => a run somebody is mid-creating (the reported defect read
+            # backwards). Neither => a leftover — and the WORDING must not
+            # depend on ignore configuration: never say "commit it" about an
+            # ignored path (git add refuses one outright).
+            rel = os.path.join(P["runs_dir"], entry)
+            tracked = git("ls-files", "--", rel).strip()
+            if tracked:
+                continue
+            unignored = git("ls-files", "--others", "--exclude-standard", "--", rel).strip()
+            if unignored:
+                continue
+            any_untracked = git("ls-files", "--others", "--", rel).strip()
+            if any_untracked:
+                msgs.append("%s holds only git-IGNORED files — a leftover from archiving, not a "
+                            "run; remove the directory (frisbii S-6 addendum)" % rel)
+            else:
+                msgs.append("%s holds no files at all — a phantom run left by archiving "
                             "(git tracks no empty directory); prune it or status derivation "
-                            "reports it active (frisbii S-6)" % (P["runs_dir"], entry))
+                            "reports it active (frisbii S-6)" % rel)
     # F-11 (v0.6.2), at --p5 only: P5 step 5 regenerates permissions
     # DESTRUCTIVELY from the tree it runs in. A run branch behind main would
     # silently drop grants that landed on main through another lane, so the
@@ -1278,8 +1383,39 @@ def gate_7(p5=False):
     # in a RUN-REPORT must exist in the durable registry status.mjs reads.
     gaps_text = read(rp(F["gap_row"]["file"])) if os.path.isfile(rp(F["gap_row"]["file"])) else ""
     cv_pat = re.compile(F["ids"]["cannot_validate"].strip("^$"))
-    for base, _dirs, files in os.walk(rp(P["runs_dir"])):
-        if os.path.relpath(base, rp(P["runs_dir"])).startswith(rl["archive"]):
+    # F-36 (v0.6.4): the old exemption compared a relpath against the TEMPLATE
+    # 'runs/archive/{run_id}/' — never true, so every archived run was
+    # re-scanned at every future P5 despite P5 step 3 saying nothing in
+    # archive is load-bearing. And the walk ignored --run, failing a publish
+    # on cannot-validate ids belonging to a DIFFERENT run still mid-flight,
+    # whose own G4 had not judged them.
+    archive_prefix = os.path.relpath(rp(rl["archive_dir"]), rp(P["runs_dir"]))
+    escrow_root = rp(P["runs_dir"], run_id) if run_id else rp(P["runs_dir"])
+    # F-37 (v0.6.4): the finding log keeps pace and the write-up document does
+    # not — twice, with the first occurrence predicting the second. At publish,
+    # every logged F-nn owes a write-up under the upstream dir. Runs ONLY when
+    # the log exists: repos without a feedback log carry no burden.
+    if p5:
+        fbk = F.get("feedback", {})
+        log_path = rp(fbk.get("log", ""))
+        if fbk and os.path.isfile(log_path):
+            wd = rp(fbk["writeups_dir"])
+            corpus = ""
+            if os.path.isdir(wd):
+                for b2, _d2, f2 in os.walk(wd):
+                    corpus += " ".join(f2) + " "
+                    for fn in f2:
+                        if fn.endswith(".md"):
+                            corpus += read(os.path.join(b2, fn))
+            for lm in re.finditer(fbk["log_row"], read(log_path), re.M):
+                fid = lm.group(1)
+                if fid not in corpus:
+                    msgs.append("%s logs %s but %s/ holds no write-up for it — a log row a "
+                                "maintainer cannot act on is drift the process predicted (F-37)"
+                                % (fbk["log"], fid, fbk["writeups_dir"]))
+    for base, _dirs, files in os.walk(escrow_root):
+        rel_base = os.path.relpath(base, rp(P["runs_dir"]))
+        if rel_base == archive_prefix or rel_base.startswith(archive_prefix + os.sep):
             continue
         if os.path.basename(F["report_row_schema"]["file"]) not in files:
             continue
@@ -1367,6 +1503,8 @@ def _parse_plan(path):
                         else (cells[2] if len(cells) > 2 else "")
                     nv = cells[nv_col] if nv_col is not None and nv_col < len(cells) else ""
                     u["tasks"].append({"id": tid, "verify": ver, "nonvac": nv,
+                                       "cells_n": len(cells),
+                                       "header_n": len(header) if header else None,
                                        "header_seen": verify_col is not None})
                 header = cells
             plan["units"].append(u)
@@ -1511,6 +1649,14 @@ def gate_8(run_id):
                 msgs.append("%s owns '%s' under reports/ but it is not an AGENT-writable path "
                             "(%s) — FORMATS §9" % (u["id"], g, ", ".join(ps["agent_writable_paths"])))
         for t in u["tasks"]:
+            # F-18 (v0.6.4): a row whose cell count disagrees with its header
+            # parses into a DIFFERENT table than the one written, and every
+            # later message then blames the wrong cell. Name the real cause.
+            if t.get("header_n") and t["cells_n"] != t["header_n"]:
+                msgs.append("%s task %s: %d columns expected, %d found — an unescaped '|' in a "
+                            "cell (a shell pipe?). Escape it as \\| or route the command "
+                            "through a file (F-18)"
+                            % (u["id"], t["id"], t["header_n"], t["cells_n"]))
             if not ps.get("task_verify_required"):
                 break
             if not t["header_seen"]:
@@ -1773,9 +1919,11 @@ def run_gate(name, args):
                       deps=(_list_opt(args, "--deps") or None),
                       probe=("--no-probe" not in args))
     if name == "gate-7":
-        return gate_7(p5=("--p5" in args))
+        return gate_7(p5=("--p5" in args), run_id=_opt(args, "--run"))
     if name == "gate-13":
         return gate_13(run_id=_opt(args, "--run"))
+    if name == "gate-14":
+        return gate_14(paths=(_list_opt(args, "--paths") or None), staged=("--staged" in args))
     if name == "gate-8":
         return gate_8(_opt(args, "--run"))
     if name == "gate-9":
@@ -1841,6 +1989,16 @@ def check_parity():
     for gid in sorted(engine - set(spec_rows.keys())):
         msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
                     "declarations of the gate set disagree" % gid)
+    # ---- F-35 (v0.6.4): the machine home is shared by two regex dialects ----
+    # \Z is Python end-of-string and a JavaScript literal 'Z' — one key, two
+    # engines, opposite answers (16 healthy quick notes proposed for deletion).
+    # A shared regex is only shared if every engine reads the same dialect.
+    raw = read(os.path.join(HERE, "formats.json"))
+    for badesc in ("\\\\Z", "\\\\A"):
+        if badesc.replace("\\\\", "\\") in raw:
+            msgs.append("formats.json contains %s — not portable between the Python and "
+                        "JavaScript engines that share this file; use $(?![\\s\\S]) / ^ "
+                        "(F-35)" % badesc.replace("\\\\", "\\"))
     # ---- reverse direction for lane refs (PF-b, pilot #2 on v0.6.0) ---------
     # check_parity asked only "does the engine have what the docs declare?" —
     # engine-ahead-of-docs was invisible. Every commit-trailer kind must be
@@ -1931,7 +2089,7 @@ def sweep(args):
         log_rejection("PARITY", msgs)
     for g in gates:
         a = []
-        if run_id and g in ("gate-2", "gate-4", "gate-5"):
+        if run_id and g in ("gate-2", "gate-4", "gate-5", "gate-7"):
             a = ["--run", run_id]
         if g == "gate-5":
             a = ["--sweep"] + a
@@ -1958,7 +2116,7 @@ def main(argv):
         argv = [a for a in argv if a != "--quiet"]
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
-        print("usage: gates.sh <gate-1..gate-13|sweep [--p5]|list> [options]")
+        print("usage: gates.sh <gate-1..gate-14|sweep [--p5]|list> [options]")
         return 0
     cmd, args = argv[0], argv[1:]
     if cmd == "list":

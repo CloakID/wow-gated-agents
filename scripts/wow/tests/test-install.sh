@@ -215,6 +215,30 @@ printf -- '- [ ] transition ABC-1 to Done\n' > "$T/runs/quick/jira-queue.md"
   || ok_ "GATE-7 blocks the P5 sweep (the check P5 actually runs)"
 rm -f "$T/runs/quick/jira-queue.md"
 
+# ---- GATE-14 wiring (v0.6.4): the pre-commit hook refuses staged PII --------
+mkdir -p "$T/runs/260903-w-r1/evidence"
+printf '{"email": "jane@example.net"}\n' > "$T/runs/260903-w-r1/evidence/cap.json"
+( cd "$T" && git add -A )
+must_block "staged evidence with populated email (GATE-14 via pre-commit hook)" "$T" \
+  "capture [T:260903-w-r1]"
+printf 'pii-ok: PO D-9, synthetic tenant\n{"email": "jane@example.net"}\n' \
+  > "$T/runs/260903-w-r1/evidence/cap.json"
+( cd "$T" && git add -A )
+must_land "pii-ok capture lands through the same hook (control)" "$T" \
+  "capture [T:260903-w-r1]"
+
+# ---- F-33/F-34 (v0.6.4): audit triggers derive from the durable home --------
+mkdir -p "$T/runs/260903-a-r1"
+printf '# RUN-REPORT\n\n## audit triggers\n| AT-1 | 4 | ev:commit{abc1234} |\n| AT-2 | 2 | ev:commit{abc1234} |\n\n## completed\nBLOCKED BLOCKED\n' \
+  > "$T/runs/260903-a-r1/RUN-REPORT.md"
+AT_OUT="$(cd "$T" && node scripts/wow/status.mjs --json --run 260903-a-r1 | python3 -c "import json,sys; a=json.load(sys.stdin)['auditTriggers']; print(a['AT-1']['value'], a['AT-2']['value'], a['AT-3']['value'])")"
+if [ "$AT_OUT" = "4 2 2" ]; then
+  echo "  ok   AT-1/AT-2 read from RUN-REPORT; AT-3 scoped to the run (F-33/F-34)"; PASS=$((PASS+1))
+else
+  echo "  FAIL audit triggers misderived (got '$AT_OUT', want '4 2 2')"; FAIL=$((FAIL+1))
+fi
+rm -rf "$T/runs/260903-a-r1"
+
 # ---- HANDOFF count (v0.6.2, frisbii off-by-one) -----------------------------
 # split('\n') counted the trailing newline: 80 meant 79, and five commits in
 # pilot #1 trimmed a file that was already right. Count as wc -l does.

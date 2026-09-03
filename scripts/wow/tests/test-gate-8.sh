@@ -341,4 +341,57 @@ autonomy: decide-and-log
 P
 assert_accepts "the same rule in the Contracts block is delivered to every manifest (F-28 control)" \
   "$FIX" gate-8 --run 260813-x-r1
+
+# ---- F-18 (v0.6.4): unescaped pipe named as the cause; escaped pipe legal ---
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `cat x.txt | grep -c ok` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "unescaped pipe reported with the REAL cause, not the wrong cell (F-18)" "$FIX" \
+  "unescaped '|' in a cell" gate-8 --run 260813-x-r1
+
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `cat x.txt \| grep -c ok` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_accepts "escaped pipe is cell content — a Verify may carry a pipeline (F-18)" "$FIX" \
+  gate-8 --run 260813-x-r1
 finish

@@ -21,6 +21,19 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.6.4-draft
+
+Eleven new findings from both pilots, running the framework against production infrastructure daily.
+
+- **GATE-14 — what may be committed, not just what must be captured.** Two correct rules composed into committing 159 third-party customer records with every gate green. Staged run evidence is scanned for populated personal-data fields; a deliberate capture is possible and *visible* (`pii-ok:`), and a scrubbed capture declares its trim.
+- **GATE-2 takes its obligation set from declarations** (`requirements:` / `governs:`) — a range like `REQ-059 … REQ-063` used to enroll two rows of five, and discussing an id in any scanned doc adopted it. Mention is no longer claim.
+- **The shared machine home is dialect-checked**: one regex key had the Python and JavaScript engines disagreeing whether a repo held 0 or 16 stale quick notes; the parity sweep now refuses non-portable escapes in formats.json outright.
+- **GATE-7 stops grading other runs' debt** (escrow scoped to the publish), stops re-scanning archives forever (the exemption was dead code), classifies phantom run dirs by asking git rather than the filesystem, and reconciles the feedback log against its write-ups at publish.
+- **Audit triggers derive from the durable home or say exactly why not**; the cross-run BLOCKED sum that was permanently HIT is scoped to the run its own name promises.
+- **A Verify can carry a pipe** (`\|`), a pre-0.6 install source gets an honest refusal, and archiving a run no longer launders a failing GATE-2 into a passing one.
+
+The suite is at **247 assertions**, every fix mutation-proven.
+
 ## What's new in v0.6.3-draft
 
 The brownfield pilot came back from three production-grade runs with twenty-seven findings — a different class than before: not "the engine doesn't match the docs" but *"the process punishes the operator who follows it exactly."* Four were already answered by v0.6.2 (both pilots independently converged on the plan-verify gap that became GATE-13). The rest land here.

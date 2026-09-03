@@ -60,4 +60,43 @@ assert_rejects "run branch behind main at --p5 (F-11)" "$FIX" "BEHIND" gate-7 --
 assert_accepts "same branch, no --p5: mid-run being behind is legal" "$FIX" gate-7
 ( cd "$FIX" && git merge -q --no-edit main >/dev/null 2>&1 )
 assert_accepts "main merged in: publish may proceed (control)" "$FIX" gate-7 --p5
+
+# ---- F-36 (v0.6.4): escrow scoped to --run; archive exemption really fires --
+FIX7="$(setup_fixture_repo)"
+mkdir -p "$FIX7/runs/260903-pub-r1" "$FIX7/runs/260903-other-r1" "$FIX7/docs"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$FIX7/docs/GAPS.md"
+printf '## new-gaps\nCV-260903-other-r1-01: cannot validate X\n' > "$FIX7/runs/260903-other-r1/RUN-REPORT.md"
+printf '## completed\nall done ev:commit{abc1234}\n' > "$FIX7/runs/260903-pub-r1/RUN-REPORT.md"
+assert_accepts "escrow scoped to the published run — another run's CV is not this publish's debt (F-36)" \
+  "$FIX7" gate-7 --run 260903-pub-r1
+assert_rejects "the other run still owes its escrow when IT publishes (control)" "$FIX7" "escrow" \
+  gate-7 --run 260903-other-r1
+# Archived runs are exempt — the old exemption compared against a TEMPLATE and never fired.
+mkdir -p "$FIX7/runs/archive/260801-done-r1"
+printf '## new-gaps\nCV-260801-done-r1-01: was judged at its own G4\n' > "$FIX7/runs/archive/260801-done-r1/RUN-REPORT.md"
+assert_accepts "archived run reports are not re-scanned at every future P5 (F-36)" "$FIX7" \
+  gate-7 --run 260903-pub-r1
+
+# ---- S-6 addendum (v0.6.4): only-ignored files are a leftover, not a run ----
+mkdir -p "$FIX7/runs/260902-left-r1"
+printf '.DS_Store\n' > "$FIX7/.gitignore"
+printf 'junk\n' > "$FIX7/runs/260902-left-r1/.DS_Store"
+assert_rejects "dir holding only ignored files is a leftover (S-6 addendum)" "$FIX7" \
+  "only git-IGNORED" gate-7 --run 260903-pub-r1
+rm -rf "$FIX7/runs/260902-left-r1"
+# ...but an untracked-unignored file is a run mid-creation and must stay legal.
+mkdir -p "$FIX7/runs/260903-new-r1"
+printf 'drafting\n' > "$FIX7/runs/260903-new-r1/HANDOFF.md"
+assert_accepts "untracked real file = run mid-creation, not a phantom (control)" "$FIX7" \
+  gate-7 --run 260903-pub-r1
+
+# ---- F-37 (v0.6.4): feedback log owes write-ups at publish ------------------
+printf '| id | source | state | upstream-ref |\n|---|---|---|---|\n| F-01 | run | open | - |\n' \
+  > "$FIX7/docs/pilot-feedback.md"
+assert_rejects "logged finding with no write-up blocks publish (F-37)" "$FIX7" "no write-up" \
+  gate-7 --p5 --run 260903-pub-r1
+mkdir -p "$FIX7/docs/upstream"
+printf '# Findings\n## F-01 — the finding, written up\ndetail\n' > "$FIX7/docs/upstream/ISSUE-x.md"
+( cd "$FIX7" && git add -A >/dev/null && git commit -qm "wire [WOW:publish]" && git branch -M main ) >/dev/null 2>&1
+assert_accepts "write-up present: publish proceeds (F-37 control)" "$FIX7" gate-7 --p5 --run 260903-pub-r1
 finish

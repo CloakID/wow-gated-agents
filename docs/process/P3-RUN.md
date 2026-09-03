@@ -1,4 +1,4 @@
-# P3 — RUN — DRAFT v0.6.3
+# P3 — RUN — DRAFT v0.6.4
 Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits · No human in the loop by design.
 
 ## [ORCH] — branch & merge model (the parallel-execution contract)
@@ -25,6 +25,7 @@ Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits ·
 - One atomic commit per task, message with `[T:<task-id>]`. Each task: implement → run its verify command → record `ev:cmd` in your report file.
 - **Autonomy contract:** in-contract deviation → decide, implement, log `DEV-U<n>-<nn>` (what/why/impact). Cross-unit, AC-touching, or irreversible → **park**: `PARK-U<n>-<nn>` blocker note (facts only), skip, continue. Never ask questions; anomalies are parked, not investigated (the ORCH routes them to the debug lane after the run).
 - Write only `runs/<run-id>/reports/U<n>.md`: per-task status (FORMATS §4 + `ev:`), deviations, parks, observations.
+- **Captured responses are scrubbed before commit** (v0.6.4, PII): third-party personal data is trimmed at capture time and the trim is RECORDED in the capture file (what was removed and why) — a declared trim is honest evidence; a silent one is the defect the capture-whole rule forbids; an undeclared populated field is refused by GATE-14 at commit. A deliberate capture carries `pii-ok: <reason>` in the file, visibly.
 
 ## [AGENT] — verifier
 
@@ -33,4 +34,4 @@ Entry: `/wow-run <run-id>` · Output: `runs/<run-id>/RUN-REPORT.md` + commits ·
 - Grade: PASS / PASS-with-carry-forwards (CV records, FORMATS §5) / FAIL (`VF-U<n>-<nn>` with evidence) — **tabulate grades under a `Grade` or `Verdict` header** (GATE-3 checks that column against the verdict vocabulary, FORMATS §4; a grade in a Status/Result column reads as a status and is rejected). Write only `reports/U<n>-verify.md`. If you need context, read code and contracts, not transcripts.
 
 ## RUN-REPORT.md structure [ORCH]
-`completed / failed / blocked / parked / deviations / defects / new-gaps` — rows per FORMATS §4–5, every completion row evidence-cited (GATE-3), one line per row.
+`completed / failed / blocked / parked / deviations / defects / new-gaps` — rows per FORMATS §4–5, every completion row evidence-cited (GATE-3), one line per row. Plus an `## audit triggers` table — `| AT-n | value | ev |` for the orch-derived counters (AT-1 mocks/fixtures added, AT-2 remediation cycles): status.mjs READS these from here (v0.6.4, F-33 — recording them anywhere else moves the derived view not at all).

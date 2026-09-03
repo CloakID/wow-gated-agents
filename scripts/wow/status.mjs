@@ -174,16 +174,14 @@ function runs() {
     if (!runRe.test(d)) continue;
     if (runFilter && d !== runFilter) continue;
     const rd = join(dir, d);
-    // frisbii S-6 (v0.6.2): archiving strands empty run-id directories (git
-    // tracks no empty dir), and a name alone is not a run — it misleads
-    // exactly the person who published. A dir with no files anywhere in it
-    // is a phantom, not an active run. (Files-on-disk, not git-tracked: a
-    // brand-new run before its first commit is real.)
-    const hasAnyFile = (p) => lsdir(p).some(e => {
-      try { const st = statSync(join(p, e)); return st.isFile() || (st.isDirectory() && hasAnyFile(join(p, e))); }
-      catch { return false; }
-    });
-    if (!hasAnyFile(rd)) continue;
+    // frisbii S-6 + its v0.6.4 addendum: one git question is not enough.
+    // Tracked file => a run. No tracked but an untracked-UNIGNORED file => a
+    // run somebody is mid-creating (must stay listed). Neither => a leftover
+    // from archiving — a stray .DS_Store or ignored scratch must not keep a
+    // phantom listed (the reported defect wearing a new label).
+    const relRun = relative(ROOT, rd);
+    if (!git('ls-files', '--', relRun).trim()
+        && !git('ls-files', '--others', '--exclude-standard', '--', relRun).trim()) continue;
     const handoff = read(rp(fill(rl.handoff, { run_id: d })));
     const report = read(rp(fill(F.report_row_schema.file, { run_id: d })));
     const posRe = new RegExp(fill(rl.handoff_section_heading, { name: rl.handoff_sections[0] }), 'm');
@@ -273,10 +271,39 @@ function auditTriggers(rs) {
     po: 'a judgment call recorded by the PO at G4 — never derived',
   };
   const derived = {};
+  // F-34 (v0.6.4): the AT-3 sum was cross-run — BLOCKED tokens accumulated in
+  // reports that are never rewritten, so the first run to block twice pinned
+  // the trigger HIT forever, and archiving a run CHANGED the number. Scope to
+  // the run in question: --run when given, else the newest active run, as the
+  // metric's own name (blockers_this_run) and P4's wording both promise.
+  const scopeRun = runFilter ? rs.filter(r => r.id === runFilter)
+                             : rs.slice(-1);
+  // F-33 (v0.6.4): derived_by 'orch' means READ THE DURABLE HOME — the run's
+  // RUN-REPORT '## audit triggers' table — never 'give up'. Three of five
+  // triggers rendered 'not derived' against numbers that were derived,
+  // recorded and cited: PF-03's founding gap, recurring in the file that
+  // fixed it.
+  const atSec = new RegExp(`^#+\\s*${t.report_section}\\s*$([\\s\\S]*?)(?=^#|$(?![\\s\\S]))`, 'mi');
+  const atRow = new RegExp(t.report_row, 'm');
+  const reported = {};
+  for (const r of scopeRun) {
+    const rep = read(rp(fill(F.report_row_schema.file, { run_id: r.id })));
+    const sec = rep.match(atSec);
+    if (!sec) continue;
+    for (const line of sec[1].split('\n')) {
+      const m = line.match(atRow);
+      if (m) reported[m[1]] = parseInt(m[2], 10);
+    }
+  }
   for (const [k, cfgT] of Object.entries(t)) {
-    if (k.startsWith('$')) continue;
+    if (k.startsWith('$') || typeof cfgT !== 'object' || !cfgT.metric) continue;
     let value = null, note = notes[cfgT.derived_by] || null;
-    if (k === 'AT-3') value = rs.reduce((a, r) => a + (r.statuses.BLOCKED || 0), 0);
+    if (cfgT.derived_by === 'orch') {
+      if (k in reported) { value = reported[k]; note = 'read from RUN-REPORT ## audit triggers (F-33)'; }
+      else note = 'not recorded in the run RUN-REPORT (## audit triggers table) — record it there';
+    }
+    if (cfgT.derived_by === 'po') note = 'awaiting PO at G4 — a judgement, never derived';
+    if (k === 'AT-3') value = scopeRun.reduce((a, r) => a + (r.statuses.BLOCKED || 0), 0);
     if (k === 'AT-4') {
       value = at4Count();
       if (value === null) note = `${t['AT-4'].source_command[0]} did not run (python3 missing?)`;

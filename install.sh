@@ -111,7 +111,12 @@ import json, os, re, sys
 src, target = sys.argv[1], sys.argv[2]
 try:
     F = json.load(open(os.path.join(src, "scripts", "wow", "formats.json")))
-    gr = F["gap_row"]
+    gr = F.get("gap_row")
+    if gr is None:
+        # pre-0.6 source: the schema predates the registry — not a registry
+        # error, and the completeness check downstream refuses old sources in
+        # its own honest words (frisbii installer-consult finding, v0.6.4).
+        raise SystemExit(0)
     p = os.path.join(src, gr["file"])
     if not os.path.isfile(p):
         print("CONSULT-ERROR no %s in the package — absence of the registry is not "
@@ -388,13 +393,14 @@ hook_body() { # hook_body <name>
   case "$name" in
     commit-msg) gate_lines='exec_gate gate-1 --quiet "$1"' ;;
     pre-commit) gate_lines='exec_gate gate-5  --quiet --staged
-exec_gate gate-11 --quiet --staged' ;;
+exec_gate gate-11 --quiet --staged
+exec_gate gate-14 --quiet --staged' ;;
   esac
   cat <<HOOK
 #!/usr/bin/env bash
 # $HOOK_MARKER — installed by the WoW v2 package installer (install.sh).
 # GATE-1 runs in commit-msg, not pre-commit: the message does not exist yet at
-# pre-commit. GATE-5 and GATE-11 run here, on the staged set.
+# pre-commit. GATE-5, GATE-11 and GATE-14 run here, on the staged set.
 set -u
 root="\$(git rev-parse --show-toplevel)"
 prev="\$0$HOOK_KEEP"

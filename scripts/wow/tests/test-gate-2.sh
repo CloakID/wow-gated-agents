@@ -77,4 +77,33 @@ printf '| id | R | S |\n|---|---|---|\n| PLAT-M3-14 | a | COMPLETED ev:commit{de
   > "$FIX2/docs/REQUIREMENTS.md"
 assert_accepts "configured scheme: updated row passes; backticked id is a mention (control)" \
   "$FIX2" gate-2 --run 260101-t-r1
+
+# ---- F-17 (v0.6.4): declarations over scan ----------------------------------
+FIX3="$(setup_fixture_repo)"
+mkdir -p "$FIX3/docs/spec" "$FIX3/runs/260903-d-r1"
+# Spec names its rows as a RANGE (the natural form); only the declaration
+# enrolls all five.
+printf '# SPEC\nrequirements: REQ-101, REQ-102, REQ-103, REQ-104, REQ-105\n\nSection 8 covers REQ-101 ... REQ-105 as a contiguous block.\n' \
+  > "$FIX3/docs/spec/SPEC-d-v1.md"
+printf '# PLAN\nspec: docs/spec/SPEC-d-v1.md\n' > "$FIX3/runs/260903-d-r1/PLAN.md"
+printf '| id | R | S |\n|---|---|---|\n| REQ-101 | a | OPEN |\n| REQ-102 | a | OPEN |\n' \
+  > "$FIX3/docs/REQUIREMENTS.md"
+assert_rejects "a range enrolls every row it covers, via the declaration (F-17)" "$FIX3" \
+  "has no row in" gate-2 --run 260903-d-r1
+# ...and prose DISCUSSING an id does not adopt it: REQ-999 below is a mention.
+printf '| id | R | S |\n|---|---|---|\n| REQ-101 | a | OPEN |\n| REQ-102 | a | OPEN |\n| REQ-103 | a | OPEN |\n| REQ-104 | a | OPEN |\n| REQ-105 | a | OPEN |\n' \
+  > "$FIX3/docs/REQUIREMENTS.md"
+printf '# PLAN\nspec: docs/spec/SPEC-d-v1.md\n\nNote: an earlier defect involved REQ-999, discussed here for the record.\n' \
+  > "$FIX3/runs/260903-d-r1/PLAN.md"
+assert_accepts "prose mention does not adopt an id when declarations exist (F-17)" "$FIX3" \
+  gate-2 --run 260903-d-r1
+
+# ---- F-36 (v0.6.4): a named run resolving to nothing is UNGRADED, red -------
+assert_rejects "ghost run id reports ungraded, never passed (F-36)" "$FIX3" "UNGRADED" \
+  gate-2 --run 260999-ghost-r9
+# ...and an ARCHIVED run resolves its plan from the archive.
+mkdir -p "$FIX3/runs/archive/260901-old-r1"
+printf '# PLAN\nspec: docs/spec/SPEC-d-v1.md\n' > "$FIX3/runs/archive/260901-old-r1/PLAN.md"
+assert_accepts "archived run resolves its governing plan from the archive (F-36)" "$FIX3" \
+  gate-2 --run 260901-old-r1
 finish
