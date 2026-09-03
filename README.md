@@ -21,6 +21,16 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.7.0-draft
+
+**The blocking registry is empty for the first time.** Every remaining row in [docs/GAPS.md](docs/GAPS.md) is advisory.
+
+- **The obligation escrow parses, resolves, and closes its last declared class.** Registry rows are parsed, never substring-matched (a CV mentioned in prose is not a row); the run-local `CV-<nn>` shorthand resolves to the full id the registry demands — proven against a pilot's real RUN-REPORT, where the old regex saw 0 CV records and the new escrow reports all 8; and an audit-trigger hit recorded in a run now demands its durable row, so an owed audit cannot retire with the archived run.
+- **Upgrade policy stated plainly** ([INSTALL.md](INSTALL.md)): the package guarantees that a format mismatch in your durable homes is *seen loudly* — it does not ship per-consumer migration recipes. A repo that upgrades and goes red has been told exactly what to reconcile.
+- 0.7 signals *all known debts advisory*, not API stability: formats may still move between drafts pre-1.0.
+
+The suite is at **255 assertions**. The -draft suffix drops after one full pilot cycle on this version with no new high-severity findings.
+
 ## What's new in v0.6.4-draft
 
 Eleven new findings from both pilots, running the framework against production infrastructure daily.

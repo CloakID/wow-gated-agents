@@ -1381,8 +1381,21 @@ def gate_7(p5=False, run_id=None):
     # Obligation escrow (FORMATS §12, OBL-PKG-01): nothing obligation-shaped may
     # live only in the runs/ tree being archived. Every CV id and DEFERRED row
     # in a RUN-REPORT must exist in the durable registry status.mjs reads.
-    gaps_text = read(rp(F["gap_row"]["file"])) if os.path.isfile(rp(F["gap_row"]["file"])) else ""
+    # OBL-PKG-13 (v0.7.0): the escrow PARSES the registry instead of substring-
+    # matching its raw text — a CV id mentioned in another row's prose used to
+    # satisfy the escrow with no row existing, and an id the row regex could
+    # not read satisfied nothing visibly. Discovery is an INVENTORY scan, so
+    # backticked ids in reports ARE found here (mention-vs-claim governs
+    # satisfying gates, not discovering debt — fail-safe is seeing more).
+    gap_rows, _gap_probs = _gap_rows()
+    gap_ids = {r["id_plain"] for r in (gap_rows or [])}
+    open_row_texts = [" ".join(v for v in r.values() if isinstance(v, str))
+                      for r in (gap_rows or []) if r["open"]]
     cv_pat = re.compile(F["ids"]["cannot_validate"].strip("^$"))
+    cv_short = re.compile(F["ids"]["cannot_validate_short"].strip("^$"))
+    at_row = re.compile(F["audit_triggers"]["report_row"], re.M)
+    at_sec = re.compile(fill(F["runs_layout"]["handoff_section_heading"],
+                             name=F["audit_triggers"]["report_section"]), re.M | re.I)
     # F-36 (v0.6.4): the old exemption compared a relpath against the TEMPLATE
     # 'runs/archive/{run_id}/' — never true, so every archived run was
     # re-scanned at every future P5 despite P5 step 3 saying nothing in
@@ -1421,19 +1434,59 @@ def gate_7(p5=False, run_id=None):
             continue
         rr = os.path.join(base, os.path.basename(F["report_row_schema"]["file"]))
         rr_rel = os.path.relpath(rr, ROOT)
+        this_run = os.path.basename(os.path.dirname(rr))
         text = read(rr)
-        for cv in sorted(set(cv_pat.findall(text))):
-            if cv not in gaps_text:
-                msgs.append("%s records %s but %s does not — an obligation living only in an "
-                            "archivable run (escrow, FORMATS §12)"
+        for m in re.finditer(cv_pat.pattern, text):
+            cv = m.group(0)
+            if cv not in gap_ids:
+                msgs.append("%s records %s but %s has no ROW with that id — an obligation "
+                            "living only in an archivable run (escrow, FORMATS §12; a mention "
+                            "in another row's prose is not a row)"
                             % (rr_rel, cv, F["gap_row"]["file"]))
+        # CV id policy (OBL-PKG-13): inside its own run's report the shorthand
+        # CV-<nn> is legal and resolves to the run's full id — the durable
+        # registry requires the FULL form. Real reports use the short form
+        # (frisbii's CV-01..05 were invisible to the long regex, so the escrow
+        # was vacuous for exactly the records it exists to catch).
+        long_spans = [m.span() for m in re.finditer(cv_pat.pattern, text)]
+        for m in re.finditer(cv_short.pattern, text):
+            if any(s <= m.start() < e for s, e in long_spans):
+                continue
+            nn = m.group(0).split("-")[-1]
+            want = re.compile("^CV-%s-(?:U[1-9][0-9]*-)?%s$" % (re.escape(this_run), nn))
+            if not any(want.match(g) for g in gap_ids):
+                msgs.append("%s uses shorthand %s but %s has no full-form row "
+                            "CV-%s-[U<n>-]%s — the short form is run-local; the registry "
+                            "keeps the id that outlives the run (OBL-PKG-13)"
+                            % (rr_rel, m.group(0), F["gap_row"]["file"], this_run, nn))
         for ln in text.splitlines():
             cells = _cells(ln)
             if len(cells) >= 2 and cells[1].strip().upper().startswith("DEFERRED"):
                 rid = cells[0].strip()
-                if rid and rid not in gaps_text:
-                    msgs.append("%s defers %s with no row in %s (escrow, FORMATS §12)"
-                                % (rr_rel, rid, F["gap_row"]["file"]))
+                # A deferral's durable home is an OPEN registry row REFERENCING
+                # the task (a task id cannot itself be a row id) — parsed rows,
+                # not raw text, so a mention outside any row satisfies nothing.
+                if rid and not any(rid in t for t in open_row_texts):
+                    msgs.append("%s defers %s and no OPEN row in %s references it "
+                                "(escrow, FORMATS §12)" % (rr_rel, rid, F["gap_row"]["file"]))
+        # Escrow third class (verifier F8): an audit-trigger HIT recorded in a
+        # RUN-REPORT is an obligation — the audit it schedules must have a
+        # durable row, or the hit retires with the archived run.
+        sec = at_sec.search(text)
+        if sec:
+            for am in at_row.finditer(sec.group(1)):
+                at_id, val = am.group(1), int(am.group(2))
+                spec = F["audit_triggers"].get(at_id)
+                if not isinstance(spec, dict) or "threshold" not in spec:
+                    continue
+                hit = val > spec["threshold"] if spec["comparator"] == ">"                     else val >= spec["threshold"]
+                if hit and not any(re.search(r"\b%s\b" % at_id, t) for t in open_row_texts):
+                    msgs.append("%s records %s = %d (%s %s threshold %s) — a trigger hit is an "
+                                "owed audit; it needs an OPEN %s row naming %s, or the "
+                                "obligation retires with the archived run (F8, escrow third "
+                                "class)" % (rr_rel, at_id, val, spec["comparator"],
+                                            "over" if hit else "under", spec["threshold"],
+                                            F["gap_row"]["file"], at_id))
     return (len(msgs) == 0), msgs
 
 

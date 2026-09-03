@@ -39,7 +39,9 @@ cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
 | 260816-x-r1.T02 | DEFERRED | see successor |
 R
 assert_rejects "DEFERRED row with no registry counterpart (escrow)" "$FIX" "escrow" gate-7
-printf '| 260816-x-r1.T02 | impl_gap | run | advisory | r2 | done in r2 | ev:file{runs/260816-x-r1/RUN-REPORT.md} |\n' >> "$FIX/docs/GAPS.md"
+# The durable home is a proper OBLIGATION row referencing the task — a task id
+# cannot be a row id (v0.7.0, OBL-PKG-13: parsed rows, not raw-text substrings).
+printf '| OBL-T-42 | impl_gap | run | advisory | r2 | 260816-x-r1.T02 done in r2 | ev:file{runs/260816-x-r1/RUN-REPORT.md} |\n' >> "$FIX/docs/GAPS.md"
 assert_accepts "DEFERRED row escrowed" "$FIX" gate-7
 
 
@@ -99,4 +101,42 @@ mkdir -p "$FIX7/docs/upstream"
 printf '# Findings\n## F-01 — the finding, written up\ndetail\n' > "$FIX7/docs/upstream/ISSUE-x.md"
 ( cd "$FIX7" && git add -A >/dev/null && git commit -qm "wire [WOW:publish]" && git branch -M main ) >/dev/null 2>&1
 assert_accepts "write-up present: publish proceeds (F-37 control)" "$FIX7" gate-7 --p5 --run 260903-pub-r1
+
+# ---- OBL-PKG-13 (v0.7.0): the escrow parses rows, resolves shorthands, and
+# ---- treats an audit-trigger hit as an owed row --------------------------
+FIX13="$(setup_fixture_repo)"
+mkdir -p "$FIX13/runs/260903-cv-r1" "$FIX13/docs"
+HDR13='| id | tag | owner | effect | successor | discharge | ev |
+|---|---|---|---|---|---|---|'
+# (1) a CV id mentioned in another row's PROSE is not a row — substring
+#     matching called this escrowed; parsing does not.
+printf '%s\n| OBL-T-50 | impl_gap | m | advisory | r2 | relates to CV-260903-cv-r1-01 somehow | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+printf '## new-gaps\nCV-260903-cv-r1-01: cannot validate X\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+assert_rejects "CV mentioned in another row's prose is NOT a row (OBL-PKG-13)" "$FIX13" \
+  "no ROW with that id" gate-7 --run 260903-cv-r1
+printf '%s\n| CV-260903-cv-r1-01 | env_unverified | PO | advisory | later | replayed | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "a real row with the id escrows it (control)" "$FIX13" gate-7 --run 260903-cv-r1
+
+# (2) shorthand CV-<nn> in the run's own report resolves to the full id —
+#     frisbii's real CV-01..05 were invisible to the long regex.
+printf '## carry-forwards\n`CV-03` the control is real but invisible to the checker.\n' \
+  > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+assert_rejects "shorthand CV-03 demands its full-form registry row (OBL-PKG-13)" "$FIX13" \
+  "shorthand" gate-7 --run 260903-cv-r1
+printf '%s\n| CV-260903-cv-r1-03 | env_unverified | PO | advisory | later | replayed | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "full-form row satisfies the shorthand (control)" "$FIX13" gate-7 --run 260903-cv-r1
+# ...and the unit-scoped full form satisfies it too.
+printf '%s\n| CV-260903-cv-r1-U2-03 | env_unverified | PO | advisory | later | replayed | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "unit-scoped full form also satisfies (control)" "$FIX13" gate-7 --run 260903-cv-r1
+
+# (3) F8 third class: an audit-trigger HIT in a RUN-REPORT is an owed audit.
+printf '## audit triggers\n| AT-2 | 6 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+printf '%s\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_rejects "AT-2 over threshold with no open row naming it (F8)" "$FIX13" \
+  "owed audit" gate-7 --run 260903-cv-r1
+printf '%s\n| OBL-T-51 | audit_owed | PO | advisory | audit run | AT-2 remediation audit performed | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "open row naming AT-2 escrows the hit (control)" "$FIX13" gate-7 --run 260903-cv-r1
+printf '## audit triggers\n| AT-2 | 3 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+printf '%s\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "under-threshold trigger owes nothing (control)" "$FIX13" gate-7 --run 260903-cv-r1
 finish

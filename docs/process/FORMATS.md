@@ -1,4 +1,4 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.6.4
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.7.0
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
@@ -45,7 +45,7 @@ Where a scanned table has a header row naming a **Status / State / Result** colu
 CV-<run-id>-U<n>-<nn>: <claim>
   reason / workaround / successor / discharge
 ```
-(fields as v0.3; discharge = the observable event that closes the record.) **Allocation (v0.6.3, F-17):** the verifier allocates the number inside its own unit segment — three parallel verifiers correctly following the old run-scoped shape all allocated `-01`, and a CV record is exactly the id that outlives the run. Legacy run-scoped ids in existing records stay valid.
+(fields as v0.3; discharge = the observable event that closes the record.) **Allocation (v0.6.3, F-17):** the verifier allocates the number inside its own unit segment — three parallel verifiers correctly following the old run-scoped shape all allocated `-01`, and a CV record is exactly the id that outlives the run. Legacy run-scoped ids in existing records stay valid. **Short form (v0.7.0, OBL-PKG-13):** inside its own run's artifacts the shorthand `CV-<nn>` is legal and resolves to the run's full id; every durable home carries the **full form** — it is the id that outlives the run. The escrow resolves shorthands and demands the full row (real reports write `CV-01`, and the long regex alone made the escrow vacuous for exactly the records it exists to catch).
 
 ## 6. Codebase-map front-matter (P0 freshness, GATE-6) — git-only
 
