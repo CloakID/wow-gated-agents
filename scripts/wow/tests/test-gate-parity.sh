@@ -101,4 +101,27 @@ del F['runs_layout']['bad_key_for_test']
 json.dump(F, open(p, 'w'))
 PY
 assert_accepts "portable subset restored (control)" "$FIX" parity
+
+# ---- OBL-PKG-21 (audit A5): successor staleness — a version stamp pointing
+# backward. Four real rows aged this way across four versions before the
+# 2026-09-13 audit caught them; the registry checked quick-stub staleness and
+# never its own.
+printf '# Changelog\n\n## v0.7.1-draft — x\n' > "$FIX/CHANGELOG.md"
+python3 - "$FIX" <<'PY'
+import json, sys
+p = sys.argv[1] + '/scripts/wow/formats.json'
+F = json.load(open(p)); F['version'] = '0.7.1-draft'
+json.dump(F, open(p, 'w'))
+PY
+gaps21() { printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n%s\n' "$1" > "$FIX/docs/GAPS.md"; }
+gaps21 '| OBL-T-21 | impl_gap | m | advisory | engine-v0.5.x run | lands | ev:commit{abc1234} |'
+assert_rejects "open row whose successor names a shipped version (OBL-PKG-21)" "$FIX" \
+  "the successor is fiction" parity
+# Controls, each ruling out a way the check could cheat:
+gaps21 '| OBL-T-21 | impl_gap | m | advisory | v0.9 release | lands | ev:commit{abc1234} |'
+assert_accepts "successor naming a FUTURE version is a real successor" "$FIX" parity
+gaps21 '| ~~OBL-T-21~~ | impl_gap | m | advisory | engine-v0.5.x run | lands | ev:commit{abc1234} |'
+assert_accepts "discharged row keeps its historical successor untouched" "$FIX" parity
+gaps21 '| OBL-T-21 | impl_gap | m | advisory | engine round 7 (was `engine-v0.5.x`) | lands | ev:commit{abc1234} |'
+assert_accepts "backticked old version is a MENTION of history, not a claim" "$FIX" parity
 finish

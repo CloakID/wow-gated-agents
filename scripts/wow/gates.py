@@ -2304,6 +2304,33 @@ def check_parity():
                     msgs.append("%s header says v%s but its last-modifying commit is %r — "
                                 "header stamps are last-MODIFIED markers, checked against git "
                                 "history (pilot D2)" % (doc, dm.group(1), title.strip()[:50]))
+    # ---- registry successor staleness (OBL-PKG-21, audit A5) -----------------
+    # An OPEN obligation whose successor names an ALREADY-SHIPPED version is a
+    # version stamp pointing backward: the named event happened and did not
+    # discharge the row, so the cell has quietly become fiction — the stale-
+    # narrative-state class, in the registry itself (four rows aged this way
+    # across four versions before the 2026-09-13 audit caught them). Round
+    # labels ("engine round 7") are not machine-comparable and stay a review
+    # concern (the monthly audit's checklist); version tokens are checked here.
+    def _ver_tuple(v):
+        return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+    cur = _ver_tuple(str(F.get("version", "")))
+    rows, _probs = _gap_rows()
+    if rows and cur:
+        for r in rows:
+            if not r["open"]:
+                continue
+            # mention-vs-claim, uniformly: a backticked version in the cell is
+            # history being cited, not the successor being claimed.
+            succ = _mask_inline_code(r.get("successor") or "")
+            for vm in re.finditer(r"\bv([0-9]+\.[0-9]+(?:\.[0-9]+)?)", succ):
+                if _ver_tuple(vm.group(1)) <= cur:
+                    msgs.append("open row %s: successor names v%s, at or before the current "
+                                "v%s — that release shipped without discharging the row, so "
+                                "the successor is fiction; refresh the cell to the real "
+                                "successor (OBL-PKG-21)"
+                                % (r["id_plain"], vm.group(1), F.get("version")))
+                    break
     return (len(msgs) == 0), msgs
 
 

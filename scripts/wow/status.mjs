@@ -387,6 +387,12 @@ out.push('');
 
 out.push(B('Installation'));
 const i = data.install;
+// A6 (audit 2026-09-13): pilots ran v0.6.1 for four releases and every finding
+// they filed was against dead code — nothing in their daily loop ever showed
+// the installed version, let alone that a newer one existed. This line cannot
+// know what upstream has, but it makes the installed version and the check
+// command impossible to not see.
+out.push(`  engine v${F.version} installed — newer? run install.sh --check from a clone of the package repo`);
 if (i.missing.length === 0) out.push(`  complete — ${i.gates} gates, all with negative tests`);
 else out.push(`  INCOMPLETE — missing: ${i.missing.join(', ')}`);
 if (i.untested.length) out.push(`  gates with NO negative test (inert-gate risk): ${i.untested.join(', ')}`);

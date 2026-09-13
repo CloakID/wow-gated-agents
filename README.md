@@ -32,7 +32,9 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 
 A pre-push self-audit of the v0.6.0→v0.7.1 trend ([docs/reviews/](docs/reviews/)) then forced a remediation half-round before release: the run-id grammar's diagnostics now *derive* from the named-parts anatomy instead of restating it, table rows are admitted by table membership (a bare or mangled task id beside valid siblings was previously invisible, its verify unread), the obligation escrow reads status by column header, and two overclaims in this very release's prose were corrected. Two structural obligations (shared parse layer OBL-PKG-20, registry self-staleness OBL-PKG-21) are registered, half of the first already landed.
 
-The suite is at **281 assertions**, every fix mutation-proven (11 mutations this version, each killed by exactly its own tests — one of which caught a live restatement before ship).
+The audit is now an institution: a monthly trend audit is a standing registry obligation (OBL-PKG-22), the recurring defect families are per-release checks in [CONTRIBUTING.md](CONTRIBUTING.md) §Release quality, parity fails registry rows whose successors name shipped versions, and `status.mjs` shows the installed engine version so a consumer can no longer run four versions behind without seeing it.
+
+The suite is at **285 assertions**, every fix mutation-proven (13 mutations this version, each killed by exactly its own tests — one caught a live restatement before ship, another its own check's first blind spot).
 
 ## What's new in v0.7.0-draft
 
