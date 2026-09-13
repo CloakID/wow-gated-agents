@@ -17,7 +17,17 @@ import { join, dirname, isAbsolute, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const F = JSON.parse(readFileSync(join(HERE, 'formats.json'), 'utf8'));
+const F = (() => {
+  // F-46/F-39 (v0.7.1): {run_core} and {task_tail} are the single source of
+  // the run-id grammar, expanded identically by both engines at load.
+  const raw = JSON.parse(readFileSync(join(HERE, 'formats.json'), 'utf8'));
+  const core = raw.ids.run_core, tail = raw.ids.task_tail;
+  const walk = (n) => typeof n === 'string' ? n.split('{run_core}').join(core).split('{task_tail}').join(tail)
+    : Array.isArray(n) ? n.map(walk)
+    : (n && typeof n === 'object') ? Object.fromEntries(Object.entries(n).map(([k, v]) => [k, walk(v)]))
+    : n;
+  return walk(raw);
+})();
 const P = F.paths;
 
 let ROOT = HERE;

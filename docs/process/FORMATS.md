@@ -1,12 +1,12 @@
-# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.7.0
+# FORMATS — naming, labels, evidence, status (human view) — DRAFT v0.7.1
 
 > **[ALL AUDIENCES]** Semantics and examples live here. Authoritative regexes/vocabulary/schemas live in `scripts/wow/formats.json` (single machine home; **both** gates.sh and status.mjs consume it — plan schema, report rows, REQUIREMENTS rows, runs/ layout, REQ↔run mapping included). If this file and formats.json disagree, formats.json wins and the disagreement is a defect.
 
 ## 1. Identifiers & naming
 
 - **Spec:** `docs/spec/SPEC-<feature>-v<N>.md`, feature = kebab, ≤24 chars. Version bumps only at G4.
-- **Main-lane run:** `runs/<YYMMDD>-<slug>-r<N>/` — slug = spec feature; `r<N>` = iteration. Example: `runs/260812-user-auth-r1/`.
-- **Unit / task:** `U<n>` · `<run-id>.T<nn>` (e.g. `260812-user-auth-r1.T04`).
+- **Main-lane run:** `runs/<YYMMDD>-<slug>-r<N>/` — slug = spec feature (audit/fix/probe runs may carry a longer descriptive slug); `r<N>` = iteration. Example: `runs/260812-user-auth-r1/`. Slug cap: **48 chars** (v0.7.1, F-46 — the old cap of 24 was hit by a real brownfield slug and surfaced as "trailer missing" five gates later). The run id has ONE definition — `ids.run_core` in formats.json — and every derived shape (task ids, CV ids, branch names, commit trailers) is expanded from it at load by both engines; the cap can never again be restated inconsistently. **Check the id at run open:** `scripts/wow/gates.sh check-id <run-id>` refuses an inexpressible id before any artifact is signed against it.
+- **Unit / task:** `U<n>` · `<run-id>.T<nn>` with an **optional letter suffix** `T<nn>[a-z]` for a task split mid-run (v0.7.1, F-39: `T07a` is a legal task id, resolvable by a `[T:]` trailer — before this, a split task was real work with an uncommittable id). Example: `260812-user-auth-r1.T04`.
 - **Cross-phase stable IDs (unit-scoped; survive P3→P4→SPEC vN+1):** deviations `DEV-U<n>-<nn>` · parks `PARK-U<n>-<nn>` · verifier findings `VF-U<n>-<nn>` · plan defects `DEF-plan-<nn>` · cannot-validate `CV-<run-id>-U<n>-<nn>` (v0.6.3, F-17: the unit segment IS the allocator — unit membership partitions the number space, so parallel verifiers in fresh contexts cannot collide; the legacy run-scoped form without `U<n>` stays valid for existing records) · plan amendments `AM-<nn>` (v0.6.3, F-29: date, decider, what changed, whether it widens scope — a signed artifact modified after signing carries at least one, checked by GATE-9).
 - **Branches:** `wow/<run-id>/base` (run base) · `wow/<run-id>/U<n>` (one per unit) · `wow/<run-id>/int` (integration). Merge rules in P3 — executors never merge/rebase/push shared branches.
 - **Quick:** `runs/quick/<YYMMDD>-<slug>/NOTE.md`. **Debug:** `runs/debug/<slug>.md` → `resolved/`.
@@ -24,6 +24,8 @@ Apply to load-bearing claims in specs and reports; quality is a review judgment.
 Format: `ev:<type>{<locator>}`:
 - `ev:cmd{<command> => <exit|summary> @<ISO8601>}` · `ev:file{<path>#<anchor>}` (content anchors preferred; `file:line` must pass GATE-5) · `ev:commit{<sha≥7>}` · `ev:jira{<KEY-123>}` · `ev:url{<https://…>}` · `ev:attest{<who>: <claim> @<ISO8601>}` (v0.6.3, F-27: evidence for a task placed with a human IS a person's decision — 'the operator read one row and declined the next statement' has no command to cite, and dressing it as ev:cmd records a human decision in a shell command's grammar). **Reference ids in report rows are written bare** (v0.6.4, F-32): backticked ids are mentions (v0.6.1) and satisfy no reference rule — the markdown habit of quoting ids costs a debugging cycle exactly when a row needs its reference to count. **Captured evidence is scrubbed before commit** (v0.6.4, PII): a capture holding third-party personal data is trimmed at capture time with the trim RECORDED (a declared trim is honest; a silent one is the defect the capture-whole rule forbids) — GATE-14 refuses the commit otherwise. **An `ev:` token whose kind is outside this set is a GATE-3 failure** — previously a malformed known kind failed loudly while an invented kind was silently not-a-citation, and the invented kind is the author who believes they are complying.
 **Enforced rule (GATE-3):** any row/claim using an evidence-required status token (§4: `COMPLETED`, `FAILED`) or *done / verified / deployed / fixed* as a status carries an `ev:` citation in the same row/sentence — and the citation must match its own type's shape above. `ev:cmd{it worked}` is not a citation; `ev:cmd{pytest -q => 0 @2026-08-14}` is. Reference-class statuses (`BLOCKED`/`PARKED`/`DEFERRED`) carry their §4 reference in the same row: an `ev:` citation or a stable id (`PARK-U2-01`, `DEV-U1-03`, `VF-…`, `DEF-plan-…`, `CV-…`); the row's own subject id does not count as a reference to anything. Nothing else is citation-gated.
+
+**What GATE-3 proves — and what it cannot** (v0.7.1, F-43): the gate proves a citation's **form**, never its truth — a fabricated `ev:cmd{pytest -q => 0 @…}` is well-formed by construction, and a well-formed lie passes every format check ever written. Truth enters through exactly one door: **the verifier re-runs the cited command** and compares. So executors **paste actual command output** into their report (fenced, as a mention) next to the `ev:cmd` claim — a paste costs nothing when the run was real and is exactly what a fabricator cannot produce consistently; a report whose citations have no pasted output is the verifier's cue to re-run everything, not a format violation. The engine half (sampled re-execution / output digests) is registered as OBL-PKG-19 — until it lands, this is a review rule, and the P3 verifier brief says so.
 
 The body admits **one level of balanced braces** (v0.6.2, frisbii braces finding) — awk action blocks, jq object construction and regex quantifiers are citable. Deeper nesting cannot be expressed, and GATE-3 says exactly that rather than calling the citation malformed. Anything in inline code (backticks) is a **mention, not a claim** (v0.6.1): never flagged, never satisfying — so prose *about* this format is safe to write.
 
@@ -56,7 +58,7 @@ verified_against: <git sha>
 paths: ["src/auth/**", "helm/auth/**"]
 ---
 ```
-**Fresh ⇔ `git log <verified_against>..HEAD -- <paths>` is empty.** No calendar component. Stale map + main-lane work in the area ⇒ P0 required.
+**Fresh ⇔ `git diff --quiet <verified_against> HEAD -- <paths>` — the CONTENT under the mapped paths is unchanged** (v0.7.1, F-45; previously "commits touching the paths" — a merge ripple, a revert pair, or a formatting-only commit chain flagged maps stale whose subject matter had not moved, and a gate that cries stale gets its P0 skipped). Commits that touch the paths but leave the tree identical are reported as informational, not stale. No calendar component. Stale map + main-lane work in the area ⇒ P0 required.
 
 **Plan linkage:** unit plans declare an `areas:` list naming the codebase areas the unit touches — that is GATE-6(a)'s input. Without it the gate depends on the operator remembering `--area`, and a gate that only runs when someone remembers a flag is not a gate.
 
@@ -90,6 +92,8 @@ Expected-consistent pairs (out-of-mapping = divergence → classify, never silen
 | COMPLETED (ev) | In Review / Accepted / Done |
 | FAILED / BLOCKED / PARKED | In Progress / Blocked |
 | DEFERRED | Deferred / Backlog |
+
+**Shared-project scope** (v0.7.1, F-42): a repo whose Jira project hosts more than this repo's work sets `jira.scope` in `wow.config.json` — a JQL fragment (e.g. `component = platform` or `labels = cloakid-platform`) ANDed into every query the mapping runs. Without it, GATE-10 diffs against every ticket in a shared project and drowns real divergences in other teams' noise; with it, the scope is a declared, versioned fact rather than a habit of whoever runs the gate.
 
 Divergence classification at gate open: **git wrong** (update git, cite) · **Jira wrong** (transition Jira, cite) · **real gap** (actionable item → P4 classification). Sign-off records: Jira transition is authoritative; the governing git artifact mirrors it as `signed: <date> ev:jira{KEY-nn}` (GATE-9).
 

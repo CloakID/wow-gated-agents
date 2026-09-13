@@ -21,6 +21,17 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.7.1-draft
+
+**Both-pilot feedback round on v0.7.0** (platform F-38…F-46 + two addenda) — with a meta-finding: every submission targeted v0.6.1, because neither pilot had upgraded; three findings were fixed before they were written. If you consume this package, upgrade — the -draft drop clock only starts when a pilot cycle actually runs the current line.
+
+- **The run id has one definition** (F-46/F-39): every derived shape — task ids, CV ids, branches, trailers — expands from `ids.run_core` at load in both engines. Slug cap raised to **48**; task ids admit a letter suffix (`T07a`) so a mid-run split is committable; `gates.sh check-id` refuses an inexpressible id at run open; GATE-1 diagnoses a trailer-shaped token that resolves to nothing instead of saying "missing lane ref".
+- **Registry rows can't silently lose columns** (F-44): an unescaped `|` in a cell used to truncate the row under zip(); the parser now demands exact cell count and names the pipe.
+- **Map freshness is content-based** (F-45): `git diff`, not `git log` — merge ripples and revert pairs no longer cry stale, because a gate that cries stale gets its P0 skipped.
+- **Verdict comparisons are sayable** (F-41), **citations prove form while the verifier's re-run proves truth** (F-43 — executors paste real output; the mechanical sampler is OBL-PKG-19), **AT-1 counts fixtures that survive the run** (F-40), **shared Jira projects declare their slice** (`jira.scope`, F-42), and the Bash-deny template comment stops overclaiming (F-18 addendum).
+
+The suite is at **275 assertions**, every fix mutation-proven.
+
 ## What's new in v0.7.0-draft
 
 **The blocking registry is empty for the first time.** Every remaining row in [docs/GAPS.md](docs/GAPS.md) is advisory.

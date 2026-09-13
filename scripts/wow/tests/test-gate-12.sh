@@ -114,4 +114,23 @@ $HDR
 | \`D-DEFERRED-03\` | Postgres KB, PLAT-M3-10..13 |
 G
 assert_accepts "backticked ids in a second table are mentions (control)" "$FIX" gate-12 --kind feature
+
+# ---- F-44 (v0.7.1): a row with MORE cells than the schema is refused --------
+# zip() silently discarded every cell past the seventh: an unescaped pipe in a
+# citation deleted the discharge column from the registry the gates read while
+# the rendered file still showed it.
+gaps << G
+$HDR
+| OBL-T-50 | impl_gap | m | blocks-new-feature-work | run | lands | ev:cmd{kubectl get pods | grep -c Running => 3 @2026-09-12} |
+G
+assert_rejects "unescaped pipe splits the row — refused naming the pipe (F-44)" "$FIX" \
+  "unescaped" gate-12 --kind feature
+# Control: the escaped form is the same citation, and the row (including its
+# blocking effect) is read whole.
+gaps << G
+$HDR
+| OBL-T-50 | impl_gap | m | blocks-new-feature-work | run | lands | ev:cmd{kubectl get pods \| grep -c Running => 3 @2026-09-12} |
+G
+assert_rejects "escaped pipe: the row parses WHOLE and still blocks (F-44 control)" "$FIX" \
+  "open blocks-new-feature-work obligation(s): OBL-T-50" gate-12 --kind feature
 finish

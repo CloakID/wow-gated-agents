@@ -36,6 +36,27 @@ def repo_root():
 
 ROOT = repo_root()
 F = json.load(open(os.path.join(HERE, "formats.json")))
+
+
+def _expand_run_core(node, subs):
+    """F-46/F-39 (v0.7.1): {run_core} (and the {task_tail} it carries) is the
+    ONE source of the run-id grammar; every pattern that embeds it derives
+    from it here, at load — the same keys, expanded identically by gates.py
+    and status.mjs, so a widening of the slug cap or the task tail can never
+    silently narrow a sibling."""
+    if isinstance(node, dict):
+        return {k: _expand_run_core(v, subs) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_expand_run_core(v, subs) for v in node]
+    if isinstance(node, str):
+        for key, val in subs:
+            node = node.replace(key, val)
+        return node
+    return node
+
+
+F = _expand_run_core(F, [("{run_core}", F["ids"]["run_core"]),
+                         ("{task_tail}", F["ids"]["task_tail"])])
 P = F["paths"]
 
 
@@ -238,6 +259,30 @@ def gate_1(msgfile):
         for m in re.finditer(spec["pattern"], scan):
             hits.append((name, m.group(1)))
     if len(hits) == 0:
+        # F-46/F-39 (v0.7.1): "no lane reference" about a lane reference the
+        # operator HAD written cost days of misdiagnosis. A trailer-shaped
+        # token that resolves to no pattern gets the real cause named.
+        shaped = re.findall(r"\[(?:T|Q|D|WOW)[^\]]*\]", scan)
+        if shaped:
+            hints = []
+            for tok in shaped[:3]:
+                inner = tok[1:-1].split(":", 1)[-1]
+                run_part = inner.split(".")[0]
+                m = re.match(r"^[0-9]{6}-([a-z0-9-]+)-r[0-9]+", run_part)
+                if tok.startswith("[T:") and m and not re.match(F["ids"]["run"], run_part):
+                    slug = m.group(1)
+                    if len(slug) > 48:
+                        hints.append("%s: run id fails ids.run — slug '%s' is %d chars (cap 48)"
+                                     % (tok, slug, len(slug)))
+                    else:
+                        hints.append("%s: run id fails ids.run (shape, not length)" % tok)
+                elif tok.startswith("[T:") and "." in inner \
+                        and not re.match(F["ids"]["task"], inner):
+                    hints.append("%s: task tail must be .T<nn> or .T<nn><letter> (ids.task)" % tok)
+                else:
+                    hints.append("%s matches no trailer kind" % tok)
+            return False, ["trailer-shaped token present but it resolves to NO pattern — this "
+                           "is not a missing lane ref (F-46/F-39): " + "; ".join(hints)]
         return False, ["no lane reference. Expected exactly one of "
                        "[T:<task-id>] [Q:runs/quick/<dir>] [D:<debug-slug>] [WOW:publish] (or [WOW:migrate] mid-migration)"]
     if len(hits) > 1:
@@ -588,6 +633,17 @@ def gate_3(paths=None):
                        "citation splits the table cell, and an invalid shape satisfies nothing; "
                        "see FORMATS §3)")
             for c in checked:
+                # F-41 (v0.6.1's mention-vs-claim rule, applied to the third
+                # place that lacked it): a backtick-wrapped cell in a
+                # checked-in-full table is a MENTION — a verdict-comparison
+                # table must be able to say `PASS` about the thing it reports
+                # on. A Status/Grade COLUMN's content stays a claim by
+                # position (status_idx/verdict_idx paths), so there is no
+                # evasion route for real statuses.
+                raw = c.strip()
+                if status_idx is None and len(raw) > 1 \
+                        and raw.startswith("`") and raw.endswith("`"):
+                    continue
                 bare = re.sub(sv["cell_decoration"], "", c).strip()
                 if not bare:
                     continue
@@ -1046,11 +1102,19 @@ def _area_fresh(area, run_id):
         return False, ("map '%s' verified_against %r is not a commit this repo can resolve — "
                        "the freshness check cannot run, and that is not fresh (F-12)"
                        % (area, fm["verified_against"]))
+    # F-45 (v0.7.1): the verdict follows the DIFF, not the commit list — a
+    # content-neutral merge (normal at every run's end) made a fresh map
+    # report stale, and a grounding phase whose delta is routinely nothing
+    # teaches its reader that the stamp is a formality. Commits still inform
+    # the message; only content decides.
+    clean = git("diff", "--quiet", fm["verified_against"], "HEAD", "--", *paths, rc=True)
     out = git("log", "--oneline", "%s..HEAD" % fm["verified_against"], "--", *paths)
-    if out.strip():
-        n = len(out.strip().split("\n"))
-        return False, "map '%s' is STALE: %d commit(s) touch %s since %s" % (
-            area, n, paths, fm["verified_against"])
+    n = len(out.strip().split("\n")) if out.strip() else 0
+    if not clean:
+        return False, "map '%s' is STALE: content under %s differs since %s (%d commit(s))" % (
+            area, paths, fm["verified_against"], n)
+    if n:
+        return True, "map '%s' is fresh (%d commit(s) touch its paths but the tree is "                      "unchanged — F-45)" % (area, n)
     return True, "map '%s' is fresh" % area
 
 
@@ -1114,6 +1178,16 @@ def _gap_rows():
         if not re.match(gr["row_start"], ln):
             continue
         cells = _cells(ln)
+        if len(cells) > len(gr["columns"]):
+            # F-44 (v0.7.1): zip() silently DISCARDED every cell past the
+            # seventh — an unescaped pipe in a citation deleted evidence from
+            # the registry the gates read, while the rendered file still
+            # showed it. Too-many is as loud as too-few.
+            problems.append("gap row has %d cells, schema needs exactly %d: %s — an unescaped "
+                            "'|' inside a cell (a pipe in an ev:cmd?) splits the row; escape it "
+                            "as \\| so the evidence survives (F-44)"
+                            % (len(cells), len(gr["columns"]), cells[0] if cells else ln[:40]))
+            continue
         if len(cells) < len(gr["columns"]):
             problems.append("gap row has %d cells, schema needs %d: %s — note %s holds exactly "
                             "ONE table (FORMATS §12): any table whose first cell is id-shaped is "
@@ -1702,6 +1776,16 @@ def gate_8(run_id):
                 msgs.append("%s owns '%s' under reports/ but it is not an AGENT-writable path "
                             "(%s) — FORMATS §9" % (u["id"], g, ", ".join(ps["agent_writable_paths"])))
         for t in u["tasks"]:
+            # F-39 fix 3 (v0.7.1): a row admitted with an id the trailer
+            # grammar cannot express is a task that can never be committed —
+            # refused at G2 (an edit) instead of at the first commit (a wave).
+            tid = (t.get("id") or "").strip().strip("`")
+            if tid and re.search(r"\.T[0-9A-Za-z]", tid) \
+                    and not re.match(F["ids"]["task"], tid):
+                msgs.append("%s task id %r cannot be expressed as a [T:] trailer — the legal "
+                            "form is <run-id>.T<nn> with an optional letter suffix (ids.task); "
+                            "signed against this id, the task is uncommittable (F-39)"
+                            % (u["id"], tid))
             # F-18 (v0.6.4): a row whose cell count disagrees with its header
             # parses into a DIFFERENT table than the one written, and every
             # later message then blames the wrong cell. Name the real cause.
@@ -2182,6 +2266,26 @@ def main(argv):
         return 0
     if cmd == "sweep":
         return sweep(args)
+    if cmd == "check-id":
+        # F-46 (v0.7.1): validate the run id WHERE THE RUN IS CREATED (P1),
+        # not where it is first referenced — a 27-char slug passed P0→G2 and
+        # then no executor commit could carry a legal lane ref, days later.
+        rid = args[0] if args else ""
+        if not rid:
+            print("usage: gates.sh check-id <run-id>", file=sys.stderr)
+            return 1
+        if re.match(F["ids"]["run"], rid):
+            print("ok: %r matches ids.run" % rid)
+            return 0
+        m = re.match(r"^[0-9]{6}-(.+)-r[0-9]+$", rid)
+        if m and len(m.group(1)) > 48:
+            print("REFUSED: slug %r is %d chars; ids.run caps it at 48 — rename before any "
+                  "artifact is signed against this id (F-46)" % (m.group(1), len(m.group(1))),
+                  file=sys.stderr)
+        else:
+            print("REFUSED: %r does not match ids.run (%s) — YYMMDD-<kebab-slug>-r<N>"
+                  % (rid, F["ids"]["run"]), file=sys.stderr)
+        return 1
     ok, msgs = run_gate(cmd, args)
     if not ok:
         for m in msgs:

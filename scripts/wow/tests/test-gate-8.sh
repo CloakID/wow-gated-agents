@@ -394,4 +394,63 @@ autonomy: decide-and-log
 P
 assert_accepts "escaped pipe is cell content — a Verify may carry a pipeline (F-18)" "$FIX" \
   gate-8 --run 260813-x-r1
+
+# ---- F-39 (v0.7.1): a task id the trailer grammar cannot express is refused
+# at G2 — an edit — not at the first commit, a wave later. `T012` contains a
+# legal task id as a substring (so the row IS parsed), but no [T:] trailer can
+# ever carry it.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T012 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T012 |
+| AC-2 | 260813-x-r1.T012 |
+P
+assert_rejects "task id the trailer grammar cannot express (F-39)" "$FIX" \
+  "cannot be expressed as a [T:] trailer" gate-8 --run 260813-x-r1
+
+# Control: the letter-suffix form is exactly what a mid-run split needs, and it
+# is now legal — refusing it would re-create the finding the fix answers.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T07 | do a | `pytest a` | works |
+| 260813-x-r1.T07a | split half | `pytest a2` | split works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T07 |
+| AC-2 | 260813-x-r1.T07a |
+P
+assert_accepts "letter-suffix task id is committable and legal (F-39 control)" "$FIX" \
+  gate-8 --run 260813-x-r1
 finish

@@ -115,4 +115,80 @@ printf 'P1 spec signed at G1 [T:260813-real-r1]\n' > "$FIX/msg-barerun"
 assert_accepts "bare [T:<run-id>] resolves to the run directory" "$FIX" gate-1 msg-barerun
 printf 'P1 spec [T:260899-ghost-r1]\n' > "$FIX/msg-barerun-ghost"
 assert_rejects "bare run form still requires the directory to exist" "$FIX" "does not exist" gate-1 msg-barerun-ghost
+
+# ---- F-46/F-39 (v0.7.1): a zero-hit message with a trailer-SHAPED token is
+# diagnosed with the real cause, never reported as "no lane reference" — that
+# message about a reference the operator HAD written cost a full cycle.
+SLUG49="$(printf 'a%.0s' {1..49})"
+SLUG48="$(printf 'a%.0s' {1..48})"
+printf 'Work [T:260913-%s-r1.T01]\n' "$SLUG49" > "$FIX/msg-longslug"
+assert_rejects "over-cap slug named as the cause, not 'missing lane ref' (F-46)" "$FIX" \
+  "cap 48" gate-1 msg-longslug
+printf 'Work [T:260813-real-r1.T1]\n' > "$FIX/msg-badtail"
+assert_rejects "inexpressible task tail named as the cause (F-39)" "$FIX" \
+  "task tail must be .T<nn>" gate-1 msg-badtail
+# The laneless control still says exactly that — the diagnosis must not replace
+# the plain message when no trailer-shaped token exists.
+assert_rejects "genuinely laneless message keeps the plain error (F-46 control)" "$FIX" \
+  "no lane reference" gate-1 msg-none
+
+# 48 chars is the cap, not past it: a maximal slug works END TO END — plan row,
+# task trailer, bare run trailer.
+RID48="260913-$SLUG48-r1"
+mkdir -p "$FIX/runs/$RID48"
+cat > "$FIX/runs/$RID48/PLAN.md" <<P
+# PLAN — $RID48
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| $RID48.T01 | do a | \`pytest a\` | a works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | $RID48.T01 |
+P
+printf 'Work [T:%s.T01]\n' "$RID48" > "$FIX/msg-slug48"
+assert_accepts "48-char slug task trailer resolves (F-46 boundary)" "$FIX" gate-1 msg-slug48
+printf 'P1 spec [T:%s]\n' "$RID48" > "$FIX/msg-slug48-bare"
+assert_accepts "48-char slug bare run trailer resolves (F-46 boundary)" "$FIX" gate-1 msg-slug48-bare
+
+# ---- F-39 (v0.7.1): the letter-suffix task id resolves end to end -----------
+plan <<'P'
+# PLAN — 260813-real-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-real-r1.T07 | do a | `pytest a` | a works |
+| 260813-real-r1.T07a | split half | `pytest a2` | split works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-real-r1.T07a |
+P
+printf 'Split work [T:260813-real-r1.T07a]\n' > "$FIX/msg-suffix"
+assert_accepts "letter-suffix trailer resolves to its plan row (F-39)" "$FIX" gate-1 msg-suffix
+
+# ---- check-id (v0.7.1, F-46): refuse an inexpressible run id at run OPEN ----
+assert_accepts "check-id: legal run id" "$FIX" check-id 260913-user-auth-r1
+assert_accepts "check-id: 48-char slug is within the cap" "$FIX" check-id "$RID48"
+assert_rejects "check-id: 49-char slug refused naming the cap" "$FIX" "caps it at 48" \
+  check-id "260913-$SLUG49-r1"
+assert_rejects "check-id: shapeless id refused naming ids.run" "$FIX" "does not match ids.run" \
+  check-id "sprint-7-work"
 finish

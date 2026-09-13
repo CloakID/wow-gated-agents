@@ -1,6 +1,6 @@
 {
   "$comment": "Designed permission policy TEMPLATE. Seeded ONCE by install.sh (F-06, v0.6.3) and then repo-owned: which commands a repo's verify steps may run is repo-local truth (a k8s platform needs kubectl, a Java service gradle). P5's regeneration of .claude/settings.local.json from this file is a REVIEWED MERGE, not a wipe — see P5 step 5 and INSTALL.md.",
-  "version": "0.6.3-draft",
+  "version": "0.7.1-draft",
   "permissions": {
     "allow": [
       "Bash(git status:*)",
@@ -43,6 +43,6 @@
     ],
     "ask": []
   },
-  "$deny_comment": "Push is deny-by-default: P3 forbids executors pushing shared branches, and only the ORCH merges. Credential denies select by LOCATION and DATA TYPE (secrets/**, key material extensions, .env) — not by name substring: '*secret*' also blocked docs/runbooks/secrets-inventory.md and sealed-secrets.md, the two documents an incident responder most needs, and that read-deny became an input to an irreversible data decision (F-24). Writes are denied alongside reads: an agent writing an inventory it cannot read is a blind append (F-24). HONEST SCOPE (F-18): these are Read/Write TOOL-CALL globs matched against the command's named path, not against the files a command touches — a recursive grep rooted broadly descends into denied paths anyway, and credentials living OUTSIDE the repo (cluster Secrets) are wholly out of scope. This buys transcript hygiene against careless commands, not containment; do not design around it as a boundary.",
+  "$deny_comment": "Push is deny-by-default: P3 forbids executors pushing shared branches, and only the ORCH merges. Credential denies select by LOCATION and DATA TYPE (secrets/**, key material extensions, .env) — not by name substring: '*secret*' also blocked docs/runbooks/secrets-inventory.md and sealed-secrets.md, the two documents an incident responder most needs, and that read-deny became an input to an irreversible data decision (F-24). Writes are denied alongside reads: an agent writing an inventory it cannot read is a blind append (F-24). HONEST SCOPE (F-18): these are Read/Write TOOL-CALL globs matched against the command's named path, not against the files a command touches — a recursive grep rooted broadly descends into denied paths anyway, and credentials living OUTSIDE the repo (cluster Secrets) are wholly out of scope. This buys transcript hygiene against careless commands, not containment; do not design around it as a boundary. The same honesty holds for the Bash denies (F-18 addendum, v0.7.1): a Bash() glob matches the command STRING AS SPELLED — 'git push' is denied, while 'git -C . push', an alias, a wrapper script, or a rearranged spelling walks past it. The real push controls are the P3 contract (only the ORCH merges) and the hooks; these globs catch the careless spelling, not the determined one.",
   "$allow_comment": "Reads are repo-relative on purpose. The previous policy shipped Read(//Users/**): macOS-only (Linux and WSL have no /Users), and broad enough to read every other repo on the machine, which quietly defeated the credential denies below."
 }

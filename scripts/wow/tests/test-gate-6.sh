@@ -289,4 +289,36 @@ paths: [src2/a.py]
 # map
 D
 assert_rejects "unresolvable verified_against cannot report fresh (F-12)" "$FIX" "not a commit this repo can resolve" gate-6 --area blockmap
+
+# ---- F-45 (v0.7.1): freshness follows CONTENT, not the commit list ----------
+# A change-then-revert pair (the shape every content-neutral merge takes) left
+# the tree identical while `git log` counted two commits — the map reported
+# stale, every run's end flagged every map, and a gate that cries stale gets
+# its P0 skipped.
+mkdir -p "$FIX/src3"
+printf 'stable\n' > "$FIX/src3/core.py"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "src3 [WOW:publish]" )
+SHA3="$( cd "$FIX" && git rev-parse HEAD )"
+cat > "$FIX/docs/codebase/neutral.md" <<D
+---
+area: neutral
+verified_against: $SHA3
+paths: [src3/core.py]
+---
+# map
+D
+printf 'edited\n' > "$FIX/src3/core.py"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "edit [WOW:publish]" )
+printf 'stable\n' > "$FIX/src3/core.py"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "revert [WOW:publish]" )
+assert_accepts "commits touch the paths but the tree is unchanged — fresh (F-45)" "$FIX" \
+  gate-6 --area neutral
+assert_output "the neutral commits are reported, not hidden (F-45)" "$FIX" "tree is unchanged" \
+  gate-6 --area neutral
+# Control: a REAL content change is still stale — the fix must not have turned
+# the gate off.
+printf 'moved on\n' > "$FIX/src3/core.py"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "real change [WOW:publish]" )
+assert_rejects "real content change is STALE, naming content (F-45 control)" "$FIX" \
+  "content under" gate-6 --area neutral
 finish

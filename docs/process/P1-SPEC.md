@@ -1,10 +1,10 @@
-# P1 — SPEC — DRAFT v0.6.4
+# P1 — SPEC — DRAFT v0.7.1
 Entry: `/wow-spec <feature>` · Output: `docs/spec/SPEC-<feature>-v1.md` (durable) · Gate: **G1 (PO sign-off)** → Jira epic.
 Load: prior spec version (if any), `docs/REQUIREMENTS.md`, `docs/GAPS.md`, `docs/codebase/<area>.md`, open ADRs. Nothing else.
 
 **Declare the requirement set** (v0.6.4, F-17): the spec header carries `requirements: <id, id, …>` — the declaration IS GATE-2's obligation set, so a range or prose reference elsewhere neither exempts nor accidentally adopts a row. **If this spec reads objects the run did not create** (v0.6.4, PII: a deliberately widened scope is the trigger): ask at G1, where the answer is cheap — *whose data are they, and may the capture be committed?* Record the answer; GATE-14 enforces the default (no) at commit time.
 
-**Committing P1 artifacts (v0.6.3, F-08):** create `runs/<run-id>/` at P1 entry and commit the spec, HANDOFF and divergence record under the bare lane form `[T:<run-id>]` — the artifact a PO signs at G1 is in git history at the moment of signing, not a working-tree file waiting for a plan to borrow a task id from.
+**Committing P1 artifacts (v0.6.3, F-08):** create `runs/<run-id>/` at P1 entry — **and validate the id first**: `scripts/wow/gates.sh check-id <run-id>` (v0.7.1, F-46 — an id the trailer grammar cannot express is refused HERE, before any artifact is signed against it, not five gates later as "trailer missing"). Then commit the spec, HANDOFF and divergence record under the bare lane form `[T:<run-id>]` — the artifact a PO signs at G1 is in git history at the moment of signing, not a working-tree file waiting for a plan to borrow a task id from.
 
 ## [ORCH] — step 0: the obligation gate (review FR-4 — a gate nothing calls is inert)
 Classify the spec's kind — feature | audit | fix | probe — a judgment call (GATES-SPEC not-gates list), then run `scripts/wow/gates.sh gate-12 --kind <kind> [--ref OBL-…]` before eliciting anything. A refusal ends the session here: the registry says what must happen first. Record the invocation and result as `ev:cmd` in the spec header.

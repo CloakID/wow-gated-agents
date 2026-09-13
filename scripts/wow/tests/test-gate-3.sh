@@ -117,4 +117,23 @@ assert_accepts "status + citation / + reference in one cell stay legal (F-14 con
 # ---- F-20 residual: bare FAIL outside a verdict column is caught, with a map -
 printf '| T01 | task went | FAIL | |\n' > "$FIX/docs/r-fail-loose.md"
 assert_rejects "bare FAIL outside a Grade/Verdict column" "$FIX" "Grade/Verdict header" gate-3 --paths docs/r-fail-loose.md
+
+# ---- F-41 (v0.7.1): a backticked cell in a checked-in-full table is a mention
+# The run's most important comparison — "executor wrote COMPLETED, verifier
+# graded FAIL" — was unwritable in any scanned doc: a verdict-comparison table
+# has no Status header, so every cell was checked, and the quoted words read
+# as forbidden synonyms.
+printf '| 260813-x-r1.T04 | executor wrote | \x60COMPLETED\x60 | verifier graded | \x60FAIL\x60 |\n' > "$FIX/docs/r-vcomp.md"
+assert_accepts "verdict-comparison table with backticked statuses is sayable (F-41)" "$FIX" \
+  gate-3 --paths docs/r-vcomp.md
+# Control 1: a Status COLUMN keeps claims-by-position — a backticked status
+# cannot green a real row.
+printf '| Task | Status | Notes |\n|---|---|---|\n| T01 | \x60COMPLETED\x60 | no ev anywhere |\n' > "$FIX/docs/r-vcomp-status.md"
+assert_rejects "backticked status in a Status column is still a claim (F-41 control)" "$FIX" \
+  "without an ev: citation" gate-3 --paths docs/r-vcomp-status.md
+# Control 2: an UNbackticked status in a headerless table is still checked —
+# the mention rule must not have opened a hole for real rows.
+printf '| T09 | COMPLETED | no citation |\n' > "$FIX/docs/r-vcomp-bare.md"
+assert_rejects "bare status in a headerless table is still a claim (F-41 control)" "$FIX" \
+  "without an ev: citation" gate-3 --paths docs/r-vcomp-bare.md
 finish

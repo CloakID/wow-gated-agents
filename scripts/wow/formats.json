@@ -1,15 +1,15 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.0-draft",
+  "version": "0.7.1-draft",
   "ids": {
-    "run": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*$",
+    "run": "^{run_core}$",
     "unit": "^U[1-9][0-9]*$",
-    "task": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*\\.T[0-9]{2}$",
+    "task": "^{run_core}{task_tail}$",
     "deviation": "^DEV-U[1-9][0-9]*-[0-9]{2}$",
     "park": "^PARK-U[1-9][0-9]*-[0-9]{2}$",
     "verifier_finding": "^VF-U[1-9][0-9]*-[0-9]{2}$",
     "plan_defect": "^DEF-plan-[0-9]{2}$",
-    "cannot_validate": "^CV-[0-9]{6}-[a-z0-9-]+-r[1-9][0-9]*-(?:U[1-9][0-9]*-)?[0-9]{2}$",
+    "cannot_validate": "^CV-{run_core}-(?:U[1-9][0-9]*-)?[0-9]{2}$",
     "requirement": "^REQ-[0-9]{3}$",
     "assumption": "^A-[0-9]{2}$",
     "acceptance_criterion": "^AC-[0-9]{1,3}$",
@@ -20,7 +20,11 @@
     "obligation": "^OBL-[A-Z0-9]+-[0-9]{2}$",
     "amendment": "^AM-[0-9]{2}$",
     "cannot_validate_short": "^CV-[0-9]{2}$",
-    "$cv_short_comment": "OBL-PKG-13 (v0.7.0): the shorthand CV-<nn> is legal INSIDE its own run's artifacts and resolves to the run's full id; every durable home (GAPS.md) carries the full form — it is the id that outlives the run. The escrow resolves shorthands and demands the full row; real reports write the short form (frisbii's CV-01..05 were invisible to the long regex)."
+    "$cv_short_comment": "OBL-PKG-13 (v0.7.0): the shorthand CV-<nn> is legal INSIDE its own run's artifacts and resolves to the run's full id; every durable home (GAPS.md) carries the full form — it is the id that outlives the run. The escrow resolves shorthands and demands the full row; real reports write the short form (frisbii's CV-01..05 were invisible to the long regex).",
+    "run_core": "[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*",
+    "task_tail": "\\.T[0-9]{2}[a-z]?",
+    "$task_tail_comment": "F-39 (v0.7.1): the task-id tail is a template key like {run_core} — it was spelled twice (ids.task and the [T:] trailer), and two spellings of one grammar is the restatement class F-46 closed for the run id. Both engines expand {task_tail} at load.",
+    "$run_core_comment": "F-46/F-39 (v0.7.1): the run-id shape was restated in FOUR places (run, task, cannot_validate, the [T:] trailer) plus three branch patterns — a widening of one was a silent narrowing of another, which is exactly how a 27-char slug passed P0→G2 and then no executor commit could carry a legal lane ref. {run_core} is the single source; both engines expand it at load. Slug cap raised 24→48 (descriptive slugs are what the process asks for; the pattern is anchored, so there is no backtracking argument for 24). The task tail admits an insertion suffix T<nn>[a-z] — task rows get inserted into signed plans without renumbering, and both pilots' archives already contain T13b/T07a. Validate at run-open: gates.sh check-id <id> (P1) — the operator learns the cap before a spec is signed against the id, not at day three."
   },
   "paths": {
     "$comment": "Every repo-relative location the gates and status.mjs read. Inlining any of these in a consumer is the defect this section exists to prevent.",
@@ -43,9 +47,10 @@
     "$strip_comment": "git commit -v appends the diff below a scissors line. Counting trailers quoted in that diff produced false 'two lane references' rejections, so everything from the scissors line on is dropped before matching.",
     "kinds": {
       "task": {
-        "pattern": "\\[T:([0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*\\.T[0-9]{2})\\]",
+        "pattern": "\\[T:({run_core}{task_tail})\\]",
         "resolves": "task_in_plan",
-        "doc_literal": "[T:"
+        "doc_literal": "[T:",
+        "$comment": "Derived from ids.run_core + the task tail — never restated (F-39: the restated two-digit tail meant _parse_plan admitted T07a while zero trailer kinds matched it, and the operator was told 'no lane reference' about a lane reference they had written)."
       },
       "quick": {
         "pattern": "\\[Q:(runs/quick/[0-9]{6}-[a-z0-9][a-z0-9-]*)\\]",
@@ -69,7 +74,7 @@
         "doc_literal": "[WOW:migrate]"
       },
       "run": {
-        "pattern": "\\[T:([0-9]{6}-[a-z0-9][a-z0-9-]{0,23}-r[1-9][0-9]*)\\]",
+        "pattern": "\\[T:({run_core})\\]",
         "resolves": "run_dir_exists",
         "doc_literal": "[T:",
         "$comment": "F-08/F-10 (v0.6.3): P1 and P4 artifacts had no trailer that resolves — the spec a PO signs at G1 and the reconciled spec/divergence/RUN-REPORT at G4 sat outside git at the moment of signing, and the improvisation pressure (borrow a task id, fake a publish) is the class PR-4 existed to stop. The bare form [T:<run-id>] (no .Tnn suffix) resolves to the run DIRECTORY, which may exist before its plan. Phase-level artifacts of a run commit under it; task work still requires the fully-qualified form."
@@ -78,9 +83,9 @@
     "$doc_literal_comment": "PF-b: the literal an operator-facing doc must contain for this trailer to count as documented. Consumed by check_parity's reverse direction: every kind must appear in each of parity.lane_docs and one of parity.router_locations."
   },
   "branch_patterns": {
-    "base": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/base$",
-    "unit": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/U[1-9][0-9]*$",
-    "integration": "^wow/[0-9]{6}-[a-z0-9-]+-r[0-9]+/int$",
+    "base": "^wow/{run_core}/base$",
+    "unit": "^wow/{run_core}/U[1-9][0-9]*$",
+    "integration": "^wow/{run_core}/int$",
     "base_ref": "wow/{run_id}/base",
     "$base_ref_comment": "GATE-2 and GATE-5 use this to answer 'what did this run modify?': the diff from the run base to HEAD, plus the working tree. Absent base branch -> the run's own commits cannot be isolated and the modified set degrades to staged + unstaged changes.",
     "main_candidates": [
@@ -555,10 +560,11 @@
   "audit_triggers": {
     "$comment": "P4. Counters derived by status.mjs; any hit schedules an audit phase before new feature work.",
     "AT-1": {
-      "metric": "mocks_fixtures_added_this_run",
+      "metric": "mocks_fixtures_committed_this_run",
       "threshold": 3,
       "comparator": ">",
-      "derived_by": "orch"
+      "derived_by": "orch",
+      "$comment": "F-40 (v0.7.1): counts artifacts that SURVIVE the run — committed under the repo, or referenced by something that is. A falsification audit's throwaway scratch fixtures are not fixtures the next run inherits, and the old bare count fired at 90x threshold on a run that added ZERO fixtures to the codebase — hardest on exactly the class of run the trigger most wants to encourage. Created-but-destroyed counts are reported in prose if worth noting; they are never the trigger."
     },
     "AT-2": {
       "metric": "remediation_cycles_since_last_audit",
