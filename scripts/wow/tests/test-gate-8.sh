@@ -281,7 +281,64 @@ owns:
 | AC-1 | T01 |
 | AC-2 | T01 |
 P
-assert_rejects "bare task ids parse to zero tasks — loud, not healthy-looking (F-13)" "$FIX" \
+# (engine round 6, OBL-PKG-20): admission is by TABLE MEMBERSHIP now, so the
+# bare-id row is an INVALID TASK, loudly — strictly stronger than the old
+# zero-guard: the row's verify is read instead of invisible.
+assert_rejects "bare task id is an invalid task, not an invisible row (F-13/OBL-PKG-20)" "$FIX" \
+  "is not a fully-qualified task id" gate-8 --run 260813-x-r1
+
+# ...and the blind spot the audit named: a bare id NEXT TO valid siblings used
+# to escape every task rule (admission-by-grammar admitted only the valid row).
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+| T7 | stray half-id | `pytest b` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "malformed id beside valid siblings is caught (audit §5.4)" "$FIX" \
+  "is not a fully-qualified task id" gate-8 --run 260813-x-r1
+
+# The zero-guard still has a subject: a unit with NO task table at all.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+prose instead of a task table
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | none |
+| AC-2 | none |
+P
+assert_rejects "unit with no task table still hits the zero-guard (F-13)" "$FIX" \
   "ZERO parseable task" gate-8 --run 260813-x-r1
 
 # ---- F-28 (v0.6.3): normative language outside units binds nobody ----------

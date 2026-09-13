@@ -21,8 +21,11 @@ const F = (() => {
   // F-46/F-39 (v0.7.1): {run_core} and {task_tail} are the single source of
   // the run-id grammar, expanded identically by both engines at load.
   const raw = JSON.parse(readFileSync(join(HERE, 'formats.json'), 'utf8'));
-  const core = raw.ids.run_core, tail = raw.ids.task_tail;
-  const walk = (n) => typeof n === 'string' ? n.split('{run_core}').join(core).split('{task_tail}').join(tail)
+  const subs = [['{run_date}', raw.ids.run_date], ['{run_slug}', raw.ids.run_slug],
+    ['{run_iter}', raw.ids.run_iter]];
+  const sub = (str, pairs) => pairs.reduce((acc, [k, v]) => acc.split(k).join(v), str);
+  subs.push(['{run_core}', sub(raw.ids.run_core, subs)], ['{task_tail}', raw.ids.task_tail]);
+  const walk = (n) => typeof n === 'string' ? sub(n, subs)
     : Array.isArray(n) ? n.map(walk)
     : (n && typeof n === 'object') ? Object.fromEntries(Object.entries(n).map(([k, v]) => [k, walk(v)]))
     : n;

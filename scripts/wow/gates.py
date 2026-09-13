@@ -55,9 +55,42 @@ def _expand_run_core(node, subs):
     return node
 
 
-F = _expand_run_core(F, [("{run_core}", F["ids"]["run_core"]),
-                         ("{task_tail}", F["ids"]["task_tail"])])
+_parts = [("{run_date}", F["ids"]["run_date"]),
+          ("{run_slug}", F["ids"]["run_slug"]),
+          ("{run_iter}", F["ids"]["run_iter"])]
+_core = _expand_run_core(F["ids"]["run_core"], _parts)
+F = _expand_run_core(F, _parts + [("{run_core}", _core),
+                                  ("{task_tail}", F["ids"]["task_tail"])])
 P = F["paths"]
+
+_SLUG_CAP = None
+
+
+def _slug_cap():
+    """Audit A1 (engine round 6): the slug cap is DERIVED by probing ids.run_slug,
+    never restated — the diagnosis that hardcoded 'cap 48' would lie the day
+    the single source moved. Binary search the longest all-'a' slug admitted."""
+    global _SLUG_CAP
+    if _SLUG_CAP is None:
+        lo, hi = 1, 4096
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if re.fullmatch(F["ids"]["run_slug"], "a" * mid):
+                lo = mid
+            else:
+                hi = mid - 1
+        _SLUG_CAP = lo
+    return _SLUG_CAP
+
+
+def _run_anatomy(candidate):
+    """Match a run-id-SHAPED string against the anatomy with the slug length
+    relaxed — composed from the same ids.run_* parts the strict pattern uses
+    (audit A1: zero inline restatements). Returns the slug or None."""
+    relaxed = re.sub(r"\{\d+,\d+\}|\{0,\d+\}", "*", F["ids"]["run_slug"])
+    m = re.match("^%s-(%s)-%s" % (F["ids"]["run_date"], relaxed, F["ids"]["run_iter"]),
+                 candidate)
+    return m.group(1) if m else None
 
 
 def fill(tpl, **kw):
@@ -268,12 +301,12 @@ def gate_1(msgfile):
             for tok in shaped[:3]:
                 inner = tok[1:-1].split(":", 1)[-1]
                 run_part = inner.split(".")[0]
-                m = re.match(r"^[0-9]{6}-([a-z0-9-]+)-r[0-9]+", run_part)
-                if tok.startswith("[T:") and m and not re.match(F["ids"]["run"], run_part):
-                    slug = m.group(1)
-                    if len(slug) > 48:
-                        hints.append("%s: run id fails ids.run — slug '%s' is %d chars (cap 48)"
-                                     % (tok, slug, len(slug)))
+                slug = _run_anatomy(run_part)
+                if tok.startswith("[T:") and slug is not None \
+                        and not re.match(F["ids"]["run"], run_part):
+                    if len(slug) > _slug_cap():
+                        hints.append("%s: run id fails ids.run — slug '%s' is %d chars (cap %d)"
+                                     % (tok, slug, len(slug), _slug_cap()))
                     else:
                         hints.append("%s: run id fails ids.run (shape, not length)" % tok)
                 elif tok.startswith("[T:") and "." in inner \
@@ -1533,10 +1566,22 @@ def gate_7(p5=False, run_id=None):
                             "CV-%s-[U<n>-]%s — the short form is run-local; the registry "
                             "keeps the id that outlives the run (OBL-PKG-13)"
                             % (rr_rel, m.group(0), F["gap_row"]["file"], this_run, nn))
-        for ln in text.splitlines():
-            cells = _cells(ln)
-            if len(cells) >= 2 and cells[1].strip().upper().startswith("DEFERRED"):
-                rid = cells[0].strip()
+        sv = F["status_vocab"]
+        for kind, cells, colmap, _hdr in _table_scan(text.splitlines()):
+            # OBL-PKG-20 (audit §5.2): the walk read status POSITIONALLY
+            # (cells[1]) — the status-by-header rule OBL-PKG-13 was discharged
+            # on reached gate-3 but not the escrow's own walk, so a DEFERRED
+            # in any other column retired silently with the archived run.
+            # Same convention as gate-3: a named Status column is the claim
+            # position; a table without one is checked in full.
+            status_cells = cells
+            if colmap is not None:
+                idx = next((colmap[c.lower()] for c in sv["status_columns"]
+                            if c.lower() in colmap), None)
+                if idx is not None:
+                    status_cells = [cells[idx]] if idx < len(cells) else []
+            if any(c.strip().upper().startswith("DEFERRED") for c in status_cells):
+                rid = cells[0].strip() if cells else ""
                 # A deferral's durable home is an OPEN registry row REFERENCING
                 # the task (a task id cannot itself be a row id) — parsed rows,
                 # not raw text, so a mention outside any row satisfies nothing.
@@ -1567,6 +1612,32 @@ def gate_7(p5=False, run_id=None):
 # --------------------------------------------------------------------------
 # GATE-8 — plan structural lint
 # --------------------------------------------------------------------------
+def _table_scan(lines):
+    """OBL-PKG-20 (engine round 6, audit A4): ONE table-walking discipline.
+    Yields (kind, cells, colmap) per pipe-line: kind is 'header' before a
+    separator, 'row' after one; colmap maps lowercase header text -> index
+    once a header+separator was seen, else None (a headerless table). Table
+    state resets at every non-pipe line. Consumers that hand-rolled this walk
+    re-imported the F-13/F-18/F-32/F-41/F-44 defect family one instance at a
+    time — the escrow walk and the plan task-table walk read through this now;
+    migrating the remaining consumers is the row's open half."""
+    header, colmap = None, None
+    for ln in lines:
+        if ln.count("|") < 2:
+            header, colmap = None, None
+            continue
+        cells = _cells(ln)
+        if _is_separator(ln):
+            if header is not None:
+                colmap = {h.strip().lower(): i for i, h in enumerate(header)}
+            continue
+        if colmap is not None:
+            yield "row", cells, colmap, header
+        else:
+            header = cells
+            yield "header", cells, None, None
+
+
 def _table_column(header_cells, name):
     for i, h in enumerate(header_cells):
         if h.strip().lower() == name.lower():
@@ -1607,33 +1678,50 @@ def _parse_plan(path):
                 else:
                     u["fields"][f] = None
 
-            task_col, verify_col, nv_col, header = None, None, None, None
             u["missing_columns"] = []
             u["nv_header_seen"] = False
-            for line in body.split("\n"):
-                if line.count("|") < 2:
-                    continue
-                cells = _cells(line)
-                if _is_separator(line):
-                    if header:
-                        task_col = _table_column(header, ps["task_column"])
-                        verify_col = _table_column(header, ps["verify_column"])
-                        nv_col = _table_column(header, ps.get("non_vacuity_column") or "")
+            seen_headers = []
+            for kind, cells, colmap, header in _table_scan(body.split("\n")):
+                # OBL-PKG-20 / audit §5.4: a row is a task row because it sits
+                # in a table whose header names a Task column — NOT because a
+                # well-formed task id happens to appear on the line. Admission
+                # by grammar meant a row whose id the grammar cannot read was
+                # not "an invalid task", it was invisible: a bare or mangled
+                # id in a unit with valid siblings escaped every task rule.
+                if kind == "row":
+                    task_col = _table_column(header, ps["task_column"])
+                    if task_col is None:
+                        # not a task table (coverage matrix etc.): a full task
+                        # id on the line keeps the legacy grammar admission
+                        if not re.search(F["ids"]["task"].strip("^$"), "|".join(cells)):
+                            continue
+                        u["tasks"].append({"id": cells[0] if cells else "",
+                                           "verify": cells[2] if len(cells) > 2 else "",
+                                           "nonvac": "", "cells_n": len(cells),
+                                           "header_n": len(header), "header_seen": False})
+                        continue
+                    verify_col = _table_column(header, ps["verify_column"])
+                    nv_col = _table_column(header, ps.get("non_vacuity_column") or "")
+                    if header not in seen_headers:
+                        seen_headers.append(header)
                         u["nv_header_seen"] = u["nv_header_seen"] or nv_col is not None
                         u["missing_columns"] = [c for c in ps["task_table_columns"]
                                                 if _table_column(header, c) is None]
-                    continue
-                if re.search(F["ids"]["task"].strip("^$"), line):
-                    tid = cells[task_col] if task_col is not None and task_col < len(cells) \
+                    tid = cells[task_col] if task_col < len(cells) \
                         else (cells[0] if cells else "")
                     ver = cells[verify_col] if verify_col is not None and verify_col < len(cells) \
                         else (cells[2] if len(cells) > 2 else "")
                     nv = cells[nv_col] if nv_col is not None and nv_col < len(cells) else ""
                     u["tasks"].append({"id": tid, "verify": ver, "nonvac": nv,
                                        "cells_n": len(cells),
-                                       "header_n": len(header) if header else None,
+                                       "header_n": len(header),
                                        "header_seen": verify_col is not None})
-                header = cells
+                elif re.search(F["ids"]["task"].strip("^$"), "|".join(cells)):
+                    # separator-less table: legacy grammar admission unchanged
+                    u["tasks"].append({"id": cells[0] if cells else "",
+                                       "verify": cells[2] if len(cells) > 2 else "",
+                                       "nonvac": "", "cells_n": len(cells),
+                                       "header_n": None, "header_seen": False})
             plan["units"].append(u)
 
     cm = re.search(fill(ps["section_heading"], name=re.escape(ps["required_sections"][-1]))
@@ -1780,12 +1868,21 @@ def gate_8(run_id):
             # grammar cannot express is a task that can never be committed —
             # refused at G2 (an edit) instead of at the first commit (a wave).
             tid = (t.get("id") or "").strip().strip("`")
-            if tid and re.search(r"\.T[0-9A-Za-z]", tid) \
-                    and not re.match(F["ids"]["task"], tid):
-                msgs.append("%s task id %r cannot be expressed as a [T:] trailer — the legal "
-                            "form is <run-id>.T<nn> with an optional letter suffix (ids.task); "
-                            "signed against this id, the task is uncommittable (F-39)"
-                            % (u["id"], tid))
+            if tid and t.get("header_seen") is not False and \
+                    not re.match(F["ids"]["task"], tid):
+                if re.search(r"\.T", tid):
+                    msgs.append("%s task id %r cannot be expressed as a [T:] trailer — the "
+                                "legal form is <run-id>.T<nn> with an optional letter suffix "
+                                "(ids.task); signed against this id, the task is uncommittable "
+                                "(F-39)" % (u["id"], tid))
+                else:
+                    # OBL-PKG-20 / audit §5.4: with admission by table
+                    # membership, an unreadable id is an INVALID task, loudly
+                    # — no longer an invisible row whose verify nothing reads.
+                    msgs.append("%s task id %r is not a fully-qualified task id (ids.task: "
+                                "<run-id>.T<nn> with an optional letter suffix) — the row is "
+                                "real work no [T:] trailer can commit (F-13/F-39)"
+                                % (u["id"], tid))
             # F-18 (v0.6.4): a row whose cell count disagrees with its header
             # parses into a DIFFERENT table than the one written, and every
             # later message then blames the wrong cell. Name the real cause.
@@ -2277,11 +2374,11 @@ def main(argv):
         if re.match(F["ids"]["run"], rid):
             print("ok: %r matches ids.run" % rid)
             return 0
-        m = re.match(r"^[0-9]{6}-(.+)-r[0-9]+$", rid)
-        if m and len(m.group(1)) > 48:
-            print("REFUSED: slug %r is %d chars; ids.run caps it at 48 — rename before any "
-                  "artifact is signed against this id (F-46)" % (m.group(1), len(m.group(1))),
-                  file=sys.stderr)
+        slug = _run_anatomy(rid)
+        if slug is not None and len(slug) > _slug_cap():
+            print("REFUSED: slug %r is %d chars; ids.run caps it at %d — rename before any "
+                  "artifact is signed against this id (F-46)"
+                  % (slug, len(slug), _slug_cap()), file=sys.stderr)
         else:
             print("REFUSED: %r does not match ids.run (%s) — YYMMDD-<kebab-slug>-r<N>"
                   % (rid, F["ids"]["run"]), file=sys.stderr)

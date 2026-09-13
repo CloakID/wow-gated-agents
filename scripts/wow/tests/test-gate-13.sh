@@ -203,8 +203,10 @@ P
 assert_accepts "signed plan is frozen — no retroactive reds" "$FIX" gate-13 --run 260824-x-r1
 
 
-# F-13's shape, applied here: units with zero parseable tasks must not lint
-# nothing and pass.
+# F-13's founding failure at full strength (engine round 6, OBL-PKG-20):
+# admission is by table membership, so a bare-id row's VACUOUS VERIFY is now
+# read and linted — the 29-unread-verifies case cannot recur even when the
+# ids are unreadable.
 plan <<'P'
 # PLAN — 260824-x-r1
 spec: docs/spec/SPEC-x-v1.md
@@ -224,6 +226,28 @@ owns:
 |---|---|
 | AC-1 | T01 |
 P
-assert_rejects "zero parseable tasks cannot pass the verify lint (F-13)" "$FIX" \
+assert_rejects "a bare-id row's vacuous verify is READ and linted (F-13/OBL-PKG-20)" "$FIX" \
+  "bang-under-set-e" gate-13 --run 260824-x-r1
+
+# The zero-guard keeps its subject: units with no task table lint nothing,
+# and that is not a pass.
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+prose instead of a task table
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | none |
+P
+assert_rejects "no task table cannot pass the verify lint (F-13)" "$FIX" \
   "ZERO task rows" gate-13 --run 260824-x-r1
 finish

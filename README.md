@@ -30,7 +30,9 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **Map freshness is content-based** (F-45): `git diff`, not `git log` — merge ripples and revert pairs no longer cry stale, because a gate that cries stale gets its P0 skipped.
 - **Verdict comparisons are sayable** (F-41), **citations prove form while the verifier's re-run proves truth** (F-43 — executors paste real output; the mechanical sampler is OBL-PKG-19), **AT-1 counts fixtures that survive the run** (F-40), **shared Jira projects declare their slice** (`jira.scope`, F-42), and the Bash-deny template comment stops overclaiming (F-18 addendum).
 
-The suite is at **275 assertions**, every fix mutation-proven.
+A pre-push self-audit of the v0.6.0→v0.7.1 trend ([docs/reviews/](docs/reviews/)) then forced a remediation half-round before release: the run-id grammar's diagnostics now *derive* from the named-parts anatomy instead of restating it, table rows are admitted by table membership (a bare or mangled task id beside valid siblings was previously invisible, its verify unread), the obligation escrow reads status by column header, and two overclaims in this very release's prose were corrected. Two structural obligations (shared parse layer OBL-PKG-20, registry self-staleness OBL-PKG-21) are registered, half of the first already landed.
+
+The suite is at **281 assertions**, every fix mutation-proven (11 mutations this version, each killed by exactly its own tests — one of which caught a live restatement before ship).
 
 ## What's new in v0.7.0-draft
 

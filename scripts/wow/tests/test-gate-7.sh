@@ -44,6 +44,28 @@ assert_rejects "DEFERRED row with no registry counterpart (escrow)" "$FIX" "escr
 printf '| OBL-T-42 | impl_gap | run | advisory | r2 | 260816-x-r1.T02 done in r2 | ev:file{runs/260816-x-r1/RUN-REPORT.md} |\n' >> "$FIX/docs/GAPS.md"
 assert_accepts "DEFERRED row escrowed" "$FIX" gate-7
 
+# ---- engine round 6 (OBL-PKG-20, audit §5.2): the walk read status at
+# cells[1] — a DEFERRED in a named Status column anywhere else retired
+# silently with the archived run. Status-by-header is OBL-PKG-13's own rule,
+# discharged onto gate-3 but never applied to the escrow's walk.
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+
+| Task | Notes | Status |
+|---|---|---|
+| 260816-x-r1.T03 | picked up next iteration | DEFERRED |
+R
+assert_rejects "DEFERRED in a third-position Status column is seen (OBL-PKG-20)" "$FIX" \
+  "escrow" gate-7
+printf '| OBL-T-43 | impl_gap | run | advisory | r2 | 260816-x-r1.T03 done in r2 | ev:file{runs/260816-x-r1/RUN-REPORT.md} |\n' >> "$FIX/docs/GAPS.md"
+assert_accepts "third-position DEFERRED escrowed (control)" "$FIX" gate-7
+
+# Claims by position: where a Status column is NAMED, prose in other cells is
+# not a status claim — gate-3's own convention, applied uniformly.
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+| 260816-x-r1.T04 | DEFERRED talk happened in review | OPEN |
+R
+assert_accepts "'DEFERRED' as prose outside the named Status column (control)" "$FIX" gate-7
+
 
 # ---- S-6 (v0.6.2): a phantom run — an empty dir archiving strands -----------
 mkdir -p "$FIX/runs/260820-ghost-r1/reports"
