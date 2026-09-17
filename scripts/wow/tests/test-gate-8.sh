@@ -510,4 +510,126 @@ autonomy: decide-and-log
 P
 assert_accepts "letter-suffix task id is committable and legal (F-39 control)" "$FIX" \
   gate-8 --run 260813-x-r1
+
+# ---- F-58 (v0.7.2): declared cross-unit inputs must be deliverable ----------
+# The branch model gives a wave-N unit only waves <N, so an input needs a
+# producer at a strictly lower wave — the same-wave case passed seven
+# adversarial review rounds before an executor would have hit a missing path.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — harness
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | build harness | `pytest a` | works |
+
+### U2 — consumer
+owns:
+- src/b.py
+inputs:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T02 | use harness | `bash src/a.py` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T02 |
+P
+assert_rejects "same-wave producer: input unreachable by construction (F-58)" "$FIX" \
+  "not a STRICTLY LOWER wave" gate-8 --run 260813-x-r1
+
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+### U2 — consumer
+owns:
+- src/b.py
+inputs:
+- src/ghost.py
+tier: mid
+wave: 2
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T02 | use ghost | `pytest b` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T02 |
+P
+assert_rejects "input with NO producing unit (F-58)" "$FIX" \
+  "NO other unit owns" gate-8 --run 260813-x-r1
+
+# Control: producer a wave earlier — the shape the wave ordering exists for.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — producer
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+### U2 — consumer
+owns:
+- src/b.py
+inputs:
+- src/a.py
+tier: mid
+wave: 2
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T02 | consume a | `pytest b` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T02 |
+P
+assert_accepts "input produced a strictly lower wave is deliverable (F-58 control)" "$FIX" \
+  gate-8 --run 260813-x-r1
 finish

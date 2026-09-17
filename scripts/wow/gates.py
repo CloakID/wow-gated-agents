@@ -592,6 +592,16 @@ def gate_3(paths=None):
         status_idx = None      # which column of the current table holds status
         verdict_idx = None     # which column holds the verifier verdict (F-10)
         prev_cells = None
+        # F-14 addendum (v0.7.2): a report section DECLARED to hold status
+        # rows, holding a table with no status column at all, was graded by
+        # nothing — the cheapest silent shape, written by giving the table
+        # the columns that read most naturally. The gate knows the section is
+        # a status section before it reads a row: subject-absent, one level
+        # down.
+        rs = F["report_row_schema"]
+        is_report = (os.path.basename(p) == os.path.basename(rs["file"])
+                     or "/reports/" in p.replace(os.sep, "/"))
+        cur_sec = None
         doc_masked = _mask_inline_code_doc(read(full))   # F-05: spans may wrap lines
         for i, line in enumerate(lines_of(full), 1):
             s = line.strip()
@@ -600,6 +610,8 @@ def gate_3(paths=None):
                 continue
             if in_fence:
                 continue
+            if s.startswith("#"):
+                cur_sec = s.lstrip("#").strip().lower()
             if not s:
                 status_idx, verdict_idx, prev_cells = None, None, None
                 continue
@@ -612,6 +624,14 @@ def gate_3(paths=None):
                             status_idx = idx
                         if h.lower() in verdict_cols:
                             verdict_idx = idx
+                    if is_report and cur_sec in rs["sections"] \
+                            and status_idx is None and verdict_idx is None:
+                        msgs.append("%s:%d section '%s' is a DECLARED status section "
+                                    "(report_row_schema.sections) and this table resolves no "
+                                    "Status or Grade column — its rows would be graded by "
+                                    "NOTHING. A status section with no gradeable column is "
+                                    "subject-absent, not clean (F-14 addendum)"
+                                    % (p, i, cur_sec))
                 continue
 
             # PF-a: mentions are not claims; F-05: mask document-wide so spans
@@ -1230,6 +1250,17 @@ def _gap_rows():
                                cells[0] if cells else ln[:40], gr["file"]))
             continue
         row = dict(zip(gr["columns"], cells))
+        _idp = cells[0].strip().strip("~")
+        if _idp.startswith("OBL-") and not re.match(F["ids"]["obligation"], _idp):
+            # F-55 (v0.7.2): ids.obligation was wrong (two-digit ceiling, a
+            # pilot is at 134) AND unconsumed — an inert-and-wrong declaration
+            # is worse than an absent one, because the next author to wire it
+            # up reasonably assumes it was true. It is consumed HERE now, so
+            # it can never again be wrong in silence.
+            problems.append("gap row id %r does not match ids.obligation (%s) — fix the id or "
+                            "the pattern; a declared shape the live ids violate is a trap for "
+                            "the next consumer (F-55)" % (_idp, F["ids"]["obligation"]))
+            continue
         row["open"] = not re.match(gr["discharged_id"], row["id"].strip())
         row["id_plain"] = row["id"].strip().strip("~")
         m = re.match(gr["effect_cell"], row["effect"].strip())
@@ -1285,11 +1316,50 @@ def gate_12(kind=None, ref=None):
     if kind == "feature":
         return False, ["open blocks-new-feature-work obligation(s): %s — new feature work is "
                        "refused until discharged; audit/fix/probe specs referencing the "
-                       "obligation are the way through" % ", ".join(ids)]
+                       "obligation (or a remediation spec referencing the defect it repairs) "
+                       "are the way through" % ", ".join(ids)]
+    if kind == "remediation":
+        # F-53 (v0.7.2): repairing a regression a prior run shipped discharges
+        # NO blocker, so keying the exemption to blocking rows left only a PO
+        # overrule — the route the framework most wants rare. A remediation
+        # spec's proof points at the DEFECT RECORD it repairs instead.
+        return _remediation_ref_ok(ref)
     if not ref or ref not in ids:
         return False, ["--kind %s is exempt only when it references the open obligation it "
                        "discharges: pass --ref with one of %s" % (kind, ", ".join(ids))]
     return True, ["%s spec discharging %s — exemption applies" % (kind, ref)]
+
+
+def _remediation_ref_ok(ref):
+    """--kind remediation: the ref must be a defect-record id (park, verifier
+    finding, plan defect, cannot-validate, or registry row) AND that record
+    must exist somewhere durable or in the runs tree — a claim, not a mention
+    (backticked occurrences do not count)."""
+    if not ref:
+        return False, ["--kind remediation requires --ref <defect-record-id> — the park, "
+                       "verifier finding, plan defect, CV or registry row this spec repairs "
+                       "(F-53)"]
+    shapes = ["park", "verifier_finding", "plan_defect", "cannot_validate", "obligation"]
+    if not any(re.match(F["ids"][k], ref) for k in shapes):
+        return False, ["--ref %r matches no defect-record shape (%s) — a remediation is "
+                       "justified by a recorded defect, and this id cannot be one (F-53)"
+                       % (ref, ", ".join("ids." + k for k in shapes))]
+    homes = [rp(F["gap_row"]["file"])]
+    runs_dir = rp(P["runs_dir"]) if "runs_dir" in P else rp("runs")
+    for root, _dirs, files in os.walk(runs_dir):
+        for fn in files:
+            if fn.endswith(".md"):
+                homes.append(os.path.join(root, fn))
+    for h in homes:
+        if not os.path.isfile(h):
+            continue
+        if re.search(r"(?<![`\w-])" + re.escape(ref) + r"(?![\w-])",
+                     "\n".join(_mask_inline_code_doc(read(h)))):
+            return True, ["remediation spec repairing recorded defect %s (found in %s) — "
+                          "exemption applies (F-53)" % (ref, os.path.relpath(h, ROOT))]
+    return False, ["--ref %s resolves to NO recorded defect in runs/ or %s — a remediation "
+                   "justified by a record nobody can read is a feature spec wearing a flag "
+                   "(F-53)" % (ref, F["gap_row"]["file"])]
 
 
 # --------------------------------------------------------------------------
@@ -1449,6 +1519,27 @@ def gate_7(p5=False, run_id=None):
     # silently drop grants that landed on main through another lane, so the
     # publish is refused until main is merged in (P5 step 0).
     if p5:
+        # F-63 (v0.7.2): P5 archived the run DIRECTORY and nothing ever
+        # deleted the run's branches — eleven remote and fourteen local refs
+        # accumulated over five months in one pilot. A surviving
+        # wow/<run-id>/int is a second, MORE discoverable home for content
+        # the archive owns (it shows in branch pickers; runs/archive does
+        # not). Local refs are graded here; the P5 clause says local AND
+        # remote, because an operator who deletes one assumes the other
+        # followed and each side is invisible from the other.
+        arch = rp(rl["archive_dir"])
+        if os.path.isdir(arch):
+            archived = [e for e in sorted(os.listdir(arch))
+                        if re.match(F["ids"]["run"], e)]
+            refs = git("for-each-ref", "--format=%(refname:short)", "refs/heads/wow/")
+            for run in archived:
+                leaked = [r for r in refs.split("\n")
+                          if r.strip().startswith("wow/%s/" % run)]
+                if leaked:
+                    msgs.append("run %s is archived but its branch refs survive: %s — a second "
+                                "home for content the archive owns; delete local and remote "
+                                "wow/%s/* after the merge is confirmed (P5 step 3, F-63)"
+                                % (run, ", ".join(leaked[:4]), run))
         candidates = [cfg().get("main_branch")] if cfg().get("main_branch") \
             else F["branch_patterns"]["main_candidates"]
         main_ref = next((c for c in candidates
@@ -1543,13 +1634,40 @@ def gate_7(p5=False, run_id=None):
         rr_rel = os.path.relpath(rr, ROOT)
         this_run = os.path.basename(os.path.dirname(rr))
         text = read(rr)
+        # F-51 (v0.7.2): a CV is obligation-shaped only WHILE its discharge is
+        # in the future. A record closed inside its own run (a later wave, a
+        # G4 successor decision, the artifact P4 itself produces) carries a
+        # `discharged:` field WITH evidence in its own block — and is then a
+        # closed question the registry of open obligations need not carry.
+        # Eight of eighteen records in one pilot run were closed this way and
+        # the escrow demanded rows for all eighteen. A discharged: line
+        # WITHOUT evidence stays demanded: an unevidenced closure is an
+        # assertion, and the escrow says which it saw.
+        def _cv_discharged_in_run(cv):
+            block = re.search(re.escape(cv) + r":[^\n]*\n((?:[ \t]+\S[^\n]*\n?)*)", text)
+            if not block:
+                return False, False
+            dis = re.search(r"^[ \t]+discharged:\s*(.+)$", block.group(1), re.M)
+            if not dis:
+                return False, False
+            return True, bool(re.search(F["evidence"]["opener"], dis.group(1)))
         for m in re.finditer(cv_pat.pattern, text):
             cv = m.group(0)
-            if cv not in gap_ids:
-                msgs.append("%s records %s but %s has no ROW with that id — an obligation "
-                            "living only in an archivable run (escrow, FORMATS §12; a mention "
-                            "in another row's prose is not a row)"
-                            % (rr_rel, cv, F["gap_row"]["file"]))
+            if cv in gap_ids:
+                continue
+            closed, evidenced = _cv_discharged_in_run(cv)
+            if closed and evidenced:
+                continue
+            if closed and not evidenced:
+                msgs.append("%s marks %s discharged WITHOUT an ev: citation — an unevidenced "
+                            "closure is an assertion, and the record stays escrow-demanded "
+                            "until it cites the event that closed it (F-51)" % (rr_rel, cv))
+                continue
+            msgs.append("%s records %s but %s has no ROW with that id — an obligation "
+                        "living only in an archivable run (escrow, FORMATS §12; a mention "
+                        "in another row's prose is not a row; a record discharged in-run "
+                        "carries 'discharged: <date> ev:…' in its block, F-51)"
+                        % (rr_rel, cv, F["gap_row"]["file"]))
         # CV id policy (OBL-PKG-13): inside its own run's report the shorthand
         # CV-<nn> is legal and resolves to the run's full id — the durable
         # registry requires the FULL form. Real reports use the short form
@@ -1667,6 +1785,9 @@ def _parse_plan(path):
                 u["owns"] = [l.strip().lstrip("-").strip().strip("`")
                              for l in om.group(1).split("\n") if l.strip()]
             u["fields"]["owns"] = u["owns"] or None
+            im = re.search(fill(ps["list_field"], name="inputs"), body, re.M)
+            u["inputs"] = [l.strip().lstrip("-").strip().strip("`")
+                           for l in im.group(1).split("\n") if l.strip()] if im else []
             for f, spec in ps["unit_fields"].items():
                 if f == "owns":
                     continue
@@ -1851,6 +1972,37 @@ def gate_8(run_id):
                                           or py.startswith(px + "/")):
                             msgs.append("%s '%s' and %s '%s' have nested path prefixes "
                                         "— ownership may overlap" % (ids[i], x, ids[j], y))
+
+    # F-58 (v0.7.2): declared cross-unit inputs must be DELIVERABLE. Under the
+    # branch model a wave-N unit's tree carries only waves <N, so an input is
+    # reachable iff some OTHER unit at a STRICTLY LOWER wave owns it. A plan
+    # that consolidates work into one unit and consumes it from a same-wave
+    # peer passed eight revisions and seven adversarial reviews before an
+    # executor would have met a path that does not exist — the check is a
+    # plan-time lint precisely so the cost lands at G2, not mid-wave.
+    def _wave(u):
+        try:
+            return int(u["fields"].get("wave") or 0)
+        except (TypeError, ValueError):
+            return 0
+    for u in plan["units"]:
+        for inp in u.get("inputs") or []:
+            producers = [v for v in plan["units"] if v["id"] != u["id"]
+                         and any(fnmatch.fnmatch(inp, o) or inp == o
+                                 or (_static_prefix(o) and
+                                     inp.startswith(_static_prefix(o) + "/"))
+                                 for o in v["owns"])]
+            if not producers:
+                msgs.append("%s declares input '%s' that NO other unit owns — the input has "
+                            "no producer, so the executor meets a missing path and the good "
+                            "outcome is only a park (F-58)" % (u["id"], inp))
+            elif not any(_wave(v) < _wave(u) for v in producers):
+                msgs.append("%s (wave %d) declares input '%s' produced by %s (wave %d) — not "
+                            "a STRICTLY LOWER wave, so the input cannot be on the consumer's "
+                            "branch under the wave-cut model (F-58: the same-wave-producer "
+                            "case adversarial review missed twice)"
+                            % (u["id"], _wave(u), inp, producers[0]["id"],
+                               _wave(producers[0])))
 
     # (c) every auto task has a verify command, in the column the header names
     empty = set(x.strip().lower() for x in ps["task_verify_empty"])
@@ -2051,9 +2203,18 @@ def gate_10(run_id, gate):
     txt = read(p)
     msgs, unclassified, rows = [], [], 0
     class_col = git_col = jira_col = None
-    header = None
+    header, saw_class_table = None, False
     for i, line in enumerate(txt.split("\n"), 1):
         if line.count("|") < 3:
+            # F-56 (v0.7.2): a table ends at its first non-pipe line, and the
+            # parse state resets WITH it — without the reset, every later
+            # pipe-bearing line in the record read as a divergence row: a
+            # second table's rows AND its header (reported as a divergence
+            # named 'Item'), and an ev:cmd citation whose regex alternation
+            # carries pipes. The author's workaround was to write worse
+            # evidence, which is the direction a gate must never push.
+            class_col = git_col = jira_col = None
+            header = None
             continue
         cells = _cells(line)
         if _is_separator(line):
@@ -2061,11 +2222,11 @@ def gate_10(run_id, gate):
                 class_col = _table_column(header, jm["classification_column"])
                 git_col = _table_column(header, jm["git_column"])
                 jira_col = _table_column(header, jm["jira_column"])
+                saw_class_table = saw_class_table or class_col is not None
             continue
         if class_col is None:
             header = cells
             continue
-        header = cells
         if not cells or not cells[0]:
             continue
         rows += 1
@@ -2087,7 +2248,7 @@ def gate_10(run_id, gate):
                                       "query that produced it. An empty diff is a claim like any "
                                       "other." % rel]
             return True, msgs + ["%s records no divergences, with evidence" % rel]
-        if class_col is None:
+        if not saw_class_table:
             return False, msgs + ["%s has no '%s' column — GATE-10 reads the classification from "
                                   "that column, not from anywhere in the row"
                                   % (rel, jm["classification_column"])]

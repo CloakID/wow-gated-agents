@@ -248,9 +248,15 @@ function lanes() {
     const note = rp(fill(rl.quick, { slug }));
     if (!existsSync(note)) continue;
     const m = read(note).match(resultRe);
-    const empty = !m || m[1].trim() === '';
+    // F-62 residual (v0.7.2): a pattern that fails to match is an UNREADABLE
+    // section, never an empty one — collapsing the two turned a JS-dialect
+    // regex miss into a 62-record deletion list a PO had already approved.
+    // The subject-absent rule GATES-SPEC states for gates, applied to the
+    // deriver: unreadable is reported as its own state and is never stale.
+    const unreadable = !m;
+    const empty = m ? m[1].trim() === '' : false;
     const ageDays = (Date.now() - statSync(note).mtimeMs) / 86400000;
-    q.push({ slug, empty, ageDays: Math.round(ageDays),
+    q.push({ slug, empty, unreadable, ageDays: Math.round(ageDays),
              stale: empty && ageDays > rl.quick_stale_days });
   }
   const open = lsdir(rp(rl.debug_dir)).filter(f => f.endsWith('.md'));
@@ -440,7 +446,9 @@ out.push('');
 out.push(B('Lanes'));
 const l = data.lanes;
 out.push(`  quick: ${l.quick.length}` + (l.quick.filter(q => q.stale).length
-  ? `  STALE STUBS: ${l.quick.filter(q => q.stale).map(q => q.slug).join(', ')}` : ''));
+  ? `  STALE STUBS: ${l.quick.filter(q => q.stale).map(q => q.slug).join(', ')}` : '')
+  + (l.quick.filter(q => q.unreadable).length
+  ? `  UNREADABLE result sections (not graded, not stale — F-62): ${l.quick.filter(q => q.unreadable).map(q => q.slug).join(', ')}` : ''));
 out.push(`  debug: ${l.debugOpen.length} open, ${l.debugResolved} resolved`);
 out.push('');
 

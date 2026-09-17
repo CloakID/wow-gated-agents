@@ -21,6 +21,17 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.7.2-draft
+
+**Pilot batch F-47…F-64** — including the finding that mattered most: seven of twenty targeted code fixed releases ago, the third consecutive dead-code round, so **intake is now coupled to upgrading** (pilots move to the current line and answer the upgrade-RCA question before the next batch is triaged).
+
+- **The branch model delivers declared inputs** (F-58): wave-N branches cut from `int` at wave N-1's close, and a GATE-8 lint on the new `inputs:` field refuses a plan whose input has no producer at a strictly lower wave — the case seven adversarial reviews missed.
+- **Merge --no-ff, never rebase** (F-60): a rebase silently invalidated every `ev:commit` citation a run's reports carry. **Archived runs leave no branch refs** (F-63): P5 deletes them, GATE-7 --p5 enforces.
+- **GATE-12 gains a `remediation` kind** (F-53): post-run repair justified by the defect record it fixes, not by an overrule. **The escrow recognizes in-run-discharged CVs** (F-51). **AT-1 stops counting non-vacuity controls as drift** (F-47).
+- **Parsers stop refusing correct input** (F-55/F-56/F-14 addendum): divergence parsing scoped to its table, gradeless status sections loud, `ids.obligation` widened and wired. **status.mjs reports unreadable-vs-empty distinctly** (F-62 residual).
+
+The suite is at **305 assertions**; 7 new mutations, each killed by exactly its own tests.
+
 ## What's new in v0.7.1-draft
 
 **Both-pilot feedback round on v0.7.0** (platform F-38…F-46 + two addenda) — with a meta-finding: every submission targeted v0.6.1, because neither pilot had upgraded; three findings were fixed before they were written. If you consume this package, upgrade — the -draft drop clock only starts when a pilot cycle actually runs the current line.

@@ -1,4 +1,4 @@
-# P2 — PLAN — DRAFT v0.6.4
+# P2 — PLAN — DRAFT v0.7.2
 Entry: `/wow-plan <run-id>` · Output: `runs/<run-id>/PLAN.md` (ORCH-owned, machine-parseable per formats.json `plan_schema`) · Gate: **G2 = GATE-8 + GATE-13 lint → adversarial review → PO sign-off** → Jira stories/tasks.
 Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contracts if replanning.
 
@@ -7,6 +7,7 @@ Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contract
    - **file-ownership list** `owns:` (paths it may write; ORCH-owned files excluded per FORMATS §9);
    - **`areas:`** — the codebase areas the unit touches (FORMATS §6) and **`deps:`** — the external dependencies it relies on (FORMATS §11). These are GATE-6's input: a plan that declares no `areas:` fails the gate rather than passing with nothing to check;
    - **interface contracts** (signatures/schemas/events), frozen at G2;
+   - **`inputs:`** — the paths this unit READS that another unit produces (v0.7.2, F-58). GATE-8 checks each against the other units' `owns:` at a STRICTLY lower wave; an input with no producer, or a same-wave producer, fails at G2 where the cost is a revision — eight plan revisions and seven adversarial review rounds missed one, because the dependency is invisible from the unit sections alone;
    - task list `T<nn>` — action · verify (`ev:cmd` template) · done-means;
    - **autonomy contract** (decide-and-log vs park; cross-unit/AC-touching/irreversible always park);
    - model tier and wave assignment.

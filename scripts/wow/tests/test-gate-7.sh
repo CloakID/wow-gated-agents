@@ -66,6 +66,54 @@ cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
 R
 assert_accepts "'DEFERRED' as prose outside the named Status column (control)" "$FIX" gate-7
 
+# ---- F-51 (v0.7.2): a CV discharged IN-RUN is a closed question ------------
+# Eight of eighteen records in one pilot run were closed before publish and
+# the escrow demanded registry rows for all eighteen — the registry of open
+# obligations accumulating records that owe nothing.
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+
+CV-260816-x-r1-07: harness absent during wave 1
+  reason: built by U4
+  successor: none
+  discharge: U4 lands the harness
+  discharged: 2026-09-17 ev:commit{abc1234}
+R
+assert_accepts "in-run discharged CV with evidence needs no registry row (F-51)" "$FIX" gate-7
+
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+
+CV-260816-x-r1-08: contract wording superseded
+  reason: D-7 superseded it
+  successor: none
+  discharge: G4 decision
+  discharged: it is fine now, trust us
+R
+assert_rejects "discharged WITHOUT an ev: citation stays demanded (F-51 control)" "$FIX" \
+  "unevidenced closure is an assertion" gate-7
+# make it evidenced so later cases stay isolated
+python3 - "$FIX/runs/260816-x-r1/RUN-REPORT.md" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+open(p,'w').write(s.replace("discharged: it is fine now, trust us",
+                            "discharged: 2026-09-17 ev:jira{WOW-99}"))
+PY
+assert_accepts "the same record with evidence is closed (F-51)" "$FIX" gate-7
+
+# ---- F-63 (v0.7.2): archived runs must not leave wow/<run-id>/* refs -------
+( cd "$FIX" && git checkout -qb wow/260816-y-r1/int && git checkout -q - )
+mkdir -p "$FIX/runs/archive/260816-y-r1"
+printf 'archived\n' > "$FIX/runs/archive/260816-y-r1/RUN-REPORT.md"
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "archive [WOW:publish]" )
+assert_rejects "archived run with surviving branch refs blocks publish (F-63)" "$FIX" \
+  "branch refs survive" gate-7 --p5
+( cd "$FIX" && git branch -qD wow/260816-y-r1/int )
+assert_accepts "refs deleted: the archive is the only home again (F-63 control)" "$FIX" \
+  gate-7 --p5
+# a LIVE run's branches are legal — the check reads the archive set only
+( cd "$FIX" && git checkout -qb wow/260816-x-r1/int && git checkout -q - )
+assert_accepts "a live run's branches are not leaks (F-63 control)" "$FIX" gate-7 --p5
+( cd "$FIX" && git branch -qD wow/260816-x-r1/int )   # the F-11 fixture below recreates it
+
 
 # ---- S-6 (v0.6.2): a phantom run — an empty dir archiving strands -----------
 mkdir -p "$FIX/runs/260820-ghost-r1/reports"

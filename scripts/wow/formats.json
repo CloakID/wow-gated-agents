@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.1-draft",
+  "version": "0.7.2-draft",
   "ids": {
     "run": "^{run_core}$",
     "unit": "^U[1-9][0-9]*$",
@@ -17,7 +17,8 @@
     "spec_file": "^SPEC-[a-z0-9-]{1,24}-v[1-9][0-9]*\\.md$",
     "quick_dir": "^[0-9]{6}-[a-z0-9][a-z0-9-]*$",
     "debug_file": "^[a-z0-9][a-z0-9-]*\\.md$",
-    "obligation": "^OBL-[A-Z0-9]+-[0-9]{2}$",
+    "obligation": "^OBL-[A-Z0-9]+-[0-9]{2,}$",
+    "$obligation_comment": "F-55 (v0.7.2): the two-digit ceiling expired silently the day a pilot passed OBL-*-99 (they are at 134) — no id is parsed positionally, so the bound bought nothing. {2,} keeps the alignment minimum. The key now HAS a consumer: _gap_rows validates every OBL- row id against it, so the declaration can no longer be wrong and inert at once.",
     "amendment": "^AM-[0-9]{2}$",
     "cannot_validate_short": "^CV-[0-9]{2}$",
     "$cv_short_comment": "OBL-PKG-13 (v0.7.0): the shorthand CV-<nn> is legal INSIDE its own run's artifacts and resolves to the run's full id; every durable home (GAPS.md) carries the full form — it is the id that outlives the run. The escrow resolves shorthands and demands the full row; real reports write the short form (frisbii's CV-01..05 were invisible to the long regex).",
@@ -306,6 +307,7 @@
     "list_field": "^{name}:\\s*$((?:\\s*-\\s*.+\\n?)+)",
     "scalar_field": "^{name}:\\s*(.+)$",
     "inline_list_field": "^{name}:\\s*\\[(.+?)\\]\\s*$",
+    "$inputs_comment": "F-58 (v0.7.2): a unit's declared cross-unit inputs — paths it READS that another unit produces. GATE-8 checks each one is covered by some other unit's owns at a STRICTLY LOWER wave, or the input is unreachable by construction under the branch model (wave-N branches carry only waves <N). Undeclared inputs stay invisible; the field exists so the dependency is a lint, not an adversarial-review catch — eight plan revisions and seven review rounds missed one.",
     "unit_fields": {
       "owns": {
         "required": true,
@@ -339,6 +341,10 @@
       "deps": {
         "required": false,
         "kind": "text-list"
+      },
+      "inputs": {
+        "required": false,
+        "kind": "path-list"
       },
       "governs": {
         "required": false,
@@ -568,7 +574,7 @@
       "threshold": 3,
       "comparator": ">",
       "derived_by": "orch",
-      "$comment": "F-40 (v0.7.1): counts artifacts that SURVIVE the run — committed under the repo, or referenced by something that is. A falsification audit's throwaway scratch fixtures are not fixtures the next run inherits, and the old bare count fired at 90x threshold on a run that added ZERO fixtures to the codebase — hardest on exactly the class of run the trigger most wants to encourage. Created-but-destroyed counts are reported in prose if worth noting; they are never the trigger."
+      "$comment": "F-47 (v0.7.2): the count EXCLUDES artifacts serving as non-vacuity controls — negative tests, mutants, planted violations, subject-absent probes. The framework DEMANDS those (GATE-13, the two-negative-tests rule), so a counter that reads them as mock drift fires hardest on the healthiest runs: two firings, zero audits, both waived (pilot #2). AT-1 is orch-recorded judgment; the recorded number is committed-mocks-and-fixtures-standing-in-for-real-systems, and a control that proves a check can fail is not one. F-40 (v0.7.1): counts artifacts that SURVIVE the run — committed under the repo, or referenced by something that is. A falsification audit's throwaway scratch fixtures are not fixtures the next run inherits, and the old bare count fired at 90x threshold on a run that added ZERO fixtures to the codebase — hardest on exactly the class of run the trigger most wants to encourage. Created-but-destroyed counts are reported in prose if worth noting; they are never the trigger."
     },
     "AT-2": {
       "metric": "remediation_cycles_since_last_audit",
@@ -783,9 +789,10 @@
       "feature",
       "audit",
       "fix",
-      "probe"
+      "probe",
+      "remediation"
     ],
-    "$spec_kinds_comment": "gate-12 --kind: 'feature' is refused while a blocks-new-feature-work row is open; audit/fix/probe are the discharge paths and must --ref the open obligation they discharge.",
+    "$spec_kinds_comment": "gate-12 --kind: 'feature' is refused while a blocks-new-feature-work row is open; audit/fix/probe are the discharge paths and must --ref the open obligation they discharge. 'remediation' (F-53, v0.7.2) is the category for repairing a defect a prior run shipped: it discharges no blocker, so its --ref must resolve to a RECORDED DEFECT (PARK/VF/DEF-plan/CV id, or a registry row) somewhere in runs/ or the registry — the same shape of proof, pointed at the thing that justifies the work. New capability under a remediation flag is a G1 review refusal, not a mechanical one.",
     "$scope_comment": "stops at whitespace OR ')': '(scope: *)' is scope '*', not '*)' — the greedy \\S+ let a planted blocks-install row slip past the installer in the wiring test",
     "$row_start_comment": "matches ANY letter-prefixed id-shaped first cell (OBL-, CV-, G-, REQ-...), not only OBL-: a registry whose rows the schema cannot read must fail LOUDLY, never parse as empty (review FR-1 — frisbii's 5-column G-nn table read as an empty registry and gate-12 went green-because-empty)"
   },

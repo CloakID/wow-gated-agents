@@ -69,4 +69,39 @@ rec <<'D'
 D
 assert_output "pair that is expected-consistent is flagged as not a divergence" "$FIX" \
   "IS expected-consistent" gate-10 --run 260813-x-r1 --gate G2
+
+# ---- F-56 (v0.7.2): row-parsing is scoped to the classification TABLE ------
+# Any pipe-bearing line used to read as a row: a second table's rows AND its
+# header (reported as a divergence named 'Item'), and an ev:cmd whose regex
+# alternation carries pipes — the author's route past the refusal was to
+# write WORSE evidence.
+rec <<'D'
+| Item | Git | Jira | Classification |
+|---|---|---|---|
+| REQ-001 | OPEN | To Do | real-gap |
+
+The expected-consistent pairs, recorded for the reviewer:
+
+| REQUIREMENTS | Jira story |
+|---|---|
+| OPEN | To Do / In Progress |
+| COMPLETED (ev) | In Review / Done |
+
+Checked with ev:cmd{grep -nE "volumeMounts|volumes:|envFrom|configMap" helm/ => no match @2026-09-16}
+D
+assert_accepts "a second table and a pipe-bearing citation are NOT divergence rows (F-56)" \
+  "$FIX" gate-10 --run 260813-x-r1 --gate G2
+# Control: an unclassified row inside the REAL table still fails — scoping the
+# parser must not have opened a hole.
+rec <<'D'
+| Item | Git | Jira | Classification |
+|---|---|---|---|
+| REQ-001 | OPEN | To Do | shrug |
+
+| REQUIREMENTS | Jira story |
+|---|---|
+| OPEN | To Do |
+D
+assert_rejects "unclassified row in the real table still fails (F-56 control)" "$FIX" \
+  "unclassified" gate-10 --run 260813-x-r1 --gate G2
 finish

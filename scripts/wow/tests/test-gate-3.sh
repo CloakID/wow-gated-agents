@@ -136,4 +136,36 @@ assert_rejects "backticked status in a Status column is still a claim (F-41 cont
 printf '| T09 | COMPLETED | no citation |\n' > "$FIX/docs/r-vcomp-bare.md"
 assert_rejects "bare status in a headerless table is still a claim (F-41 control)" "$FIX" \
   "without an ev: citation" gate-3 --paths docs/r-vcomp-bare.md
+
+# ---- F-14 addendum (v0.7.2): a DECLARED status section holding a table with
+# no status column was graded by nothing — the cheapest silent shape, written
+# by giving the table its most natural columns. The gate knows the section is
+# a status section before it reads a row.
+mkdir -p "$FIX/runs/260916-x-r1"
+cat > "$FIX/runs/260916-x-r1/RUN-REPORT.md" <<'R'
+## defects
+
+| id | what |
+|---|---|
+| DEF-plan-01 | consolidated harness collided |
+R
+assert_rejects "status section whose table has no gradeable column (F-14 addendum)" "$FIX" \
+  "graded by NOTHING" gate-3 --paths runs/260916-x-r1/RUN-REPORT.md
+# Controls: the same section with a Status column is clean; a NON-status
+# section keeps its natural columns without complaint.
+cat > "$FIX/runs/260916-x-r1/RUN-REPORT.md" <<'R'
+## defects
+
+| id | status | reference |
+|---|---|---|
+| DEF-plan-01 | OPEN | |
+
+## pointers
+
+| id | what |
+|---|---|
+| M-1 | manifest ref |
+R
+assert_accepts "status column present / natural columns outside declared sections (controls)" \
+  "$FIX" gate-3 --paths runs/260916-x-r1/RUN-REPORT.md
 finish

@@ -133,4 +133,40 @@ $HDR
 G
 assert_rejects "escaped pipe: the row parses WHOLE and still blocks (F-44 control)" "$FIX" \
   "open blocks-new-feature-work obligation(s): OBL-T-50" gate-12 --kind feature
+
+# ---- F-53 (v0.7.2): the remediation kind — repairing a prior run's defect
+# discharges no blocker, so its proof points at the DEFECT RECORD instead.
+gaps << G
+$HDR
+| OBL-T-60 | impl_gap | m | blocks-new-feature-work | run | lands | ev:commit{abc1234} |
+G
+mkdir -p "$FIX/runs/260916-x-r1"
+printf 'verifier raised PARK-U3-04: runner-scoped declaration\n' > "$FIX/runs/260916-x-r1/RUN-REPORT.md"
+assert_accepts "remediation referencing a recorded defect passes the freeze (F-53)" "$FIX" \
+  gate-12 --kind remediation --ref PARK-U3-04
+assert_rejects "remediation ref that is on record NOWHERE" "$FIX" \
+  "resolves to NO recorded defect" gate-12 --kind remediation --ref PARK-U9-99
+assert_rejects "remediation ref outside every defect-record shape" "$FIX" \
+  "matches no defect-record shape" gate-12 --kind remediation --ref sprint-cleanup
+assert_rejects "remediation without --ref" "$FIX" \
+  "requires --ref" gate-12 --kind remediation
+printf 'prose discussing \x60PARK-U5-05\x60 only\n' >> "$FIX/runs/260916-x-r1/RUN-REPORT.md"
+assert_rejects "a backticked defect id is a mention, not a record (F-53 control)" "$FIX" \
+  "resolves to NO recorded defect" gate-12 --kind remediation --ref PARK-U5-05
+
+# ---- F-55 (v0.7.2): ids.obligation gains a consumer — an OBL- row id the
+# pattern cannot read is loud, so the declaration can never again be wrong
+# and inert at once. OBL-PLAT-134 (three digits) is the live id that broke it.
+gaps << G
+$HDR
+| OBL-PLAT-134 | impl_gap | m | advisory | run | lands | ev:commit{abc1234} |
+G
+assert_accepts "three-digit obligation id matches the widened pattern (F-55)" "$FIX" \
+  gate-12 --kind feature
+gaps << G
+$HDR
+| OBL-x-01 | impl_gap | m | blocks-new-feature-work | run | lands | ev:commit{abc1234} |
+G
+assert_rejects "OBL- id the pattern cannot read is loud, not silently non-blocking (F-55)" "$FIX" \
+  "does not match ids.obligation" gate-12 --kind feature
 finish
