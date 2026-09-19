@@ -50,6 +50,31 @@ const lsdir = (p) => { try { return readdirSync(p); } catch { return []; } };
 const rx = (pat, flags) => new RegExp(String(pat).replace(/\(\?P<\w+>/g, '('), flags);
 const fill = (tpl, vars) => Object.entries(vars)
   .reduce((s, [k, v]) => s.split(`{${k}}`).join(v), tpl);
+// ADV-R9-02 (v0.7.3 R9): `split('|').slice(1,-1)` dropped the LAST cell of a
+// row without a trailing pipe (legal GFM) and split on escaped pipes Python's
+// _cells honors (F-18) — two BLOCKED rows counted as one and AT-3 reported a
+// real hit green. Same semantics as gates.py _cells: strip outer pipes, split
+// on unescaped |, keep every field, unescape \| into cell content.
+const cellsOf = (l) => l.trim().replace(/^\|+|\|+$/g, '')
+  .split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+// ADV-R10-03 (v0.7.3 R9b): blank the content of fenced code blocks (``` and
+// ~~~, the opener token closing only its own kind) so a fenced '# comment'
+// cannot terminate a section regex at either consumer — same discipline as
+// gates.py _strip_fenced_blocks.
+const stripFencedBlocks = (t) => {
+  const out = []; let fence = null;
+  for (const ln of t.split('\n')) {
+    const m = ln.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (fence === null) {
+      if (m) { fence = m[1][0]; out.push(''); continue; }
+      out.push(ln);
+    } else {
+      if (m && m[1][0] === fence) fence = null;
+      out.push('');
+    }
+  }
+  return out.join('\n');
+};
 
 // wow.config.json is repo-local truth (never overwritten by install). PF-d:
 // `requirement_id` may override ids.requirement — status.mjs is GATE-2's dual
@@ -95,7 +120,7 @@ function installation() {
     hooks[h] = existsSync(p) && body.includes(inst.hook_marker);
     if (!hooks[h]) missing.push(`hook:${h}`);
   }
-  const gateIds = Object.keys(F.gates);
+  const gateIds = Object.keys(F.gates).filter(k => !k.startsWith('$'));
   const untested = gateIds.filter(g =>
     !existsSync(rp(fill(F.non_vacuity.gate_test_file, { gate: g.toLowerCase() }))));
   const wiringTest = existsSync(rp(F.non_vacuity.install_test_file));
@@ -119,7 +144,7 @@ function requirements() {
     const m = line.match(rowRe);
     if (!m) continue;
     const id = m[1];
-    const cells = line.split('|').map(c => c.trim());
+    const cells = cellsOf(line);   // ADV-R10-12: _cells semantics everywhere
     const status = cells.find(c => vocab.includes(c.replace(deco, '').toUpperCase()));
     const s = status ? status.replace(deco, '').toUpperCase() : null;
     if (s) counts[s]++;
@@ -143,7 +168,7 @@ function specs() {
     const acs = new Set();
     for (const line of txt.split('\n')) {
       if ((line.match(/\|/g) || []).length >= 2) {
-        const c = line.replace(/^\||\|$/g, '').split('|').map(x => x.trim());
+        const c = cellsOf(line);   // ADV-R10-12: _cells semantics everywhere
         if (c[0] && acRe.test(c[0])) acs.add(c[0]);
       }
     }
@@ -207,9 +232,52 @@ function runs() {
     const hLines = handoff ? handoff.split('\n') : [];
     if (hLines.length && hLines[hLines.length - 1] === '') hLines.pop();
     const handoffLines = hLines.length;
+    // prodsim/F-75 (v0.7.3, ADV-4): a document-wide word match made writing
+    // ABOUT a status change the count of it — an amendment explaining what
+    // AT-3 counts flipped AT-3 to HIT, and quoting prior text (the honesty
+    // contract) inflated the metric being amended. Statuses are counted in
+    // TABLE ROWS (status column by header where one resolves — gate-3's own
+    // convention; whole row otherwise; blockquoted rows excluded by the
+    // ^\s*\| anchor) plus status_prefix sentences outside fences and code
+    // spans, which FORMATS sanctions as claims.
     const counts = {};
-    for (const v of F.status_vocab.allowed) {
-      counts[v] = (report.match(new RegExp(`\\b${v}\\b`, 'g')) || []).length;
+    for (const v of F.status_vocab.allowed) counts[v] = 0;
+    {
+      let inFence = false, statusIdx = null, headerCells = null;
+      const statusCols = F.status_vocab.status_columns.map(c => c.toLowerCase());
+      const prefixRe = new RegExp(F.status_vocab.status_prefix, 'i');
+      const stripSpans = (l) => l.replace(/`[^`]*`/g, '');
+      for (const rawLine of report.split('\n')) {
+        const line = rawLine;
+        if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+        if (inFence) continue;
+        if (!line.trim()) { statusIdx = null; headerCells = null; continue; }
+        if (/^\s*\|/.test(line)) {
+          const cells = cellsOf(line);
+          if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) {
+            if (headerCells) {
+              statusIdx = headerCells.findIndex(h => statusCols.includes(h.toLowerCase()));
+              if (statusIdx < 0) statusIdx = null;
+            }
+            continue;
+          }
+          const scope = statusIdx !== null && statusIdx < cells.length
+            ? [cells[statusIdx]] : cells;
+          for (const cell of scope) {
+            const bare = stripSpans(cell);
+            for (const v of F.status_vocab.allowed) {
+              if (new RegExp(`\\b${v}\\b`).test(bare)) counts[v] += 1;
+            }
+          }
+          headerCells = cells;
+          continue;
+        }
+        const m = stripSpans(line).match(prefixRe);
+        if (m) {
+          const word = (m[2] || '').toUpperCase();
+          if (word in counts) counts[word] += 1;
+        }
+      }
     }
     const missingSections = F.report_row_schema.sections.filter(
       s => report && !new RegExp(`^#+\\s*${s}\\b`, 'mi').test(report));
@@ -248,7 +316,7 @@ function lanes() {
     const note = rp(fill(rl.quick, { slug }));
     if (!existsSync(note)) continue;
     const m = read(note).match(resultRe);
-    // F-62 residual (v0.7.2): a pattern that fails to match is an UNREADABLE
+    // platform/F-62 residual (v0.7.2): a pattern that fails to match is an UNREADABLE
     // section, never an empty one — collapsing the two turned a JS-dialect
     // regex miss into a 62-record deletion list a PO had already approved.
     // The subject-absent rule GATES-SPEC states for gates, applied to the
@@ -302,16 +370,32 @@ function auditTriggers(rs) {
   // triggers rendered 'not derived' against numbers that were derived,
   // recorded and cited: PF-03's founding gap, recurring in the file that
   // fixed it.
-  const atSec = new RegExp(`^#+\\s*${t.report_section}\\s*$([\\s\\S]*?)(?=^#|$(?![\\s\\S]))`, 'mi');
+  // ADV-R9-07 (v0.7.3 R9): this regex was INLINED here (#+) while gate-7's
+  // escrow used the ##-only handoff template — '### audit triggers' derived a
+  // hit with no escrow row demanded. Both consumers now read the one home.
+  const atSec = new RegExp(fill(t.section_heading, { name: t.report_section }), 'mi');
   const atRow = new RegExp(t.report_row, 'm');
   const reported = {};
+  // prodsim/F-74 fix 3 (v0.7.3): the deriver states what it SAW, not only
+  // what it wanted — 'not recorded, record it there' pointed the operator at
+  // a file where the record already was, in a shape the old pattern refused.
+  let atRowsSeen = 0, atRowsParsed = 0, atSectionsSeen = 0;
   for (const r of scopeRun) {
-    const rep = read(rp(fill(F.report_row_schema.file, { run_id: r.id })));
-    const sec = rep.match(atSec);
+    const rep = stripFencedBlocks(read(rp(fill(F.report_row_schema.file, { run_id: r.id }))));
+    const sec = rep.match(atSec);   // ADV-R10-03: fenced '#' is not a heading
     if (!sec) continue;
-    for (const line of sec[1].split('\n')) {
+    atSectionsSeen += 1;
+    const secLines = sec[1].split('\n');
+    for (let i = 0; i < secLines.length; i++) {
+      const line = secLines[i];
+      const isPipe = /^\s{0,3}\|/.test(line) && !/^\s*\|[\s:|-]+\|\s*$/.test(line);
+      // ADV-R9-12 (R9): a header row (the pipe line a separator follows) is
+      // not a failed data row — counting it as 'seen' made every healthy
+      // table read as one row short of parsing.
+      const isHeader = isPipe && /^\s*\|[\s:|-]+\|\s*$/.test(secLines[i + 1] || '');
+      if (isPipe && !isHeader) atRowsSeen += 1;
       const m = line.match(atRow);
-      if (m) reported[m[1]] = parseInt(m[2], 10);
+      if (m) { reported[m[1]] = parseInt(m[2], 10); atRowsParsed += 1; }
     }
   }
   for (const [k, cfgT] of Object.entries(t)) {
@@ -319,7 +403,12 @@ function auditTriggers(rs) {
     let value = null, note = notes[cfgT.derived_by] || null;
     if (cfgT.derived_by === 'orch') {
       if (k in reported) { value = reported[k]; note = 'read from RUN-REPORT ## audit triggers (F-33)'; }
-      else note = 'not recorded in the run RUN-REPORT (## audit triggers table) — record it there';
+      // DEV-R9-09 (v0.7.3 R9): on a repo with no run this diagnostic implied a
+      // parse failure the operator should fix — rows-seen/parsed is only said
+      // when there was a table to parse.
+      else if (scopeRun.length === 0) note = 'no runs yet — the ORCH records it in RUN-REPORT §audit triggers at first P4';
+      else if (atSectionsSeen === 0) note = `run has no RUN-REPORT ${t.report_section} section yet — the ORCH records it there at P4 (F-33)`;
+      else note = `not parsed from the run RUN-REPORT ## audit triggers table (${atRowsSeen} data row(s) seen, ${atRowsParsed} parsed — a row parses when it starts within 3 spaces of column 0, the AT-id leads cell 1 and an integer leads cell 2; prodsim/F-74)`;
     }
     if (cfgT.derived_by === 'po') note = 'awaiting PO at G4 — a judgement, never derived';
     if (k === 'AT-3') value = scopeRun.reduce((a, r) => a + (r.statuses.BLOCKED || 0), 0);
@@ -350,7 +439,7 @@ function obligations() {
   const effRe = new RegExp(gr.effect_cell);
   for (const ln of readFileSync(p, 'utf8').split('\n')) {
     if (!/^\|/.test(ln) || !rowRe.test(ln)) continue;
-    const cells = ln.split('|').slice(1, -1).map(c => c.trim());
+    const cells = cellsOf(ln);   // ADV-R9-02: same _cells semantics as gates.py
     if (cells.length < gr.columns.length) { problems.push(`short row: ${cells[0] ?? ''}`); continue; }
     const row = Object.fromEntries(gr.columns.map((c, i) => [c, cells[i]]));
     row.open = !new RegExp(gr.discharged_id).test(row.id);
@@ -399,6 +488,23 @@ const i = data.install;
 // know what upstream has, but it makes the installed version and the check
 // command impossible to not see.
 out.push(`  engine v${F.version} installed — newer? run install.sh --check from a clone of the package repo`);
+// prodsim/F-73 (v0.7.3): every number below is derived from the CURRENT
+// CHECKOUT, and a run's state lives on its own branches — the same command on
+// two branches gave a resuming agent confident, opposite answers with nothing
+// saying which branch either read. The deriver names its subject; when a live
+// run owns branches and the checkout is none of them, it says so.
+const curBranch = git('rev-parse', '--abbrev-ref', 'HEAD').trim();
+out.push(dim(`  derived from checkout: ${curBranch} — figures describe THIS branch only (prodsim/F-73)`));
+for (const r of data.runs) {
+  if (r.branches && !r.hasReport) {
+    const owned = git('branch', '--list', '--format=%(refname:short)').split('\n')
+      .filter(b => b.includes(r.id)).map(b => b.trim());
+    if (owned.length && !owned.includes(curBranch)) {
+      out.push(`  ⚠ run ${r.id} lives on ${owned.join(', ')}; you are on '${curBranch}' — ` +
+        `the run's artifacts are NOT in these figures (prodsim/F-73)`);
+    }
+  }
+}
 if (i.missing.length === 0) out.push(`  complete — ${i.gates} gates, all with negative tests`);
 else out.push(`  INCOMPLETE — missing: ${i.missing.join(', ')}`);
 if (i.untested.length) out.push(`  gates with NO negative test (inert-gate risk): ${i.untested.join(', ')}`);
@@ -448,7 +554,7 @@ const l = data.lanes;
 out.push(`  quick: ${l.quick.length}` + (l.quick.filter(q => q.stale).length
   ? `  STALE STUBS: ${l.quick.filter(q => q.stale).map(q => q.slug).join(', ')}` : '')
   + (l.quick.filter(q => q.unreadable).length
-  ? `  UNREADABLE result sections (not graded, not stale — F-62): ${l.quick.filter(q => q.unreadable).map(q => q.slug).join(', ')}` : ''));
+  ? `  UNREADABLE result sections (not graded, not stale — platform/F-62): ${l.quick.filter(q => q.unreadable).map(q => q.slug).join(', ')}` : ''));
 out.push(`  debug: ${l.debugOpen.length} open, ${l.debugResolved} resolved`);
 out.push('');
 

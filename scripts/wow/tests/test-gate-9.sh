@@ -70,4 +70,32 @@ assert_rejects "signed artifact modified with no amendment record (F-29)" "$FIX"
 printf '\nAM-01: 2026-08-15 PO widened scope (D-9); scope-widening: yes\n' >> "$FIX/docs/spec/SPEC-am-v1.md"
 assert_accepts "amendment record makes the post-signature change visible (F-29 control)" "$FIX" \
   gate-9 --paths docs/spec/SPEC-am-v1.md
+
+# ---- prodsim/F-76 (v0.7.3): G4's governing spec is the RECONCILED v<N+1> —
+# the plan's spec: header names v<N> by construction (P4 produces v<N+1>), so
+# resolver and playbook disagreed by one version for every run that reached G4.
+mkdir -p "$FIX/runs/260917-g4-r1"
+printf '# PLAN — 260917-g4-r1\nspec: docs/spec/SPEC-g4-v1.md\n' > "$FIX/runs/260917-g4-r1/PLAN.md"
+printf '# SPEC v1\nstatus: SIGNED\nsigned: G1 2026-09-17 ev:jira{WOW-1}\n' > "$FIX/docs/spec/SPEC-g4-v1.md"
+printf '# SPEC v2 (reconciled)\nstatus: SIGNED\nsigned: G4 2026-09-19 ev:jira{WOW-2}\n' > "$FIX/docs/spec/SPEC-g4-v2.md"
+assert_accepts "G4 resolves the reconciled v2, not the plan's v1 (prodsim/F-76)" "$FIX" \
+  gate-9 --gate G4 --run 260917-g4-r1
+# Control 1: a blocked-draft v2 must NOT be resolved — fall back to v1, whose
+# G1 token then refuses with the --spec hint (never a silent pass).
+printf '# SPEC v2\nstatus: blocked-draft\nsigned: G4 2026-09-19 ev:jira{WOW-2}\n' > "$FIX/docs/spec/SPEC-g4-v2.md"
+assert_rejects "blocked-draft v2 is skipped; the refusal carries the --spec hint (ADV-5)" "$FIX" \
+  "pass --spec" gate-9 --gate G4 --run 260917-g4-r1
+# Control 2: G1 still resolves the plan's own spec — the v(N+1) rule is G4-only.
+assert_accepts "G1 still closes against the plan's v1 (control)" "$FIX" \
+  gate-9 --gate G1 --run 260917-g4-r1
+# ---- ADV-R9-10 (v0.7.3 R9): the pre-0.7.3 layout (signed G4 record living in
+# v1, v2 an ordinary draft) routes through the NO-RECORD branch, which used to
+# refuse with no route — the --spec hint must fire there too.
+printf '# SPEC v1\nstatus: SIGNED\nsigned: G4 2026-09-17 ev:jira{WOW-9}\n' > "$FIX/docs/spec/SPEC-g4-v1.md"
+printf '# SPEC v2 (reconciled, unsigned)\nstatus: draft\n' > "$FIX/docs/spec/SPEC-g4-v2.md"
+assert_rejects "unsigned v2 resolved at G4: refusal names the --spec route (ADV-R9-10)" "$FIX" \
+  "pass --spec" gate-9 --gate G4 --run 260917-g4-r1
+# ...and --spec with the file that carries the record closes it.
+assert_accepts "--spec pointing at the record-carrying v1 closes G4 (ADV-R9-10 control)" "$FIX" \
+  gate-9 --gate G4 --spec docs/spec/SPEC-g4-v1.md
 finish

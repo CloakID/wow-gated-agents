@@ -1,6 +1,8 @@
-# P2 — PLAN — DRAFT v0.7.2
+# P2 — PLAN — DRAFT v0.7.3
 Entry: `/wow-plan <run-id>` · Output: `runs/<run-id>/PLAN.md` (ORCH-owned, machine-parseable per formats.json `plan_schema`) · Gate: **G2 = GATE-8 + GATE-13 lint → adversarial review → PO sign-off** → Jira stories/tasks.
 Load: signed SPEC, `docs/codebase/<area>.md`, CONVENTIONS, sibling-unit contracts if replanning.
+
+**Entry condition — resume before re-plan** (v0.7.3, platform/F-68): if a prior run of this spec carries a **signed, unexecuted unit** covering this work (a wave parked before it began), the default is to carry that unit forward with a delta — its contracts, tasks, verifies and non-vacuity cells absorbed review already, and the delta needs scrutiny only where the world moved. Re-planning it from scratch is a recorded decision with its reason. The measured cost of the missing rule: seven review rounds re-derived and three more rounds re-opened questions the original had settled.
 
 ## [ORCH] — decompose
 1. Split into units `U<n>`, sized for **independent verifiability**, not minimality. Per unit:

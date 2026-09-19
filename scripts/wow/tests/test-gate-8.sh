@@ -632,4 +632,124 @@ autonomy: decide-and-log
 P
 assert_accepts "input produced a strictly lower wave is deliverable (F-58 control)" "$FIX" \
   gate-8 --run 260813-x-r1
+
+# ---- platform/F-70 (v0.7.3): the F-28 scan read the plan's own HEADER FIELDS
+# as stranded normative prose — a signed plan failed its own gate,
+# unsatisfiably, from the signing commit on. The scanned region begins at the
+# first ## heading; the same sentence in the BODY must still fail.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+story-continuity: the framework never offered this choice, so it was never declined
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_accepts "normative word in a HEADER FIELD value is schema, not a rule (platform/F-70)" \
+  "$FIX" gate-8 --run 260813-x-r1
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Notes
+
+executors must never print the credential expansion.
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "the same normative sentence in the BODY still fails (platform/F-70 control)" \
+  "$FIX" "reaches NO executor manifest" gate-8 --run 260813-x-r1
+# ---- ADV-R9-05 (v0.7.3 R9): the F-70 exemption is header-SHAPED, not
+# positional — a normative PROSE paragraph in the preamble (above the first
+# ##) reaches no executor either, and skipping the whole preamble had
+# reintroduced exactly the F-28 class there.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+Executors must never write outside their owns list, whatever the brief says.
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "normative PROSE in the preamble still fails (ADV-R9-05)" \
+  "$FIX" "reaches NO executor manifest" gate-8 --run 260813-x-r1
+# ---- ADV-R10-05 (R9b): the preamble exemption is by NAME — a rule wearing an
+# unlisted 'key: value' costume is still scanned, and the message names the
+# preamble_fields remedy for a genuinely descriptive field.
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+constraint: executors must never write outside their owns list
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "a rule wearing an unlisted 'key:' costume is scanned (ADV-R10-05)" \
+  "$FIX" "preamble_fields" gate-8 --run 260813-x-r1
 finish

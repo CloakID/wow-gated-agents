@@ -1,11 +1,12 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.2-draft",
+  "version": "0.7.3-draft",
   "ids": {
     "run": "^{run_core}$",
     "unit": "^U[1-9][0-9]*$",
     "task": "^{run_core}{task_tail}$",
-    "deviation": "^DEV-U[1-9][0-9]*-[0-9]{2}$",
+    "deviation": "^DEV-(U[1-9][0-9]*|ORCH)-[0-9]{2}$",
+    "$deviation_comment": "prodsim/F-66 (v0.7.3): the ORCH is not a unit and owns decisions no unit can deviate from (branch model, cascade rule, wave boundaries) — a playbook deviation had NO expressible id and was guaranteed to end as prose no gate reads. DEV-ORCH-<nn> is ORCH-allocated (single-threaded per run, so the F-17 allocator argument holds trivially); the PO classifies it at the next gate, mirroring §7's ORCH-authored clause.",
     "park": "^PARK-U[1-9][0-9]*-[0-9]{2}$",
     "verifier_finding": "^VF-U[1-9][0-9]*-[0-9]{2}$",
     "plan_defect": "^DEF-plan-[0-9]{2}$",
@@ -231,11 +232,13 @@
     ]
   },
   "citation_scan_exclude": [
+    "runs/archive/**",
+    "runs/.gate-log",
     "scripts/wow/tests/**",
     "**/fixtures/**",
     "**/testdata/**"
   ],
-  "$citation_scan_exclude_comment": "GATE-3 and GATE-5 skip these. Negative-test fixtures contain deliberately broken citations and deliberately wrong statuses — that is their job. Scanning them makes every commit fail, and a gate that cries wolf is a gate someone disables.",
+  "$citation_scan_exclude_comment": "GATE-3 and GATE-5 skip these. Negative-test fixtures contain deliberately broken citations and deliberately wrong statuses — that is their job. Scanning them makes every commit fail, and a gate that cries wolf is a gate someone disables. platform/F-65 (v0.7.3): runs/archive is excluded by DEFAULT — an archived run is a closed record graded under the vocabulary of its time, and an upgrade that re-grades it under a stricter one leaves the consumer with two wrong moves (rewrite history, or carry 492 permanent reds). The seam is THIS list only: the remediation resolver, gate-2 and gate-9 keep reading the archive. Archival is a P5 step, not an escape hatch (stated in P5). runs/.gate-log is the gates' own rejection telemetry: it QUOTES failing citations verbatim, so scanning it turns every logged refusal into a fresh claim (found by the F-68 arm reading its own error message back; v0.7.3).",
   "codebase_frontmatter": {
     "$comment": "FORMATS §6, GATE-6. Freshness is git-only: fresh iff `git log <verified_against>..HEAD -- <paths>` is empty. No calendar component.",
     "dir": "docs/codebase",
@@ -303,6 +306,8 @@
     ],
     "section_heading": "^##\\s*{name}\\s*$",
     "spec_header": "^spec:\\s*(\\S+)",
+    "preamble_fields": ["spec", "run", "date", "author", "status", "story-continuity", "run-base", "tier"],
+    "$preamble_fields_comment": "platform/F-70 + ADV-R9-05 + ADV-R10-05 (v0.7.3): the F-28 scan exempts plan-preamble header fields by NAME, not by shape — 'story-continuity: …never declined…' is schema and must pass, while 'constraint: executors must never…' is a rule wearing a key: value costume and must fail (it reaches no executor). An unlisted descriptive field carrying a normative word is a false red whose remedy is adding the field here (a package change, deliberately — the exemption list is part of the plan schema).",
     "unit_heading": "^###\\s+(U[1-9][0-9]*)\\s+—\\s+(.+)$",
     "list_field": "^{name}:\\s*$((?:\\s*-\\s*.+\\n?)+)",
     "scalar_field": "^{name}:\\s*(.+)$",
@@ -554,6 +559,7 @@
     "evidence": "runs/{run_id}/evidence/"
   },
   "legacy_freeze": {
+    "$exclude_comment": "prodsim/F-60 (v0.7.3): a brownfield legacy tree can hold LIVE runtime paths (telemetry appenders writing .planning/history/*.ndjson, read back at runtime, required tracked by project decision) — freezing wholesale made the freeze unusable and the pilot forwent GATE-11 entirely, against a demonstrated risk. `legacy_freeze_exclude` in wow.config.json (repo-local truth, the requirement_id pattern) is an fnmatch list carved OUT of the freeze; everything else stays frozen in every direction.",
     "$comment": "GATE-11. Inert unless wow.config.json sets the config key true. Frozen means frozen in every direction: additions, edits, renames AND deletions. Filtering deletions out of the staged set let `git rm -r .planning/` erase the history the gate exists to preserve.",
     "config_key": "migrated_from_gsd",
     "paths": [
@@ -609,7 +615,10 @@
     },
     "$derived_by_comment": "status = status.mjs computes it from the repo. orch = recorded by the orchestrator in RUN-REPORT; not derivable from files alone. po = a judgment call recorded at G4. AT-4 was previously annotated 'derived by gates.sh gate-5 sweep' while no such counter existed in the engine — status.mjs now derives it directly, using the same citation rules gates.sh applies.",
     "report_section": "audit triggers",
-    "report_row": "^\\|\\s*(AT-[0-9]+)\\s*\\|\\s*([0-9]+)\\s*\\|",
+    "section_heading": "^#{1,6}\\s*{name}\\s*$([\\s\\S]*?)(?=^#|$(?![\\s\\S]))",
+    "$section_heading_comment": "ADV-R9-07 (v0.7.3 R9): the escrow located this section via the ##-only handoff template while status.mjs used an INLINED #+ regex — '### audit triggers' gave one recorded value two consumers and opposite answers (a hit derived by status, no escrow row demanded by gate-7). One any-level regex, both consumers, filled with {name}=report_section.",
+    "report_row": "^\\s{0,3}\\|\\s*(AT-[0-9]+)\\b[^|]*\\|\\s*([0-9]+)\\b",
+    "$report_row_comment": "prodsim/F-74 (v0.7.3): the strict id-alone/integer-alone shape rejected every row a person would naturally write (metric name beside the id, verdict beside the number) and the deriver then said 'not recorded' about a recorded table. The id anchors the row; the integer must LEAD the value cell — '| AT-1 | see AT-2, was 4 |' and threshold-documentation rows must NOT parse, because this pattern is a dual consumer and a false parse in the escrow is a phantom trigger hit (ADV-6). Dialect-portable; P4 carries a literal example row. ADV-R9-12 (R9): up to three leading spaces are CommonMark-legal table indentation, so the anchor allows them — an indented but perfect table used to yield '0 parsed' under a message that never named the column-0 requirement.",
     "$orch_comment": "F-33 (v0.6.4): derived_by 'orch' means READ IT FROM THE DURABLE HOME — the run's RUN-REPORT '## audit triggers' table (| AT-n | value | ...) — never 'give up'. Three of five triggers rendered 'not derived' against numbers that were derived, recorded and cited: PF-03's founding gap recurring in the file that fixed it. AT-5 is a genuine PO judgement and stays null, saying so."
   },
   "install": {
@@ -675,17 +684,18 @@
     "$seed_comment": "F-06 (v0.6.3): which commands THIS repo's verify steps may run is repo-local truth by definition (a k8s platform needs kubectl, a Java service gradle) — shipping it in engine_files meant --check reported the repo's own policy as DRIFTED and the next upgrade overwrote it (observed: 18 designed vs 234 accreted, overlap zero). Seeded once from the package template, then owned by the repo, like wow.config.json; --check reports MISSING but never drift."
   },
   "gates": {
+    "$subject_comment": "prodsim/F-70 fix 2 (v0.7.3): a sweep that reports verdicts without subject counts cannot be told apart from a vacuous one — the pilot ORCH recorded 6/6 passed as a green check over an EMPTY set, on the wrong branch, and it survived two wave boundaries. Gates with a subject label report their count in the PASS output; zero says vacuous, loudly. install-vacuity promoted from a migration document to standing engine behavior. Always-one-subject gates (GATE-1, GATE-9, GATE-11) carry no label by design (ADV-12).",
     "GATE-1": {
       "where": "commit-msg",
       "blocks": "commit",
       "inert_when": null
     },
-    "GATE-2": {
+    "GATE-2": {"subject": "requirement row(s)", 
       "where": "sweep",
       "blocks": "gate",
       "inert_when": null
     },
-    "GATE-3": {
+    "GATE-3": {"subject": "document(s)", 
       "where": "sweep",
       "blocks": "gate",
       "inert_when": null
@@ -695,12 +705,12 @@
       "blocks": "gate",
       "inert_when": null
     },
-    "GATE-5": {
+    "GATE-5": {"subject": "file(s)", 
       "where": "pre-commit+sweep",
       "blocks": "commit/gate",
       "inert_when": null
     },
-    "GATE-6": {
+    "GATE-6": {"subject": "map(s)/dep(s)", 
       "where": "wow-plan",
       "blocks": "plan",
       "inert_when": null,
@@ -709,12 +719,12 @@
         "external-dep freshness (FORMATS §11, probe-hash rule, max_age_days fallback)"
       ]
     },
-    "GATE-7": {
+    "GATE-7": {"subject": "run(s)", 
       "where": "P5 sweep",
       "blocks": "publish",
       "inert_when": null
     },
-    "GATE-8": {
+    "GATE-8": {"subject": "unit(s)", 
       "where": "G2 pre-review",
       "blocks": "review",
       "inert_when": null
@@ -724,7 +734,7 @@
       "blocks": "gate-close",
       "inert_when": null
     },
-    "GATE-10": {
+    "GATE-10": {"subject": "divergence row(s)", 
       "where": "gate-open",
       "blocks": "gate-close",
       "inert_when": null
@@ -734,18 +744,18 @@
       "blocks": "commit",
       "inert_when": "wow.config.json migrated_from_gsd != true"
     },
-    "GATE-12": {
+    "GATE-12": {"subject": "registry row(s)", 
       "where": "/wow-spec",
       "blocks": "P1 entry",
       "inert_when": null,
       "$comment": "Not in the sweep lists: it needs invocation context (--kind). The P1 command stub runs it; test-gate-12.sh proves the logic, test-install proves the stub names it."
     },
-    "GATE-13": {
+    "GATE-13": {"subject": "task verify(s)", 
       "where": "at G2, pre-review (with GATE-8)",
       "blocks": "review",
       "$comment": "F-9: plan Verify non-vacuity. Unsigned plans only — a signed plan is frozen and a retroactive rule would demand the edit the framework prohibits. The pilot implemented this as its local GATE-12 at v0.5.1; upstream the id 12 was already the obligation block, so it lands as GATE-13."
     },
-    "GATE-14": {
+    "GATE-14": {"subject": "path(s)", 
       "where": "pre-commit (staged evidence paths)",
       "blocks": "commit",
       "$comment": "PII scan — see pii_scan. Non-vacuity: a staged capture with a populated email must be refused; the same file with the field emptied, or carrying 'pii-ok: <reason>', must not."
@@ -823,6 +833,8 @@
   "verify_lint": {
     "$comment": "F-9 (v0.6.2): five idioms that each shipped a real inert Verify in pilot #1's run 260821-frisbii-ops-r1. A match is a GATE-13 failure unless the row carries the accept marker with a reason — accepting one deliberately and VISIBLY. A lint cannot catch the next vacuous idiom; that is what the Non-vacuity column is for. Python-regex flavor; consumed by gates.py only.",
     "idioms": {
+      "credential-default-expansion": "(?=.*\\$\\{[^}]*(?<![A-Za-z])(?:PW(?![A-Za-z])|PASS(?:WORD|WD)?(?![A-Za-z])|SECRETS?(?![A-Za-z])|TOKENS?(?![A-Za-z])|CREDS?(?:ENTIALS?)?(?![A-Za-z]))[^}]*(?::?-|:?=)[^}]*\\})(?=.*\\b(?:echo|printf)\\b)",
+      "$credential_comment": "platform/F-69 (v0.7.3): ${V-w}/${V:-w}/${V=w}/${V:=w} all return the VALUE when the variable is set — which is exactly the state a residue probe detects, so the disclosure fires on the only path where the probe says anything. Shipped twice in one consuming repo, both times from the fix for the previous finding in the same family. Safe forms named in the message: ${V+w} and ${#V}. lint-ok with a reason stays the visible escape; there is deliberately NO backtick exemption — Verify cells carry backticked commands as their standard shape, and a mention rule here would make the lint vacuous on every real plan (ADV-10). ADV-R9-11 (R9) + ADV-R10-06 (R9b): EVERY token is letter-bounded on both sides — bare substrings matched inside ${PWD:-…}, ${TOKENIZER_MODEL:-…}, ${CREDIT_LIMIT:-…}, ${PASSENGER_COUNT:-…} and the lint claimed each was a credential; PASSWORD/PASSWD/SECRETS/TOKENS/CREDENTIALS still match, COMPASS/XPASS/TOKENIZER/CREDIT/PASSENGER do not.",
       "bang-under-set-e": "(?s)^(?=.*\\bset\\s+-e\\b)(?=.*(?:[;&|({]\\s*|\\s)!\\s)",
       "jq-default-on-absent-key": "\\bjq\\b.*(?<!:)//",
       "length-on-object": "\\blength\\s*>\\s*0",

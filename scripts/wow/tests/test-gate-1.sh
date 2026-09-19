@@ -191,4 +191,16 @@ assert_rejects "check-id: 49-char slug refused naming the cap" "$FIX" "caps it a
   check-id "260913-$SLUG49-r1"
 assert_rejects "check-id: shapeless id refused naming ids.run" "$FIX" "does not match ids.run" \
   check-id "sprint-7-work"
+
+# ---- prodsim/F-65 (v0.7.3): check-id --base asserts the run base carries the
+# plan — 'from main' produced a base on which the run did not exist, and the
+# failure surfaced hours later as a confusing mutation result, not a refusal.
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "plans [WOW:publish]" >/dev/null 2>&1 )
+assert_accepts "check-id --base: base carrying the plan passes (F-65)" "$FIX" \
+  check-id 260813-real-r1 --base HEAD
+( cd "$FIX" && git checkout -qb stale-main HEAD~1 2>/dev/null && git checkout -q - )
+assert_rejects "check-id --base: base without the plan is refused (F-65)" "$FIX" \
+  "does not exist on --base" check-id 260813-real-r1 --base stale-main
+assert_rejects "check-id --base: unresolvable ref refused (F-65)" "$FIX" \
+  "not a ref this repo can resolve" check-id 260813-real-r1 --base no-such-branch
 finish

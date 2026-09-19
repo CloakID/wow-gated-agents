@@ -66,6 +66,40 @@ cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
 R
 assert_accepts "'DEFERRED' as prose outside the named Status column (control)" "$FIX" gate-7
 
+# ---- prodsim/F-69 (v0.7.3, ADV-3): the CV record is BORN in the verifier's
+# report (FORMATS §5) and the escrow never opened that file — three genuine
+# coverage limits reached no durable home while the escrow reported clean.
+# The run's verify reports join the per-run aggregation.
+mkdir -p "$FIX/runs/260816-x-r1/reports"
+cat > "$FIX/runs/260816-x-r1/reports/U9-verify.md" << 'R'
+Grade: PASS-with-carry-forwards
+
+CV-260816-x-r1-U9-01: durable invariant blesses a destructive overwrite path
+  reason: abort status is non-default in the harness
+  successor: prod validation
+  discharge: exercised in prod
+R
+assert_rejects "CV allocated ONLY in a verify report is escrow-demanded (F-69)" "$FIX" \
+  "escrow" gate-7
+printf '| CV-260816-x-r1-U9-01 | env_unverified | PO | advisory | prod | exercised | ev:file{runs/260816-x-r1/reports/U9-verify.md} |\n' >> "$FIX/docs/GAPS.md"
+assert_accepts "verify-report CV escrowed into the registry (F-69 control)" "$FIX" gate-7
+
+# Aggregation joins the run's WHOLE file set: allocated in the verify report,
+# discharged in RUN-REPORT — a closed question (F-51 across files).
+cat > "$FIX/runs/260816-x-r1/reports/U8-verify.md" << 'R'
+CV-260816-x-r1-U8-02: contract wording pending
+  reason: D-7 in flight
+  successor: none
+  discharge: G4 decision
+R
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+
+CV-260816-x-r1-U8-02: contract wording pending
+  discharged: 2026-09-19 ev:jira{WOW-77}
+R
+assert_accepts "CV allocated in a verify report, discharged in RUN-REPORT — closed (F-69/F-51)" \
+  "$FIX" gate-7
+
 # ---- F-51 (v0.7.2): a CV discharged IN-RUN is a closed question ------------
 # Eight of eighteen records in one pilot run were closed before publish and
 # the escrow demanded registry rows for all eighteen — the registry of open
@@ -209,4 +243,165 @@ assert_accepts "open row naming AT-2 escrows the hit (control)" "$FIX13" gate-7 
 printf '## audit triggers\n| AT-2 | 3 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
 printf '%s\n' "$HDR13" > "$FIX13/docs/GAPS.md"
 assert_accepts "under-threshold trigger owes nothing (control)" "$FIX13" gate-7 --run 260903-cv-r1
+# ---- ADV-R9-04 (v0.7.3 R9): discharge resolution is order-INDEPENDENT ------
+# Allocation in RUN-REPORT (first block, open), discharge in a verify report
+# (later in the aggregate) — the old first-block-only search demanded a
+# registry row for a record the run itself closed.
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+
+CV-260816-x-r1-09: probe env pending at wave 2
+  reason: env came up in wave 3
+  successor: none
+  discharge: wave-3 re-probe
+R
+cat > "$FIX/runs/260816-x-r1/reports/U7-verify.md" << 'R'
+CV-260816-x-r1-09: probe env pending at wave 2
+  discharged: 2026-09-19 ev:cmd{wave-3 re-probe, output pasted in U7 report}
+R
+assert_accepts "allocated in RUN-REPORT, discharged in a verify report (ADV-R9-04)" "$FIX" gate-7
+
+# ---- ADV-R9-01 (v0.7.3 R9): a FENCED "example" discharge is a mention ------
+# The forgery: record a real open CV, then "quote the record format" in a
+# fence carrying a fabricated ev: — the old matcher read the fence as a claim.
+cat >> "$FIX/runs/260816-x-r1/RUN-REPORT.md" << 'R'
+
+CV-260816-x-r1-10: rollback path unexercised
+  reason: destructive against shared env
+  successor: prod validation
+  discharge: game-day exercise
+
+The record format, for reference:
+
+```
+CV-260816-x-r1-10: rollback path unexercised
+  discharged: 2026-09-19 ev:jira{WOW-1}
+```
+R
+assert_rejects "fenced example discharge does NOT close the CV (ADV-R9-01)" "$FIX" \
+  "no ROW with that id" gate-7
+python3 - "$FIX/runs/260816-x-r1/RUN-REPORT.md" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+# the SAME text outside the fence is a claim and closes it (control)
+s = s.replace("""The record format, for reference:
+
+```
+CV-260816-x-r1-10: rollback path unexercised
+  discharged: 2026-09-19 ev:jira{WOW-1}
+```""", """CV-260816-x-r1-10: rollback path unexercised
+  discharged: 2026-09-19 ev:jira{WOW-1}""")
+open(p, 'w').write(s)
+PY
+assert_accepts "the same discharge outside the fence closes it (ADV-R9-01 control)" "$FIX" gate-7
+
+# ---- ADV-R9-06 (v0.7.3 R9): the escrow never passes over nothing -----------
+FIX6="$(setup_fixture_repo)"
+assert_rejects "--run naming a missing directory is not a pass (ADV-R9-06)" "$FIX6" \
+  "names no directory" gate-7 --run 260919-ghost-r1
+# a run that died after verify: CVs in reports/*-verify.md, no RUN-REPORT.
+# Explicitly named, it is under judgment — the CV is escrow-demanded.
+mkdir -p "$FIX6/runs/260919-dead-r1/reports"
+cat > "$FIX6/runs/260919-dead-r1/reports/U1-verify.md" << 'R'
+Grade: PASS-with-carry-forwards
+
+CV-260919-dead-r1-U1-01: integration env never came back
+  reason: run died between verify and report assembly
+  successor: none
+  discharge: rerun
+R
+assert_rejects "verify-only run named with --run: CV is escrow-demanded (ADV-R9-06)" "$FIX6" \
+  "no ROW with that id" gate-7 --run 260919-dead-r1
+# unnamed, the F-36 shield holds (mid-flight siblings stay invisible) but the
+# walk now SAYS what it skipped.
+assert_output "unnamed walk names the verify-only dir it skipped (ADV-R9-06)" "$FIX6" \
+  "verify reports but no RUN-REPORT" gate-7
+# an existing dir with NEITHER a RUN-REPORT nor verify reports walks nothing —
+# and an escrow that judged nothing over an explicit --run is not a pass.
+mkdir -p "$FIX6/runs/260919-mid-r1"
+printf 'position\n' > "$FIX6/runs/260919-mid-r1/HANDOFF.md"
+assert_rejects "--run over a dir with nothing judgeable walks 0 and fails (ADV-R9-06)" "$FIX6" \
+  "walked 0 runs" gate-7 --run 260919-mid-r1
+
+# ---- ADV-R9-07 (v0.7.3 R9): one section regex, any heading level -----------
+# '### audit triggers' used to derive a hit in status.mjs while the escrow
+# (##-anchored) stayed silent — same value, two consumers, opposite answers.
+mkdir -p "$FIX6/runs/260919-at3-r1"
+printf '### audit triggers\n| AT-2 | 6 | ev:jira{WOW-3} |\n' > "$FIX6/runs/260919-at3-r1/RUN-REPORT.md"
+assert_rejects "AT hit under a ### heading is seen by the escrow (ADV-R9-07)" "$FIX6" \
+  "owed audit" gate-7 --run 260919-at3-r1
+# ---- ADV-R10-01 (R9b): the forgery re-ran through the ADJACENT mention
+# channels the day the ``` one closed — tilde fences and indented code.
+FIXA="$(setup_fixture_repo)"
+mkdir -p "$FIXA/runs/260920-tld-r1"
+cat > "$FIXA/runs/260920-tld-r1/RUN-REPORT.md" << 'R'
+CV-260920-tld-r1-01: rollback path unexercised
+  reason: destructive against shared env
+  successor: prod validation
+  discharge: game-day exercise
+
+The record format, for reference:
+
+~~~
+CV-260920-tld-r1-01: rollback path unexercised
+  discharged: 2026-09-20 ev:jira{WOW-1}
+~~~
+R
+assert_rejects "a ~~~-fenced example discharge does NOT close the CV (ADV-R10-01)" "$FIXA" \
+  "no ROW with that id" gate-7 --run 260920-tld-r1
+cat > "$FIXA/runs/260920-tld-r1/RUN-REPORT.md" << 'R'
+CV-260920-tld-r1-01: rollback path unexercised
+  reason: destructive against shared env
+  successor: prod validation
+  discharge: game-day exercise
+
+The record format, for reference:
+
+    CV-260920-tld-r1-01: rollback path unexercised
+      discharged: 2026-09-20 ev:jira{WOW-1}
+R
+assert_rejects "an INDENTED-code example discharge does NOT close the CV (ADV-R10-01)" "$FIXA" \
+  "no ROW with that id" gate-7 --run 260920-tld-r1
+
+# ---- ADV-R10-04 (R9b): fence state resets per FILE — one unclosed fence in
+# RUN-REPORT must not mark every verify report as fenced and hide a real
+# cross-file discharge (the exact case ADV-R9-04 exists for).
+mkdir -p "$FIXA/runs/260920-tld-r1/reports"
+cat > "$FIXA/runs/260920-tld-r1/RUN-REPORT.md" << 'R'
+CV-260920-tld-r1-02: probe env pending at wave 2
+  reason: env came up in wave 3
+  successor: none
+  discharge: wave-3 re-probe
+
+A truncated paste left this fence unclosed:
+```
+some quoted output
+R
+cat > "$FIXA/runs/260920-tld-r1/reports/U1-verify.md" << 'R'
+CV-260920-tld-r1-02: probe env pending at wave 2
+  discharged: 2026-09-20 ev:cmd{wave-3 re-probe, output pasted in U1 report}
+R
+assert_accepts "unclosed fence in RUN-REPORT does not hide the verify-file discharge (ADV-R10-04)" \
+  "$FIXA" gate-7 --run 260920-tld-r1
+
+# ---- ADV-R10-03 (R9b): a fenced '# comment' inside the audit-triggers
+# section must not terminate it — the recorded hit stays escrowed.
+mkdir -p "$FIXA/runs/260920-cmt-r1"
+cat > "$FIXA/runs/260920-cmt-r1/RUN-REPORT.md" << 'R'
+## audit triggers
+
+```sh
+# count BLOCKED rows in the report
+grep -c BLOCKED reports/*.md
+```
+
+| AT-2 | 6 | ev:jira{WOW-3} |
+R
+assert_rejects "AT hit below a fenced # comment is still seen by the escrow (ADV-R10-03)" "$FIXA" \
+  "owed audit" gate-7 --run 260920-cmt-r1
+
+# ---- ADV-R10-09 (R9b): naming an archived run says ARCHIVED, not 'missing'.
+mkdir -p "$FIXA/runs/archive/260101-done-r1"
+printf 'archived\n' > "$FIXA/runs/archive/260101-done-r1/RUN-REPORT.md"
+assert_rejects "--run on an archived run names the archive and F-36 (ADV-R10-09)" "$FIXA" \
+  "ARCHIVED" gate-7 --run 260101-done-r1
 finish

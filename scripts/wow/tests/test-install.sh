@@ -67,9 +67,20 @@ bash "$INSTALL" "$T" >/dev/null 2>&1 || bad_ "install.sh failed"
 printf 'y\n' >> "$T/app.txt"; ( cd "$T" && git add -A )
 must_block "laneless commit (GATE-1 via commit-msg hook)" "$T" "no lane reference here"
 mkdir -p "$T/runs/quick/260814-real"
-printf '## what\nx\n## result\ndone ev:commit{abc1234}\n' > "$T/runs/quick/260814-real/NOTE.md"
+# prodsim/F-68 (v0.7.3): the pre-commit hook now RESOLVES ev:commit shas in
+# staged runs/ files, so the fixture must cite a sha that exists — which is
+# exactly the discipline the arm enforces.
+TSHA="$( cd "$T" && git rev-parse --short=7 HEAD )"
+printf '## what\nx\n## result\ndone ev:commit{%s}\n' "$TSHA" > "$T/runs/quick/260814-real/NOTE.md"
 ( cd "$T" && git add -A )
 must_land "quick-lane commit with a resolvable ref" "$T" "do a thing [Q:runs/quick/260814-real]"
+printf '## what\nx\n## result\ndone ev:commit{beef042}\n' > "$T/runs/quick/260814-real/NOTE.md"
+( cd "$T" && git add -A )
+must_block "staged run file citing a nonexistent sha (F-68 via pre-commit)" "$T" \
+  "cite before commit [Q:runs/quick/260814-real]"
+( cd "$T" && git checkout -q -- runs/quick/260814-real/NOTE.md 2>/dev/null || git reset -q )
+printf '## what\nx\n## result\ndone ev:commit{%s}\n' "$TSHA" > "$T/runs/quick/260814-real/NOTE.md"
+( cd "$T" && git add -A && git commit -qm "restore [Q:runs/quick/260814-real]" >/dev/null 2>&1 )
 
 printf 'See ev:file{docs/gone.md:5}\n' > "$T/docs/note.md"; ( cd "$T" && git add -A )
 must_block "staged stale citation (GATE-5 via pre-commit hook)" "$T" "cite [WOW:publish]"
@@ -229,7 +240,13 @@ must_land "pii-ok capture lands through the same hook (control)" "$T" \
 
 # ---- F-33/F-34 (v0.6.4): audit triggers derive from the durable home --------
 mkdir -p "$T/runs/260903-a-r1"
-printf '# RUN-REPORT\n\n## audit triggers\n| AT-1 | 4 | ev:commit{abc1234} |\n| AT-2 | 2 | ev:commit{abc1234} |\n\n## completed\nBLOCKED BLOCKED\n' \
+ATSHA="$( cd "$T" && git rev-parse --short=7 HEAD 2>/dev/null || echo 0000000 )"
+# prodsim/F-74 (v0.7.3): the rows use the NATURAL authoring form — metric
+# name beside the id, verdict beside the number — which the old pattern
+# refused while the deriver said 'not recorded' about a recorded table.
+# prodsim/F-75: the prose sentence explaining what AT-3 counts must NOT
+# count as a blocked task; only the two table rows do.
+printf '# RUN-REPORT\n\nAT-3 sums rows whose status cell is the blocked one; writing the word BLOCKED in prose must not move it.\n\n## audit triggers\n\n```sh\n# how these were counted (ADV-R10-03: a fenced comment must not end the section)\ngrep -c BLOCKED reports/*.md\n```\n\n| AT-1 mocks/fixtures committed, excluding controls | 4 — threshold >3, HIT | ev:commit{%s} |\n| AT-2 remediation cycles | 2 | ev:commit{%s} |\n\n## completed\n| id | status | ref |\n|---|---|---|\n| T01 | BLOCKED | PARK-U1-01 |\n| T02 | BLOCKED | PARK-U1-02 |\n' "$ATSHA" "$ATSHA" \
   > "$T/runs/260903-a-r1/RUN-REPORT.md"
 AT_OUT="$(cd "$T" && node scripts/wow/status.mjs --json --run 260903-a-r1 | python3 -c "import json,sys; a=json.load(sys.stdin)['auditTriggers']; print(a['AT-1']['value'], a['AT-2']['value'], a['AT-3']['value'])")"
 if [ "$AT_OUT" = "4 2 2" ]; then
@@ -284,4 +301,103 @@ if [ -f "$T/$POL" ]; then
 else
   echo "  FAIL $POL was never seeded into the target"; FAIL=$((FAIL+1))
 fi
+# ---- ADV-R9-02/12 + DEV-R9-09 (v0.7.3 R9): the deriver's own parsing --------
+# (a) a status row WITHOUT a trailing pipe (legal GFM) keeps its last cell;
+# (b) an AT table indented up to 3 spaces (CommonMark-legal) still parses;
+# (c) on a repo with NO runs, the AT diagnostic says so instead of implying a
+#     parse failure the operator should fix.
+mkdir -p "$T/runs/260920-r9-r1"
+printf '## audit triggers\n   | AT-2 remediation cycles | 2 | ev:commit{%s} |\n\n## completed\n| id | status | ref |\n|---|---|---|\n| T01 | BLOCKED | PARK-U1-01 |\n| T02 | BLOCKED\n' "$ATSHA" \
+  > "$T/runs/260920-r9-r1/RUN-REPORT.md"
+R9_OUT="$(cd "$T" && node scripts/wow/status.mjs --json --run 260920-r9-r1 | python3 -c "import json,sys; d=json.load(sys.stdin); a=d['auditTriggers']; r=[x for x in d['runs'] if x['id']=='260920-r9-r1'][0]; print(a['AT-2']['value'], r['statuses']['BLOCKED'])")"
+if [ "$R9_OUT" = "2 2" ]; then
+  echo "  ok   no-trailing-pipe row counted; indented AT table parsed (ADV-R9-02/12)"; PASS=$((PASS+1))
+else
+  echo "  FAIL R9 deriver fixes regressed (got '$R9_OUT', want '2 2')"; FAIL=$((FAIL+1))
+fi
+rm -rf "$T/runs/260920-r9-r1"
+TN="$(new_target norunsyet)"
+bash "$INSTALL" "$TN" >/dev/null 2>&1
+NOTE_OUT="$(cd "$TN" && node scripts/wow/status.mjs --json | python3 -c "import json,sys; print(json.load(sys.stdin)['auditTriggers']['AT-1']['note'])")"
+case "$NOTE_OUT" in
+  *"no runs yet"*) echo "  ok   zero-run repo: AT note says 'no runs yet', not rows-seen/parsed (DEV-R9-09)"; PASS=$((PASS+1)) ;;
+  *) echo "  FAIL zero-run AT note still implies a parse failure: $NOTE_OUT"; FAIL=$((FAIL+1)) ;;
+esac
+# DEV-R9-10: the sweep SUMMARY carries the vacuous count on an empty repo.
+SWEEP_OUT="$(cd "$TN" && ./scripts/wow/gates.sh sweep 2>&1 | tail -1)"
+case "$SWEEP_OUT" in
+  *vacuous*) echo "  ok   empty-repo sweep summary says vacuous, not bare N/N passed (DEV-R9-10)"; PASS=$((PASS+1)) ;;
+  *) echo "  FAIL sweep summary is still a bare pass count: $SWEEP_OUT"; FAIL=$((FAIL+1)) ;;
+esac
+
+# ---- DEV-R9-02/04 (v0.7.3 R9): install seeds the registry; upgrades re-stamp
+# the one config key the installer owns.
+if [ -f "$TN/docs/GAPS.md" ] && grep -q '| id | tag | owner |' "$TN/docs/GAPS.md"; then
+  echo "  ok   docs/GAPS.md seeded empty-but-valid (DEV-R9-02)"; PASS=$((PASS+1))
+else
+  echo "  FAIL docs/GAPS.md not seeded — first /wow-spec dead-ends on GATE-12"; FAIL=$((FAIL+1))
+fi
+python3 - "$TN/scripts/wow/wow.config.json" <<'PY'
+import json, re, sys
+p = sys.argv[1]; s = open(p).read()
+open(p, "w").write(re.sub(r'"wow_version"\s*:\s*"[^"]*"', '"wow_version": "0.0.1-old"', s, count=1))
+PY
+# capture first, grep second: --check exits 1 on drift, and under pipefail
+# `| grep -q` fails the pipeline exactly when it matches (TF-01's cousin).
+VCHK_OUT="$(bash "$INSTALL" --check "$TN" 2>&1)" || true
+printf '%s' "$VCHK_OUT" | grep -q "STALE.*wow_version" \
+  && { echo "  ok   --check reports a stale wow_version (DEV-R9-04)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL --check silent on a stale wow_version"; FAIL=$((FAIL+1)); }
+bash "$INSTALL" "$TN" >/dev/null 2>&1
+grep -q '"wow_version": "0.0.1-old"' "$TN/scripts/wow/wow.config.json" \
+  && { echo "  FAIL upgrade left the stale wow_version stamp (DEV-R9-04)"; FAIL=$((FAIL+1)); } \
+  || { echo "  ok   upgrade re-stamps wow_version; the rest of the config is untouched (DEV-R9-04)"; PASS=$((PASS+1)); }
+
+# ---- DEV-R9-01 (v0.7.3 R9): a repo-local edit INSIDE the markers refuses a
+# plain install (would-be-lost lines shown); --force-section overrides; a
+# stamped, unedited section upgrades freely.
+TS="$(new_target sectionguard)"
+bash "$INSTALL" "$TS" >/dev/null 2>&1
+grep -q 'wow-v2-section-hash' "$TS/CLAUDE.md" \
+  && { echo "  ok   written section carries its content stamp (DEV-R9-01)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL section written without a stamp"; FAIL=$((FAIL+1)); }
+bash "$INSTALL" "$TS" >/dev/null 2>&1 \
+  && { echo "  ok   stamped unedited section reinstalls freely (DEV-R9-01 control)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL clean reinstall refused"; FAIL=$((FAIL+1)); }
+python3 - "$TS/CLAUDE.md" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+marker = "<!-- wow-v2-section-hash:"
+i = s.index(marker)
+open(p, "w").write(s[:i] + "PO decision D-42: quick lane widened for hotfixes.\n" + s[i:])
+PY
+SG_OUT="$(bash "$INSTALL" "$TS" 2>&1)"; SG_RC=$?
+if [ "$SG_RC" -ne 0 ] && printf '%s' "$SG_OUT" | grep -q "REFUSED.*CLAUDE.md" \
+   && grep -q "D-42" "$TS/CLAUDE.md"; then
+  echo "  ok   locally-edited section refused; the decision survives (DEV-R9-01)"; PASS=$((PASS+1))
+else
+  echo "  FAIL locally-edited section was replaced or refusal malformed (rc=$SG_RC)"; FAIL=$((FAIL+1))
+fi
+SCHK_OUT="$(bash "$INSTALL" --check "$TS" 2>&1)" || true
+printf '%s' "$SCHK_OUT" | grep -q "LOCAL EDITS" \
+  && { echo "  ok   --check names the local edits and the refusal (DEV-R9-01)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL --check does not name local edits"; FAIL=$((FAIL+1)); }
+bash "$INSTALL" --force-section "$TS" >/dev/null 2>&1
+if ! grep -q "D-42" "$TS/CLAUDE.md" && grep -q 'wow-v2-section-hash' "$TS/CLAUDE.md"; then
+  echo "  ok   --force-section replaces deliberately and re-stamps (DEV-R9-01 escape)"; PASS=$((PASS+1))
+else
+  echo "  FAIL --force-section did not replace cleanly"; FAIL=$((FAIL+1))
+fi
+# ---- ADV-R10-10 (R9b): CRLF conversion is zero semantic change, not local edits.
+TCRLF="$(new_target crlf)"
+bash "$INSTALL" "$TCRLF" >/dev/null 2>&1
+python3 - "$TCRLF/CLAUDE.md" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, 'rb').read()
+open(p, 'wb').write(s.replace(b'\n', b'\r\n'))
+PY
+bash "$INSTALL" "$TCRLF" >/dev/null 2>&1 \
+  && { echo "  ok   CRLF-converted section is not 'local edits' (ADV-R10-10)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL CRLF conversion refused as local edits"; FAIL=$((FAIL+1)); }
 finish

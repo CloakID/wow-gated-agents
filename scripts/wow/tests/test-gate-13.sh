@@ -250,4 +250,166 @@ prose instead of a task table
 P
 assert_rejects "no task table cannot pass the verify lint (F-13)" "$FIX" \
   "ZERO task rows" gate-13 --run 260824-x-r1
+
+# ---- platform/F-69 (v0.7.3): a Verify that default-expands a credential-named
+# variable into echo/printf prints the VALUE when the variable is set — the
+# exact state a residue probe exists to detect. Shipped twice in one repo,
+# both times from the fix for the previous finding in the same family.
+printf 'w\n' > "$FIX/runs/260824-x-r1/w.txt"
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo "left: ${ROOT_PW:-gone}"` | clean | rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_rejects "credential default-expansion into echo is refused naming safe forms (platform/F-69)" \
+  "$FIX" "Safe forms" gate-13 --run 260824-x-r1
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo "still set: ${ROOT_PW+yes}"` | clean | rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_accepts "the safe form passes (platform/F-69 control)" "$FIX" gate-13 --run 260824-x-r1
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo "left: ${ROOT_PW:-gone}"` | clean | lint-ok: synthetic tenant, PO D-9; rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_accepts "lint-ok accepts the expansion deliberately and visibly (platform/F-69 escape)" \
+  "$FIX" gate-13 --run 260824-x-r1
+# ---- ADV-R9-11 (v0.7.3 R9): the credential tokens are letter-bounded — bare
+# substring PW matched inside ${PWD:-unknown} and the lint claimed the working
+# directory was a credential.
+printf 'w\n' > "$FIX/runs/260824-x-r1/w.txt"
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo "ran in ${PWD:-unknown}" && pytest a` | clean | rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_accepts "\${PWD:-...} is a working directory, not a credential (ADV-R9-11)" \
+  "$FIX" gate-13 --run 260824-x-r1
+# control: PASSWORD still carries the trailing letters PASS guards against losing
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo "left: ${DB_PASSWORD:-gone}"` | clean | rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_rejects "\${DB_PASSWORD:-...} is still refused (ADV-R9-11 control)" \
+  "$FIX" "Safe forms" gate-13 --run 260824-x-r1
+
+# ---- DEV-R9-05 (v0.7.3 R9): an unescaped pipe in a Verify cell shifts the
+# row into a different table — GATE-8 said so while GATE-13 blamed a healthy
+# Non-vacuity cell under the wrong rule. Same guard, both gates.
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo $X | wc -c` | clean | rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_rejects "pipe-shifted row is diagnosed as the pipe, not the Non-vacuity cell (DEV-R9-05)" \
+  "$FIX" "unescaped '|'" gate-13 --run 260824-x-r1
+# ---- ADV-R10-06 (R9b): every credential token is letter-bounded.
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260824-x-r1.T01 | probe | `echo "model: ${TOKENIZER_MODEL:-bert} credit ${CREDIT_LIMIT:-0}"` | clean | rejects runs/260824-x-r1/w.txt |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_accepts "TOKENIZER/CREDIT are not credentials (ADV-R10-06)" \
+  "$FIX" gate-13 --run 260824-x-r1
 finish

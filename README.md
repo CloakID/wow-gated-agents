@@ -1,6 +1,8 @@
 # WoW v2 — a gated, evidence-first way of working for AI coding agents
 
-**Status: DRAFT — current version is the top entry of [CHANGELOG.md](CHANGELOG.md) (the package's single version authority); engine debts are registered in [docs/GAPS.md](docs/GAPS.md). Two pilots running, actively seeking feedback.**
+**Status: DRAFT — current release: `v0.7.3-draft` (2026-09-20).** The top entry of [CHANGELOG.md](CHANGELOG.md) is the package's single version authority; engine debts are registered in [docs/GAPS.md](docs/GAPS.md). Three pilots running, actively seeking feedback.
+
+> **v0.7.3 released** — the largest round yet: pilot #3's first fully-current feedback batch (20 findings), plus a review discipline upgrade: the built round was attacked by a fresh-context adversarial review and a developer-persona review (27 findings, both verdicts "not as-is"), every blocking finding was remediated pre-publish, and a second fresh-context review then attacked the fixes themselves (11 more findings, also remediated) — all five review reports ship in [docs/reviews/](docs/reviews/). 373 suite assertions, 36 mutation proofs. Upgrade with `install.sh` (it now refuses to eat repo-local CLAUDE.md content, seeds the obligation registry, and re-stamps `wow_version`).
 
 WoW v2 is a spec→plan→run→report process for building software with AI coding agents (designed against Claude Code, portable in principle to any agent runner). It grew out of six months of running [GSD (get-shit-done)](https://github.com/gsd-build/get-shit-done) across two production repos, auditing what actually failed, and rebuilding around two findings that kept repeating:
 
@@ -13,7 +15,7 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 
 - **[CLAUDE-WOW-SECTION.md](CLAUDE-WOW-SECTION.md)** — the ~60-line resident router (lanes, non-negotiables, paths) that goes in your agent memory file. Everything else loads on phase entry.
 - **[docs/process/](docs/process/)** — phase playbooks **P0 GROUND → P1 SPEC → P2 PLAN → P3 RUN → P4 REPORT & RECONCILE → P5 PUBLISH**, plus [LANES.md](docs/process/LANES.md) (quick/debug lanes and precedence) and [FORMATS.md](docs/process/FORMATS.md) (IDs, evidence citations, status vocabulary, git/tracker ownership split). Every section is audience-tagged `[PO]` / `[ORCH]` / `[AGENT]` so subagents are never shown duties they can't perform.
-- **[GATES-SPEC.md](GATES-SPEC.md)** — the twelve mechanical gates plus the layer-parity check (commit-msg + pre-commit hooks + gate sweeps), each required to ship with a **non-vacuity proof**: the negative test that shows the gate can actually fail.
+- **[GATES-SPEC.md](GATES-SPEC.md)** — the fourteen mechanical gates plus the layer-parity check (commit-msg + pre-commit hooks + gate sweeps), each required to ship with a **non-vacuity proof**: the negative test that shows the gate can actually fail.
 - **[scripts/wow/](scripts/wow/)** — the reference implementation: `gates.sh` (+ its engine `gates.py`), `formats.json` (the single machine home for every pattern, path and vocabulary), `status.mjs` (derived status), and `tests/` — one negative test per gate plus `test-install.sh`, which drives real commits through the real hooks to prove the gates are *wired*, not merely correct.
 - **[install.sh](install.sh)** — per-repo installer. Idempotent, writes only repo-scoped files, preserves an existing hook by chaining to it, and `--check` reports drift against the canonical package.
 - **[INSTALL.md](INSTALL.md)** — packaging, the three-layer entry-reliability model, and a migration path from GSD's `.planning/`.
@@ -21,14 +23,28 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
+## What's new in v0.7.3-draft
+
+**Pilot #3 onboarded — and filed the first batch ever aimed entirely at live HEAD** (prodsim/F-60…F-76 + platform F-65…F-70 from the upgrade itself; zero dead-code triage). The round was adversarially reviewed before implementation; three confirmed defects in the draft died before shipping.
+
+**Then the built round itself went under fresh-context attack — twice — before publish.** An adversarial review (ADV-R9, 11 confirmed defects: a forgeable escrow, a false-green audit counter, a resolver that blocked the paste workflow another rule mandates) and a developer-persona review (DEV-R9, 16 findings led by an upgrade path that silently ate repo-local CLAUDE.md content) both returned "not safe as-is"; everything blocking was fixed in the same unpublished round. A delta review then attacked the fixes (ADV-R10) and found three failing inside their own defect class — the forgery re-ran through `~~~`/indented-code channels, the config guard fell to commit-then-amend, a shared regex regressed on fenced comments — all corrected. The full reports are in [docs/reviews/](docs/reviews/); the escrow now satisfies itself only on claim text across every CommonMark mention channel, GATE-11's carve-out binds only from the committed config, and the installer guards, seeds and re-stamps what adopters actually hit first.
+
+- **A mechanism states its subject**: gates with a registered subject label carry their subject count on PASS, a green over zero says VACUOUS, and the sweep summary aggregates the vacuous count (R9); status.mjs names the branch it derived from; the audit-trigger deriver reports rows-seen/parsed. Five findings independently demanded this — it shipped once, generically.
+- **`ev:commit` citations resolve** (OBL-PKG-23 discharged): blocking in the run tree and at pre-commit, advisory in durable docs. **The escrow reads verify reports** — the files CV records are born in.
+- **Correct repos stop being refused**: `legacy_freeze_exclude`, `run_base` + `check-id --base`, the F-28 header exemption, the cross-row mask fix, row-scoped status counts, and G4 resolving the reconciled spec.
+- **New refusal**: a GATE-13 credential-disclosure lint — a Verify that default-expands a credential-named variable (`${V:-w}` forms) into echo/printf is refused with the safe forms named; plain `$VAR` expansion is out of its scope, and `lint-ok <reason>` stays the visible escape.
+- **Finding ids qualify on crossing** (`platform/F-58`, `prodsim/F-60`) — repo-local ids collided across three pilots the day arithmetic was tried.
+
+The suite is at **373 assertions**; 36 mutations across the round and its two review passes, each killed by exactly its own tests.
+
 ## What's new in v0.7.2-draft
 
-**Pilot batch F-47…F-64** — including the finding that mattered most: seven of twenty targeted code fixed releases ago, the third consecutive dead-code round, so **intake is now coupled to upgrading** (pilots move to the current line and answer the upgrade-RCA question before the next batch is triaged).
+**Pilot batch F-47…platform/F-64** — including the finding that mattered most: seven of twenty targeted code fixed releases ago, the third consecutive dead-code round, so **intake is now coupled to upgrading** (pilots move to the current line and answer the upgrade-RCA question before the next batch is triaged).
 
 - **The branch model delivers declared inputs** (F-58): wave-N branches cut from `int` at wave N-1's close, and a GATE-8 lint on the new `inputs:` field refuses a plan whose input has no producer at a strictly lower wave — the case seven adversarial reviews missed.
-- **Merge --no-ff, never rebase** (F-60): a rebase silently invalidated every `ev:commit` citation a run's reports carry. **Archived runs leave no branch refs** (F-63): P5 deletes them, GATE-7 --p5 enforces.
+- **Merge --no-ff, never rebase** (platform/F-60): a rebase silently invalidated every `ev:commit` citation a run's reports carry. **Archived runs leave no branch refs** (platform/F-63): P5 deletes them, GATE-7 --p5 enforces.
 - **GATE-12 gains a `remediation` kind** (F-53): post-run repair justified by the defect record it fixes, not by an overrule. **The escrow recognizes in-run-discharged CVs** (F-51). **AT-1 stops counting non-vacuity controls as drift** (F-47).
-- **Parsers stop refusing correct input** (F-55/F-56/F-14 addendum): divergence parsing scoped to its table, gradeless status sections loud, `ids.obligation` widened and wired. **status.mjs reports unreadable-vs-empty distinctly** (F-62 residual).
+- **Parsers stop refusing correct input** (F-55/F-56/F-14 addendum): divergence parsing scoped to its table, gradeless status sections loud, `ids.obligation` widened and wired. **status.mjs reports unreadable-vs-empty distinctly** (platform/F-62 residual).
 
 The suite is at **305 assertions**; 7 new mutations, each killed by exactly its own tests.
 

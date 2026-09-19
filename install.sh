@@ -28,10 +28,12 @@ SOURCE="$SELF"   # canonical package = the repo holding this script
 CHECK=0
 TARGET=""
 
+FORCE_SECTION=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)  CHECK=1; shift ;;
     --source) SOURCE="$(cd "$2" && pwd)"; shift 2 ;;
+    --force-section) FORCE_SECTION=1; shift ;;   # DEV-R9-01: overwrite a locally-edited CLAUDE.md section
     -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) TARGET="$1"; shift ;;
   esac
@@ -52,9 +54,15 @@ FORMATS="$SOURCE/scripts/wow/formats.json"
 [ -f "$FORMATS" ] || { echo "no formats.json at $FORMATS — is --source a WoW package?" >&2; exit 2; }
 eval "$(python3 - "$FORMATS" <<'MANIFEST_PY'
 import json, shlex, sys
-I = json.load(open(sys.argv[1]))["install"]
+D = json.load(open(sys.argv[1]))
+I = D["install"]
 q = lambda xs: " ".join(shlex.quote(str(x)) for x in xs)
-print("WOW_VERSION=%s" % shlex.quote(json.load(open(sys.argv[1]))["version"]))
+print("WOW_VERSION=%s" % shlex.quote(D["version"]))
+# DEV-R9-02: the registry's row schema, so install can seed an empty-but-valid
+# docs/GAPS.md instead of letting the first /wow-spec dead-end on GATE-12.
+print("GAP_FILE=%s"   % shlex.quote(D["gap_row"]["file"]))
+print("GAP_HEADER=%s" % shlex.quote("| " + " | ".join(D["gap_row"]["columns"]) + " |"))
+print("GAP_SEP=%s"    % shlex.quote("|" + "|".join("---" for _ in D["gap_row"]["columns"]) + "|"))
 print("ENGINE_FILES=(%s)" % q(I["engine_files"]))
 print("SEED_FILES=(%s)"   % q(I.get("seed_files", [])))
 print("ENGINE_DIRS=(%s)"  % q(I["engine_dirs"]))
@@ -282,7 +290,10 @@ for sf in "${SEED_FILES[@]}"; do
   fi
 done
 
-# 2. wow.config.json — created once, never overwritten (it holds repo-local truth)
+# 2. wow.config.json — created once, never overwritten (it holds repo-local
+# truth) — EXCEPT the wow_version key, which the installer owns (DEV-R9-04:
+# after every upgrade the stamp read one version while status.mjs read
+# another, and every consumer sweep named the stale stamp as truth).
 if [ ! -e "$TARGET/$CONFIG_FILE" ]; then
   if [ "$CHECK" -eq 1 ]; then drift "MISSING  $CONFIG_FILE"
   else
@@ -294,15 +305,53 @@ if [ ! -e "$TARGET/$CONFIG_FILE" ]; then
   "migrated_from_gsd": false,
   "jira": { "project_key": "<TBD>", "cloud_id": "<TBD>",
             "mapping": { "spec": "Epic", "unit": "Story", "task": "Task", "defect": "Bug" } },
+  "\$mapping_note": "check YOUR Jira hierarchy before trusting 'task': standard projects usually want 'Subtask' — a premium multi-level hierarchy wants 'Task' (prodsim/F-61)",
   "merge_to_main": "pr",
   "archive": { "mode": "move", "path": "runs/archive/" },
-  "hardening": { "pretooluse_lane_guard": false, "sessionstart_router_injection": false }
+  "hardening": { "pretooluse_lane_guard": false, "sessionstart_router_injection": false },
+  "\$optional_keys": "requirement_id, probe_command_pattern, main_branch, run_base, jira.scope, legacy_freeze_exclude — each defaults sanely when absent; scripts/wow/GATES-SPEC.md §Config keys says what each does (DEV-R9-08)"
 }
 CFG
     say "wrote    $CONFIG_FILE (template — set the Jira project key)"
   fi
 else
-  say "ok       $CONFIG_FILE (existing, not overwritten)"
+  STAMPED="$(python3 - "$TARGET/$CONFIG_FILE" "$WOW_VERSION" "$CHECK" <<'PY'
+import io, re, sys
+p, v, check = sys.argv[1:4]
+s = io.open(p, encoding="utf-8").read()
+m = re.search(r'"wow_version"\s*:\s*"([^"]*)"', s)
+if not m:
+    print("no-key"); raise SystemExit(0)
+if m.group(1) == v:
+    print("current"); raise SystemExit(0)
+print(m.group(1))
+if check != "1":
+    io.open(p, "w", encoding="utf-8").write(s[:m.start(1)] + v + s[m.end(1):])
+PY
+)"
+  case "$STAMPED" in
+    current) say "ok       $CONFIG_FILE (existing, not overwritten; wow_version current)" ;;
+    no-key)  say "ok       $CONFIG_FILE (existing, not overwritten; carries no wow_version key)" ;;
+    *) if [ "$CHECK" -eq 1 ]; then
+         drift "STALE    $CONFIG_FILE wow_version is $STAMPED, package is $WOW_VERSION (a plain install re-stamps this one key)"
+       else
+         say "stamped  $CONFIG_FILE wow_version: $STAMPED -> $WOW_VERSION (the one key the installer owns; DEV-R9-04)"
+       fi ;;
+  esac
+fi
+
+# 2b. docs/GAPS.md — seeded empty-but-valid (DEV-R9-02: a fresh adopter's first
+# /wow-spec dead-ended on GATE-12's 'no registry', and no installed doc carries
+# the row schema; an empty table is a valid registry, so install seeds one).
+if [ ! -e "$TARGET/$GAP_FILE" ]; then
+  if [ "$CHECK" -eq 1 ]; then drift "MISSING  $GAP_FILE (obligation registry — GATE-12 refuses without it)"
+  else
+    mkdir -p "$TARGET/$(dirname "$GAP_FILE")"
+    printf '%s\n\n%s\n%s\n' "# Obligation registry (FORMATS §12)" "$GAP_HEADER" "$GAP_SEP" > "$TARGET/$GAP_FILE"
+    say "seeded   $GAP_FILE (empty-but-valid registry — repo-owned from here)"
+  fi
+else
+  say "ok       $GAP_FILE (existing, repo-owned)"
 fi
 
 # 3. CLAUDE.md WoW section, between markers, rest of the file untouched
@@ -318,18 +367,68 @@ else
 fi
 if [ -f "$SECTION_SRC" ] && [ -n "$SECTION" ]; then
   DST="$TARGET/$CLAUDE_FILE"
+  # DEV-R9-01 (v0.7.3 R9): a plain install replaced the section WHOLE and a
+  # repo-local decision recorded inside the markers vanished with only
+  # "(replaced)" — the loss warning lived in the OPTIONAL --check, whose last
+  # line then told the reader to run the thing that deletes it. The written
+  # section now carries a content stamp; a section whose current content does
+  # not match its stamp (or an unstamped one that differs from the incoming
+  # section) is REFUSED with the would-be-lost lines shown, unless
+  # --force-section. Repo-local router content belongs OUTSIDE the markers.
+  STAMP_PREFIX="<!-- wow-v2-section-hash:"
+  hash_of() { python3 -c 'import sys,hashlib;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:16])'; }
+  # ADV-R10-10: an editor converting CLAUDE.md to CRLF is zero semantic change,
+  # not local edits — normalize before stamping/comparing.
+  strip_stamp() { tr -d '\r' | grep -v "^$STAMP_PREFIX"; }
+  SEC_HASH="$(printf '%s\n' "$SECTION" | hash_of)"
+  SECTION_STAMPED="$(printf '%s\n' "$SECTION" | sed "\$i\\
+$STAMP_PREFIX $SEC_HASH -->")"
+  cur_section() { awk "/$START/,/$END/" "$DST" 2>/dev/null | tr -d '\r'; }
+  section_guard() { # returns 0 = safe to write, 1 = refuse
+    [ -f "$DST" ] || return 0
+    local cur cur_body cur_stamp cur_hash
+    cur="$(cur_section)"
+    [ -n "$cur" ] || return 0
+    cur_body="$(printf '%s\n' "$cur" | strip_stamp)"
+    cur_stamp="$(printf '%s\n' "$cur" | sed -n "s|^$STAMP_PREFIX \([0-9a-f]*\) -->\$|\1|p")"
+    cur_hash="$(printf '%s\n' "$cur_body" | hash_of)"
+    if [ -n "$cur_stamp" ] && [ "$cur_stamp" = "$cur_hash" ]; then return 0; fi
+    # unstamped or edited: identical-to-incoming is a safe no-op re-stamp
+    if [ "$cur_body" = "$SECTION" ]; then return 0; fi
+    return 1
+  }
   if [ "$CHECK" -eq 1 ]; then
-    if [ ! -f "$DST" ] || ! awk "/$START/,/$END/" "$DST" \
+    if [ ! -f "$DST" ] || ! cur_section | strip_stamp \
          | diff -q - <(printf '%s\n' "$SECTION") >/dev/null 2>&1; then
       drift "DRIFTED  $CLAUDE_FILE wow-v2 section"
+      # platform/F-66 (v0.7.3): 'DRIFTED' alone cannot be told apart from a
+      # routine version difference. Show the first differing lines so the
+      # reader can tell a reverted decision from a version bump BEFORE
+      # letting the installer write.
+      if [ -f "$DST" ]; then
+        cur_section | strip_stamp | diff - <(printf '%s\n' "$SECTION") 2>/dev/null \
+          | head -8 | sed 's/^/         | /'
+        if section_guard; then
+          say "         (installed vs package; < = yours, > = package. A plain install replaces the section whole.)"
+        else
+          say "         (installed vs package; < = yours, > = package. This section carries LOCAL EDITS — a plain install now REFUSES to replace it; move repo-local lines below the closing marker, or pass --force-section to discard them.)"
+        fi
+      fi
     else say "ok       $CLAUDE_FILE wow-v2 section"; fi
   else
     if [ -f "$DST" ] && grep -q -- "$START" "$DST"; then
+      if [ "$FORCE_SECTION" -eq 0 ] && ! section_guard; then
+        echo "  REFUSED  $CLAUDE_FILE wow-v2 section: its content does not match the stamp the installer wrote (or predates stamping and differs from the package) — these lines would be LOST:" >&2
+        cur_section | strip_stamp | diff - <(printf '%s\n' "$SECTION") 2>/dev/null \
+          | grep '^<' | head -12 | sed 's/^/           /' >&2
+        echo "           Move repo-local lines below the closing marker, then re-run; or re-run with --force-section to discard them (DEV-R9-01)." >&2
+        DRIFT=1
+      else
       # The section is passed as a FILE, never interpolated into the replacement.
       # As a re.sub replacement string, a backslash in the section is an escape:
       # \d raised re.error (leaving CLAUDE.md untouched while the installer
       # printed success) and \g<0> duplicated the whole block, markers included.
-      SECFILE="$(mktemp)"; printf '%s\n' "$SECTION" > "$SECFILE"
+      SECFILE="$(mktemp)"; printf '%s\n' "$SECTION_STAMPED" > "$SECFILE"
       if python3 - "$DST" "$SECFILE" "$START" "$END" <<'PY'
 import io, re, sys
 dst, secfile, start, end = sys.argv[1:5]
@@ -340,12 +439,13 @@ if not pat.search(s):
     sys.exit(4)
 io.open(dst, "w", encoding="utf-8").write(pat.sub(lambda _m: new, s, count=1))
 PY
-      then say "wrote    $CLAUDE_FILE wow-v2 section (replaced)"
+      then say "wrote    $CLAUDE_FILE wow-v2 section (replaced$( [ "$FORCE_SECTION" -eq 1 ] && echo ', --force-section'))"
       else echo "  ERROR    $CLAUDE_FILE section not replaced (python3 exited $?)" >&2; DRIFT=1; fi
       rm -f "$SECFILE"
+      fi
     else
       # Only separate with a blank line when there is prior content to separate from.
-      { [ -f "$DST" ] && { cat "$DST"; echo; }; printf '%s\n' "$SECTION"; } > "$DST.tmp" \
+      { [ -f "$DST" ] && { cat "$DST"; echo; }; printf '%s\n' "$SECTION_STAMPED"; } > "$DST.tmp" \
         && mv "$DST.tmp" "$DST" && say "wrote    $CLAUDE_FILE wow-v2 section (appended)"
     fi
   fi
@@ -448,10 +548,26 @@ if [ -n "$MISSING_SRC" ]; then
   exit 5
 fi
 if [ "$CHECK" -eq 1 ]; then
-  [ "$DRIFT" -eq 0 ] && { echo "no drift"; exit 0; } || { echo "DRIFT FOUND — re-run install.sh to upgrade"; exit 1; }
+  # DEV-R9-01: the epilogue used to say only "re-run install.sh" right under a
+  # warning that re-running would lose lines — the last line a hurried reader
+  # follows must not contradict the warning above it.
+  [ "$DRIFT" -eq 0 ] && { echo "no drift"; exit 0; } \
+    || { echo "DRIFT FOUND — re-run install.sh to upgrade (a $CLAUDE_FILE section carrying local edits is refused with the would-be-lost lines shown; see above)"; exit 1; }
 fi
 [ "$DRIFT" -eq 0 ] || { echo "install finished WITH ERRORS (see above)"; exit 1; }
+# DEV-R9-11: the run-base default chain ends at 'main'; on a repo whose default
+# branch is something else, P3's mandated check-id --base assert refuses with a
+# finding id and no remedy — warn at the moment the fix is one config key.
+if ! git -C "$TARGET" rev-parse --verify --quiet main >/dev/null 2>&1 \
+   && [ "$(git -C "$TARGET" symbolic-ref --short HEAD 2>/dev/null)" != "main" ]; then
+  grep -q '"main_branch"' "$TARGET/$CONFIG_FILE" 2>/dev/null \
+    || say "note: this repo has no 'main' branch — set \"main_branch\" (and, if runs should base elsewhere, \"run_base\") in $CONFIG_FILE, or gate-7 --p5 and check-id --base will refuse with no resolvable default"
+fi
 echo "installed. Next, in the target repo:"
 echo "  1. set the Jira project key in $CONFIG_FILE"
 echo "  2. bash scripts/wow/tests/run-all.sh    (one negative test per gate + the wiring test)"
 echo "  3. node scripts/wow/status.mjs          (derived status)"
+echo "  4. commit the install itself with the framework-maintenance lane trailer:"
+echo "       git add -A && git commit -m 'chore: install WoW v2 $WOW_VERSION [WOW:publish]'"
+echo "     ([WOW:publish] covers framework maintenance and resolves to no task by design — LANES.md;"
+echo "      do not mix application code into this commit)"

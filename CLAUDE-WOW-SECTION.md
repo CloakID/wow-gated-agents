@@ -1,4 +1,4 @@
-# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.6.3
+# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.7.3
 
 > Drop this section into your repo's CLAUDE.md (or equivalent agent memory file). Target ≤60 lines resident; everything else loads on phase entry.
 
@@ -34,4 +34,5 @@ Each `/wow-*` command loads its playbook from `docs/process/`. Do not execute a 
 
 ### Jira
 
-Atlassian MCP only; project key in `wow.config.json`. Mapping: spec→epic, unit→story, task→task, defect→bug. Gates open with the divergence diff; acceptance closes and archives items. MCP down → queue ops in `runs/<id>/jira-queue.md`, apply at next gate. Never raw REST, never silent skip.
+Atlassian MCP only; project key AND issue-type mapping live in `wow.config.json` — the mapping is config, not routing (restating it here was the copy-sync drift home platform/F-66 documented; and check your Jira hierarchy before trusting a task type — prodsim/F-61). Gates open with the divergence diff; acceptance closes and archives items. MCP down → queue ops in `runs/<id>/jira-queue.md`, apply at next gate. Never raw REST, never silent skip.
+

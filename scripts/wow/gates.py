@@ -403,6 +403,37 @@ def _target_exists(target, staged):
     return os.path.exists(full)
 
 
+def _dangling_commit_citations(p, lines):
+    """prodsim/F-68 / OBL-PKG-23 (v0.7.3): ev:commit is the one citation kind
+    whose truth one command settles — git cat-file -e <sha>^{commit} — and
+    four well-formed false ones shipped in a single pilot run (the habit: the
+    citation is drafted before the commit it names exists, and the
+    placeholder is never revisited). BLOCKING for the run tree and staged
+    run files; ADVISORY for durable docs, where a dangling sha is legitimate
+    history (platform/F-63's own branch GC, shallow clones, squash-merge publish
+    policies, a history rewrite). Ambiguous short shas fail resolution and
+    the message says which failure it was."""
+    out = []
+    doc = "\n".join(lines)
+    masked = "\n".join(_mask_inline_code_doc(doc))
+    # ADV-R9-03 (v0.7.3 R9, hardened R9b/ADV-R10-07): fenced (``` and ~~~) and
+    # indented code blocks are MENTIONS here as everywhere — the F-43 paste
+    # rule tells operators to quote gate output verbatim, and this gate's own
+    # refusal message contains a literal ev:commit{...}, so a resolver without
+    # fence tracking blocked the commit that quoted it (the runs/.gate-log
+    # exclusion was this same defect, patched one file wide). Known residual
+    # (ADV-R10-07b, structural to toggle-tracking): one UNCLOSED fence marks
+    # the rest of the file as mention, so a dangling sha below it is not
+    # resolved — the falsifier is the verifier's re-run, not this arm.
+    claimable = _blank_indented_code(_strip_fenced_blocks(masked))
+    for i, line in enumerate(claimable.split("\n"), 1):
+        for m in re.finditer(r"ev:commit\{([0-9a-f]{7,40})\}", line):
+            sha = m.group(1)
+            if not git("cat-file", "-e", sha + "^{commit}", rc=True):
+                out.append((i, sha))
+    return out
+
+
 def _preflight(paths, staged):
     msgs = []
     for p in paths:
@@ -429,7 +460,18 @@ def gate_5(paths=None, staged=False, sweep=False, run_id=None):
     """Pre-commit: staged files, blocking. Sweep: docs modified by this run are
     blocking; drift in unmodified docs is advisory and feeds AT-4 (GATES-SPEC)."""
     if staged:
-        return (lambda m: (len(m) == 0, m))(_preflight(staged_files(), True))
+        sf = staged_files()
+        msgs = _preflight(sf, True)
+        for p in sf:
+            if excluded(p) or not p.startswith(P["runs_dir"].rstrip("/") + "/"):
+                continue
+            for lineno, sha in _dangling_commit_citations(p, staged_lines(p)):
+                msgs.append("%s:%d cites ev:commit{%s} which does NOT resolve in this "
+                            "repository — commit first, then cite (the citation was written "
+                            "before the commit it names existed; prodsim/F-68, OBL-PKG-23)"
+                            % (p, lineno, sha))
+        return (len(msgs) == 0), msgs + _subject_note("GATE-5", len([p for p in sf
+                                                                     if not excluded(p)]))
     if not sweep:
         return (lambda m: (len(m) == 0, m))(_preflight(paths or gated_docs(), False))
 
@@ -452,21 +494,66 @@ def gate_5(paths=None, staged=False, sweep=False, run_id=None):
 # --------------------------------------------------------------------------
 # GATE-11 — legacy-framework freeze (inert unless migrated_from_gsd)
 # --------------------------------------------------------------------------
+def _cfg_at(ref):
+    """Parse wow.config.json as a git revision sees it (':path' = index,
+    'HEAD:path' = last commit). Empty dict when absent or unparseable."""
+    rel = os.path.relpath(os.path.join(HERE, "wow.config.json"), ROOT)
+    blob = git("show", "%s:%s" % (ref, rel.replace(os.sep, "/")))
+    if blob.strip():
+        try:
+            return json.loads(blob)
+        except Exception:
+            pass
+    return {}
+
+
 def gate_11(paths):
+    """ADV-R9-09 (v0.7.3 R9) + ADV-R10-02 (R9b): gate-11 read the WORKTREE
+    config at pre-commit, so an uncommitted `legacy_freeze_exclude` edit
+    disarmed the freeze for one commit and was reverted after — and the R9
+    index read was defeated by commit-then-amend in two plain commands, zero
+    committed trace either way. The carve-out therefore honors only the
+    COMMITTED config (HEAD): an exclusion disarms nothing until it has landed
+    as its own reviewable commit, which raises the bypass bar to overt
+    history rewriting, past what any hook can police. The freeze FLAG is
+    sticky the other way (fail-safe is freezing more): true in HEAD, index or
+    worktree arms the gate."""
     lf = F["legacy_freeze"]
-    c = cfg()
-    if c.get(lf["config_key"]) is not True:
+    head_cfg = _cfg_at("HEAD")
+    live_cfg = _cfg_at("") or cfg()   # index copy, else worktree (fresh repo)
+    armed = (head_cfg.get(lf["config_key"]) is True
+             or live_cfg.get(lf["config_key"]) is True
+             or cfg().get(lf["config_key"]) is True)
+    if not armed:
         return True, ["inert: wow.config.json %s is not true" % lf["config_key"]]
+    # prodsim/F-60 (v0.7.3): a brownfield legacy tree can hold LIVE runtime
+    # paths; the committed wow.config.json fnmatch list carves them out of
+    # the freeze. Everything else stays frozen in every direction.
+    excludes = head_cfg.get("legacy_freeze_exclude") or []
+    pending = [e for e in (live_cfg.get("legacy_freeze_exclude") or [])
+               if e not in excludes]
     bad = []
     for p in paths or []:
+        if any(fnmatch.fnmatch(p, e) for e in excludes):
+            continue
         for frozen in lf["paths"]:
             if p == frozen or p.startswith(frozen.rstrip("/") + "/"):
                 bad.append(p)
     if bad:
         frozen = ", ".join(x.rstrip("/") + "/" for x in lf["paths"])
+        hint = ""
+        if pending and any(fnmatch.fnmatch(p, e) for p in bad for e in pending):
+            hint = (" — a matching legacy_freeze_exclude exists in the staged/worktree "
+                    "config but NOT in HEAD: commit the exclusion first, as its own "
+                    "reviewable commit (ADV-R10-02)")
         return False, ["commit touches frozen %s (%d file(s)): %s — it is history, in every "
-                       "direction including deletion"
-                       % (frozen, len(bad), ", ".join(sorted(set(bad))[:5]))]
+                       "direction including deletion%s"
+                       % (frozen, len(bad), ", ".join(sorted(set(bad))[:5]), hint)]
+    # ADV-R9-09: an active carve-out is stated on the PASS — a silent exclude
+    # list is exactly the deniable knob the finding demonstrated.
+    if excludes:
+        return True, ["active legacy_freeze_exclude (from the COMMITTED config): %s"
+                      % ", ".join(excludes)]
     return True, []
 
 
@@ -545,6 +632,23 @@ def _mask_inline_code_doc(text):
     def repl(m):
         if re.search(r"\n\s*\n", m.group(0)):
             return m.group(0)
+        # prodsim/F-72 (v0.7.3): document-wide pairing crossed TABLE ROW
+        # boundaries — one stray tick in a cell paired with the next row's
+        # opener and blanked the intervening row's citations, so GATE-3
+        # reported real evidence as missing (a false negative wearing a false
+        # positive's clothes). CommonMark itself would refuse a code span
+        # containing a table row separator; a candidate whose interior crosses
+        # onto a line beginning a table row is left alone. Boundary is
+        # ^\s*\| — the F-05 blockquote-wrapped-span case ('> span ... > more')
+        # must keep masking, and its lines do not begin with a pipe. A table
+        # quoted inside a blockquote remains crossable; accepted residual.
+        # ADV-R9-08 (v0.7.3 R9): begins-with-a-pipe alone also matched a
+        # WRAPPED SHELL PIPELINE inside a legitimate span — the span was left
+        # unmasked and its citation template scanned as a claim (a mention
+        # became a claim, PF-a inverted). The crossing line must look like a
+        # table ROW: a second unescaped pipe after the first.
+        if re.search(r"\n\s*\|[^\n]*(?<!\\)\|", m.group(0)):
+            return m.group(0)
         return "\n" * m.group(0).count("\n")
     return re.sub(r"`[^`]+`", repl, text, flags=re.S).split("\n")
 
@@ -561,6 +665,89 @@ def _cells(line):
     honors them."""
     parts = re.split(r"(?<!\\)\|", line.strip().strip("|"))
     return [c.strip().replace("\\|", "|") for c in parts]
+
+
+_FENCE_OPEN = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
+
+def _strip_fenced_blocks(t):
+    """ADV-R10-03 (v0.7.3 R9b): blank the CONTENT of fenced code blocks —
+    both ``` and ~~~ spellings (CommonMark), the opener token closing only
+    its own kind — while keeping every other line intact. For locating
+    sections and rows on text where a fenced '# comment' must not read as a
+    heading. Fence state is per-document; callers aggregating files strip
+    each file separately (ADV-R10-04: one unclosed fence in RUN-REPORT used
+    to mark every subsequent verify report as fenced)."""
+    out, fence = [], None
+    for ln in t.split("\n"):
+        m = _FENCE_OPEN.match(ln)
+        if fence is None:
+            if m:
+                fence = m.group(1)[0]
+                out.append("")
+                continue
+            out.append(ln)
+        else:
+            if m and m.group(1)[0] == fence:
+                fence = None
+            out.append("")
+    return "\n".join(out)
+
+
+def _blank_indented_code(t):
+    """ADV-R10-01: a 4-space/tab INDENTED code block is a mention channel too
+    (CommonMark) — the forged 'record format, for reference' re-ran through it
+    the day the ``` channel closed. Faithful enough to CommonMark to stay
+    safe in both directions: a block starts at an indented line after a blank
+    line (so a 2-space CV continuation line, or a lazy 4-space continuation
+    directly under its CV line, is NOT code) and runs while lines stay
+    indented or blank."""
+    out, prev_blank, in_block = [], True, False
+    for ln in t.split("\n"):
+        indented = re.match(r"^(?: {4}|\t)", ln) is not None
+        blank = not ln.strip()
+        if in_block:
+            if blank:
+                out.append(ln)
+                prev_blank = True
+                continue
+            if indented:
+                out.append("")
+                prev_blank = False
+                continue
+            in_block = False
+        if indented and prev_blank and not blank:
+            in_block = True
+            out.append("")
+            prev_blank = False
+            continue
+        out.append(ln)
+        prev_blank = blank
+    return "\n".join(out)
+
+
+def _claim_text(t):
+    """ADV-R9-01/R10-01: the text a gate may SATISFY itself on — fenced blocks
+    (``` and ~~~), indented code blocks and inline code are mentions, blanked
+    with line structure preserved. Discovery scans stay on the raw text
+    (fail-safe there is seeing more; here it is seeing less)."""
+    return "\n".join(_mask_inline_code(ln)
+                     for ln in _blank_indented_code(_strip_fenced_blocks(t)).split("\n"))
+
+
+def _subject_note(gate_id, n):
+    """prodsim/F-70 fix 2 (v0.7.3): a PASS states its subject count, and zero
+    says vacuous — '6/6 passed' over an empty set survived two wave
+    boundaries in a pilot as a green check. Labels live in the gate registry
+    (gates.<id>.subject); gates with no label report nothing (always-one
+    subjects, ADV-12)."""
+    label = F["gates"].get(gate_id, {}).get("subject")
+    if not label:
+        return []
+    if n == 0:
+        return ["subject: 0 %s — VACUOUS for this checkout (a green over an empty set "
+                "certifies nothing; prodsim/F-70)" % label]
+    return ["subject: %d %s" % (n, label)]
 
 
 def gate_3(paths=None):
@@ -580,7 +767,8 @@ def gate_3(paths=None):
     verdict_vocab = list(sv.get("verdict_vocab", []))
     verdict_refs = dict(sv.get("verdict_reference_required", {}))
     targets = paths if paths else gated_docs()
-    msgs = []
+    msgs, notes = [], []
+    scanned = 0
 
     for p in targets:
         if excluded(p):
@@ -602,7 +790,22 @@ def gate_3(paths=None):
         is_report = (os.path.basename(p) == os.path.basename(rs["file"])
                      or "/reports/" in p.replace(os.sep, "/"))
         cur_sec = None
+        scanned += 1
         doc_masked = _mask_inline_code_doc(read(full))   # F-05: spans may wrap lines
+        # prodsim/F-68 / OBL-PKG-23 (v0.7.3): resolve ev:commit citations —
+        # blocking in the run tree (where the write-before-commit habit
+        # bites), advisory in durable docs (dangling shas there are
+        # legitimate history: branch GC, shallow clones, rewrites).
+        in_runs = p.replace(os.sep, "/").startswith(P["runs_dir"].rstrip("/") + "/")
+        for lineno, sha in _dangling_commit_citations(p, lines_of(full)):
+            if in_runs:
+                msgs.append("%s:%d cites ev:commit{%s} which does NOT resolve in this "
+                            "repository — commit first, then cite (prodsim/F-68, OBL-PKG-23)"
+                            % (p, lineno, sha))
+            else:
+                notes.append("note: %s:%d cites ev:commit{%s} which does not resolve here — "
+                             "advisory outside runs/ (legitimate for pre-rewrite or GC'd "
+                             "history; prodsim/F-68)" % (p, lineno, sha))
         for i, line in enumerate(lines_of(full), 1):
             s = line.strip()
             if s.startswith("```"):
@@ -764,7 +967,7 @@ def gate_3(paths=None):
                 elif word.upper() in ref_required and not has_ref:
                     msgs.append("%s:%d '%s: %s' without a %s"
                                 % (p, i, m.group(1), word, ref_required[word.upper()]))
-    return (len(msgs) == 0), msgs
+    return (len(msgs) == 0), msgs + notes + _subject_note("GATE-3", scanned)
 
 
 # --------------------------------------------------------------------------
@@ -893,7 +1096,11 @@ def gate_2(run_id=None, spec=None, close=False):
     if not scoped:
         run_id = discover_run()
         if not run_id:
-            return True, ["no runs and no --spec: nothing to check"]
+            # DEV-R9-10: same condition, same vocabulary — gate-3 said VACUOUS
+            # here while this gate said 'nothing to check', unmarked.
+            return True, ["no runs and no --spec: nothing to check — VACUOUS for this "
+                          "checkout (a green over an empty set certifies nothing; "
+                          "prodsim/F-70)"]
 
     named, sources = set(), []
     if spec:
@@ -977,6 +1184,8 @@ def gate_4(run_id=None):
     nv = F["non_vacuity"]
     msgs = []
     for gate_id in F["gates"]:
+        if gate_id.startswith("$"):
+            continue
         want = fill(nv["gate_test_file"], gate=gate_id.lower())
         if not os.path.isfile(rp(want)):
             msgs.append("%s has no negative test at %s" % (gate_id, want))
@@ -1225,7 +1434,14 @@ def _gap_rows():
     gr = F["gap_row"]
     path = rp(gr["file"])
     if not os.path.isfile(path):
-        return None, ["no %s — the obligation registry does not exist" % gr["file"]]
+        # DEV-R9-02 (v0.7.3 R9): a fresh adopter dead-ended here — the refusal
+        # named the missing registry and no doc the consumer receives carries
+        # the row schema. The message hands over the exact header to paste.
+        hdr = "| " + " | ".join(gr["columns"]) + " |"
+        sep = "|" + "|".join("---" for _ in gr["columns"]) + "|"
+        return None, ["no %s — the obligation registry does not exist; an empty table is a "
+                      "valid registry — create the file with exactly this header:\n  %s\n  %s"
+                      % (gr["file"], hdr, sep)]
     rows, problems = [], []
     for ln in lines_of(path):
         if not re.match(gr["row_start"], ln):
@@ -1410,6 +1626,17 @@ def gate_13(run_id=None):
                         "wrong answer it rejects, or the check is only believed to check (F-9)"
                         % (u["id"], nv_name))
         for t in u["tasks"]:
+            # DEV-R9-05 (v0.7.3 R9): a row whose cell count disagrees with its
+            # header parses into a DIFFERENT table (F-18) — GATE-8 said so
+            # while GATE-13, reading the same shifted row at the same G2
+            # moment, blamed a healthy Non-vacuity cell under the wrong rule.
+            # Same guard, same wording, then stop reading the broken row.
+            if t.get("header_n") and t.get("cells_n") != t["header_n"]:
+                msgs.append("task %s: %d columns expected, %d found — an unescaped '|' in a "
+                            "cell (a shell pipe?). Escape it as \\| or route the command "
+                            "through a file (F-18); GATE-13 reads no cell of a shifted row"
+                            % (t["id"], t["header_n"], t["cells_n"]))
+                continue
             nv = (t.get("nonvac") or "").strip()
             ver = (t.get("verify") or "").strip()
             if u.get("nv_header_seen"):
@@ -1425,15 +1652,30 @@ def gate_13(run_id=None):
                                     % (t["id"], nv_name, nv[:60]))
             marker_ok = vl["accept_marker"] in nv or vl["accept_marker"] in ver
             for idiom, pat in vl["idioms"].items():
+                if idiom.startswith("$"):
+                    continue
                 if re.search(pat, ver) and not marker_ok:
+                    if idiom == "credential-default-expansion":
+                        # platform/F-69 (v0.7.3): not vacuity — disclosure. A
+                        # default-substitution of a credential-named variable
+                        # returns the VALUE when set, which is the state a
+                        # residue probe exists to detect.
+                        msgs.append("task %s Verify expands a credential-named variable in a "
+                                    "default-substitution form reaching echo/printf: %r — when "
+                                    "the variable IS set this prints its value into a committed, "
+                                    "gate-swept document. Safe forms: ${V+word} or ${#V}. Or "
+                                    "accept deliberately and visibly with '%s <reason>' "
+                                    "(platform/F-69)" % (t["id"], ver[:60], vl["accept_marker"]))
+                        continue
                     msgs.append("task %s Verify matches inert idiom '%s' (each of these shipped "
                                 "a real vacuous check in pilot #1): %r — fix it, or accept it "
                                 "deliberately and visibly with '%s <reason>'"
                                 % (t["id"], idiom, ver[:60], vl["accept_marker"]))
+    n = sum(len(u["tasks"]) for u in plan["units"])
     if not msgs:
-        n = sum(len(u["tasks"]) for u in plan["units"])
-        return True, ["%d task verify(s) carry non-vacuity statements; no inert idioms" % n]
-    return False, msgs
+        return True, ["no inert idioms; non-vacuity statements present"] + \
+            _subject_note("GATE-13", n)
+    return False, msgs + _subject_note("GATE-13", n)
 
 
 # --------------------------------------------------------------------------
@@ -1456,10 +1698,11 @@ def gate_14(paths=None, staged=False):
     if paths is None:
         return False, ["gate-14 needs --staged or --paths: a gate invoked with no scope is "
                        "not a pass"]
-    msgs = []
+    msgs, in_scope = [], 0
     for p in paths:
         if not any(fnmatch.fnmatch(p, g) for g in ps["paths"]):
             continue
+        in_scope += 1
         txt = read_staged(p) if staged else read(rp(p))
         if not txt:
             continue
@@ -1473,7 +1716,7 @@ def gate_14(paths=None, staged=False):
                                 "(record the trim, P3), or mark the FILE 'pii-ok: <reason>' to "
                                 "commit it deliberately and visibly" % (p, i, fld))
                     break
-    return (len(msgs) == 0), msgs
+    return (len(msgs) == 0), msgs + _subject_note("GATE-14", in_scope)
 
 
 # --------------------------------------------------------------------------
@@ -1519,7 +1762,7 @@ def gate_7(p5=False, run_id=None):
     # silently drop grants that landed on main through another lane, so the
     # publish is refused until main is merged in (P5 step 0).
     if p5:
-        # F-63 (v0.7.2): P5 archived the run DIRECTORY and nothing ever
+        # platform/F-63 (v0.7.2): P5 archived the run DIRECTORY and nothing ever
         # deleted the run's branches — eleven remote and fourteen local refs
         # accumulated over five months in one pilot. A surviving
         # wow/<run-id>/int is a second, MORE discoverable home for content
@@ -1538,7 +1781,7 @@ def gate_7(p5=False, run_id=None):
                 if leaked:
                     msgs.append("run %s is archived but its branch refs survive: %s — a second "
                                 "home for content the archive owns; delete local and remote "
-                                "wow/%s/* after the merge is confirmed (P5 step 3, F-63)"
+                                "wow/%s/* after the merge is confirmed (P5 step 3, platform/F-63)"
                                 % (run, ", ".join(leaked[:4]), run))
         candidates = [cfg().get("main_branch")] if cfg().get("main_branch") \
             else F["branch_patterns"]["main_candidates"]
@@ -1592,7 +1835,9 @@ def gate_7(p5=False, run_id=None):
     cv_pat = re.compile(F["ids"]["cannot_validate"].strip("^$"))
     cv_short = re.compile(F["ids"]["cannot_validate_short"].strip("^$"))
     at_row = re.compile(F["audit_triggers"]["report_row"], re.M)
-    at_sec = re.compile(fill(F["runs_layout"]["handoff_section_heading"],
+    # ADV-R9-07 (v0.7.3 R9): was the ##-only handoff template while status.mjs
+    # read #+ — '### audit triggers' derived a hit with no escrow row demanded.
+    at_sec = re.compile(fill(F["audit_triggers"]["section_heading"],
                              name=F["audit_triggers"]["report_section"]), re.M | re.I)
     # F-36 (v0.6.4): the old exemption compared a relpath against the TEMPLATE
     # 'runs/archive/{run_id}/' — never true, so every archived run was
@@ -1602,6 +1847,24 @@ def gate_7(p5=False, run_id=None):
     # whose own G4 had not judged them.
     archive_prefix = os.path.relpath(rp(rl["archive_dir"]), rp(P["runs_dir"]))
     escrow_root = rp(P["runs_dir"], run_id) if run_id else rp(P["runs_dir"])
+    runs_walked = 0
+    verify_only_dirs = []
+    # ADV-R9-06 (v0.7.3 R9): an explicit --run naming a directory that does not
+    # exist walked zero runs and EXITED ZERO — the gate's own rule ("a gate
+    # invoked with no scope is not a pass", gate-13/14) applied everywhere but
+    # here, and the vacuity marker was advisory precisely at publish.
+    if run_id is not None and not os.path.isdir(escrow_root):
+        if os.path.isdir(os.path.join(rp(rl["archive_dir"]), run_id)):
+            # ADV-R10-09: the run exists — one level down, exactly where P5
+            # filed it. Say so instead of sending the operator hunting.
+            msgs.append("--run %s is ARCHIVED (%s/%s) — archived runs are exempt from "
+                        "escrow (F-36) and are graded under the vocabulary of their time "
+                        "(platform/F-65); re-grading one is deliberately unsupported"
+                        % (run_id, rl["archive_dir"], run_id))
+        else:
+            msgs.append("--run %s names no directory under %s/ — an escrow over a missing "
+                        "run judges nothing, and that is not a pass (ADV-R9-06)"
+                        % (run_id, P["runs_dir"]))
     # F-37 (v0.6.4): the finding log keeps pace and the write-up document does
     # not — twice, with the first occurrence predicting the second. At publish,
     # every logged F-nn owes a write-up under the upstream dir. Runs ONLY when
@@ -1624,16 +1887,51 @@ def gate_7(p5=False, run_id=None):
                     msgs.append("%s logs %s but %s/ holds no write-up for it — a log row a "
                                 "maintainer cannot act on is drift the process predicted (F-37)"
                                 % (fbk["log"], fid, fbk["writeups_dir"]))
+    rr_name = os.path.basename(F["report_row_schema"]["file"])
     for base, _dirs, files in os.walk(escrow_root):
         rel_base = os.path.relpath(base, rp(P["runs_dir"]))
         if rel_base == archive_prefix or rel_base.startswith(archive_prefix + os.sep):
             continue
-        if os.path.basename(F["report_row_schema"]["file"]) not in files:
-            continue
-        rr = os.path.join(base, os.path.basename(F["report_row_schema"]["file"]))
+        has_rr = rr_name in files
+        vf_dir = os.path.join(base, "reports")
+        has_vf = os.path.isdir(vf_dir) and any(v.endswith("-verify.md")
+                                               for v in os.listdir(vf_dir))
+        # ADV-R9-06: a run that died between verify and report assembly holds
+        # CVs in reports/*-verify.md and no RUN-REPORT — under the old walk it
+        # escaped escrow entirely. An EXPLICITLY named run is under judgment,
+        # so its verify reports are walked even without a RUN-REPORT; the
+        # unnamed walk keeps F-36's shield (a mid-flight sibling without a
+        # RUN-REPORT stays invisible to a publish) but now SAYS what it is
+        # skipping, as an advisory note.
+        named = run_id is not None and os.path.abspath(base) == os.path.abspath(escrow_root)
+        if not has_rr:
+            if has_vf and not named and re.match(F["ids"]["run"], os.path.basename(base) or ""):
+                verify_only_dirs.append(os.path.relpath(base, ROOT))
+            if not (named and has_vf):
+                continue
+        rr = os.path.join(base, rr_name)
         rr_rel = os.path.relpath(rr, ROOT)
         this_run = os.path.basename(os.path.dirname(rr))
-        text = read(rr)
+        runs_walked += 1
+        text = read(rr) if has_rr else ""
+        # prodsim/F-69 (v0.7.3, ADV-3): FORMATS §5 tells the VERIFIER to
+        # allocate the CV record — in reports/U<n>-verify.md — while the
+        # escrow read only RUN-REPORT.md. The two halves of the mechanism
+        # never met: three genuine coverage limits reached no durable home
+        # and the escrow reported clean, because it was never looking at the
+        # file the record is born in. The run's verify reports join the SAME
+        # per-run aggregation (this_run stays the run directory; discharge
+        # resolves against the whole set, since allocation and discharge
+        # legitimately live in different files — F-51). The walk still enters
+        # only run dirs that HAVE a RUN-REPORT, which keeps F-36's shield:
+        # a mid-flight sibling without one stays invisible to a publish.
+        texts = [text] if has_rr else []
+        reports_dir = os.path.join(base, "reports")
+        if os.path.isdir(reports_dir):
+            for vf in sorted(os.listdir(reports_dir)):
+                if vf.endswith("-verify.md"):
+                    texts.append(read(os.path.join(reports_dir, vf)))
+        text = "\n".join(texts)
         # F-51 (v0.7.2): a CV is obligation-shaped only WHILE its discharge is
         # in the future. A record closed inside its own run (a later wave, a
         # G4 successor decision, the artifact P4 itself produces) carries a
@@ -1643,16 +1941,42 @@ def gate_7(p5=False, run_id=None):
         # the escrow demanded rows for all eighteen. A discharged: line
         # WITHOUT evidence stays demanded: an unevidenced closure is an
         # assertion, and the escrow says which it saw.
+        # ADV-R9-01 (v0.7.3 R9, hardened R9b/ADV-R10-01/-04): SATISFYING the
+        # escrow must not read fenced (``` or ~~~), indented-code or
+        # backticked text — a fenced "example of the record format" carrying
+        # a fabricated ev: discharged a real CV, and the forgery re-ran
+        # through the two adjacent mention channels the day the ``` one
+        # closed. Discovery stays on the RAW text (fail-safe there is seeing
+        # more); discharge matching reads only claim text. Per FILE, so one
+        # unclosed fence in RUN-REPORT cannot mark every verify report as
+        # fenced (ADV-R10-04). Per-line span masking leaves a cross-line
+        # span's interior readable; accepted residual.
+        claim_text = "\n".join(_claim_text(t) for t in texts)
+        # ADV-R10-03: sections and rows are located on fence-STRIPPED text —
+        # a fenced '# comment' pasted above the audit-trigger table used to
+        # terminate the section at both consumers and hide a recorded hit.
+        sec_text = "\n".join(_strip_fenced_blocks(t) for t in texts)
+
         def _cv_discharged_in_run(cv):
-            block = re.search(re.escape(cv) + r":[^\n]*\n((?:[ \t]+\S[^\n]*\n?)*)", text)
-            if not block:
-                return False, False
-            dis = re.search(r"^[ \t]+discharged:\s*(.+)$", block.group(1), re.M)
-            if not dis:
-                return False, False
-            return True, bool(re.search(F["evidence"]["opener"], dis.group(1)))
+            # ADV-R9-04: allocation and discharge legitimately live in
+            # DIFFERENT files (F-51) and the aggregate keeps file order — so
+            # every block for the id is consulted, not the first one found.
+            closed, evidenced = False, False
+            for block in re.finditer(re.escape(cv) + r":[^\n]*\n((?:[ \t]+\S[^\n]*\n?)*)",
+                                     claim_text):
+                dis = re.search(r"^[ \t]+discharged:\s*(.+)$", block.group(1), re.M)
+                if not dis:
+                    continue
+                closed = True
+                if re.search(F["evidence"]["opener"], dis.group(1)):
+                    evidenced = True
+            return closed, evidenced
+        seen_cvs = set()
         for m in re.finditer(cv_pat.pattern, text):
             cv = m.group(0)
+            if cv in seen_cvs:      # ADV-R9-04: one verdict per id, not per mention
+                continue
+            seen_cvs.add(cv)
             if cv in gap_ids:
                 continue
             closed, evidenced = _cv_discharged_in_run(cv)
@@ -1661,7 +1985,9 @@ def gate_7(p5=False, run_id=None):
             if closed and not evidenced:
                 msgs.append("%s marks %s discharged WITHOUT an ev: citation — an unevidenced "
                             "closure is an assertion, and the record stays escrow-demanded "
-                            "until it cites the event that closed it (F-51)" % (rr_rel, cv))
+                            "until it cites the event that closed it (F-51; note a backticked "
+                            "or fenced ev: is a MENTION and does not satisfy this, PF-a)"
+                            % (rr_rel, cv))
                 continue
             msgs.append("%s records %s but %s has no ROW with that id — an obligation "
                         "living only in an archivable run (escrow, FORMATS §12; a mention "
@@ -1709,7 +2035,7 @@ def gate_7(p5=False, run_id=None):
         # Escrow third class (verifier F8): an audit-trigger HIT recorded in a
         # RUN-REPORT is an obligation — the audit it schedules must have a
         # durable row, or the hit retires with the archived run.
-        sec = at_sec.search(text)
+        sec = at_sec.search(sec_text)   # ADV-R10-03: fenced '#' is not a heading
         if sec:
             for am in at_row.finditer(sec.group(1)):
                 at_id, val = am.group(1), int(am.group(2))
@@ -1724,7 +2050,16 @@ def gate_7(p5=False, run_id=None):
                                 "class)" % (rr_rel, at_id, val, spec["comparator"],
                                             "over" if hit else "under", spec["threshold"],
                                             F["gap_row"]["file"], at_id))
-    return (len(msgs) == 0), msgs
+    if run_id is not None and runs_walked == 0 and os.path.isdir(escrow_root):
+        msgs.append("--run %s walked 0 runs — no %s and no reports/*-verify.md under it; "
+                    "an escrow that judged nothing is not a pass (ADV-R9-06)"
+                    % (run_id, rr_name))
+    notes = _subject_note("GATE-7", runs_walked)
+    for d in verify_only_dirs:
+        notes.append("%s has verify reports but no %s — the escrow cannot judge it "
+                     "(mid-flight, or a run that died after verify?); name it with "
+                     "--run to force judgment (ADV-R9-06)" % (d, rr_name))
+    return (len(msgs) == 0), msgs + notes
 
 
 # --------------------------------------------------------------------------
@@ -1917,8 +2252,28 @@ def gate_8(run_id):
     # binds nobody — a credential-safety rule was gated, committed, and inert.
     npat = ps.get("normative_pattern")
     if npat:
-        in_unit, in_contracts = False, False
+        # platform/F-70 (v0.7.3): the walk started at line 1, so the plan's
+        # own schema HEADER FIELDS were read as normative prose — a signed
+        # plan whose header value contained a normative word failed its own
+        # gate for the life of the plan, unsatisfiably (a header field cannot
+        # move into a unit section without breaking the schema). ADV-R9-05
+        # (R9): the first cut skipped the WHOLE preamble, which reintroduced
+        # F-28 for normative prose paragraphs written above the first ## —
+        # and ADV-R10-05 (R9b) showed shape alone is a costume: any 'word:'
+        # prefix hid a rule. The exemption is by NAME — the schema's
+        # preamble_fields list — plus the title line and blanks. A prose
+        # sentence, or a rule wearing an unlisted key, is scanned.
+        in_unit, in_contracts, in_body = False, False, False
+        header_field = re.compile(r"^(?:%s):" % "|".join(
+            re.escape(k) for k in ps.get("preamble_fields", ["spec"])))
         for ln_no, ln in enumerate(read(path).split("\n"), 1):
+            if not in_body:
+                if re.match(r"^##", ln):
+                    in_body = True
+                elif (not ln.strip() or ln.startswith("# ")
+                      or header_field.match(ln)):
+                    continue
+                # a non-header preamble line falls through and is scanned
             if re.match(ps["unit_heading"], ln):
                 in_unit, in_contracts = True, False
                 continue
@@ -1930,10 +2285,14 @@ def gate_8(run_id):
             if in_unit or in_contracts or ln.lstrip().startswith("#"):
                 continue
             if re.search(npat, ln):
+                extra = ""
+                if not in_body and re.match(r"^[a-z][a-z0-9_-]*:", ln):
+                    extra = ("; if this is a descriptive schema header field, not a rule, "
+                             "its key belongs in plan_schema.preamble_fields (ADV-R10-05)")
                 msgs.append("PLAN.md:%d normative language outside a unit section or the "
                             "'## %s' block reaches NO executor manifest (F-28): '%s' — move "
-                            "the rule where its audience will be handed it"
-                            % (ln_no, ps["contracts_section"], ln.strip()[:70]))
+                            "the rule where its audience will be handed it%s"
+                            % (ln_no, ps["contracts_section"], ln.strip()[:70], extra))
     files = tracked_files()
 
     # (a) ownership: no overlap, no ORCH-owned file claimed
@@ -2089,7 +2448,7 @@ def gate_8(run_id):
             for ac, tasks in plan["coverage"].items():
                 if tasks.strip().lower() in empty:
                     msgs.append("coverage matrix maps %s to no task" % ac)
-    return (len(msgs) == 0), msgs
+    return (len(msgs) == 0), msgs + _subject_note("GATE-8", len(plan["units"]))
 
 
 # --------------------------------------------------------------------------
@@ -2113,6 +2472,25 @@ def _governing_artifact(gate, run_id, spec):
             if os.path.isfile(rp(plan_rel)):
                 m = re.search(F["plan_schema"]["spec_header"], read(rp(plan_rel)), re.M)
                 if m:
+                    if gate == "G4":
+                        # prodsim/F-76 (v0.7.3): the plan's spec: header names
+                        # v<N> — the spec the plan was planned AGAINST — while
+                        # P4 produces v<N+1> and the [PO] close line puts the
+                        # G4 signature THERE. The resolver and the playbook
+                        # disagreed by exactly one version, for every run, by
+                        # construction. Resolve EXACTLY v(N+1) when it exists
+                        # and is not a blocked draft (ADV-5: never 'highest' —
+                        # an abandoned v3, or a legacy tokenless record in the
+                        # wrong file, must not close G4; that is F-15's own
+                        # bug one door over). Stem split at the RIGHTMOST
+                        # -v<N>.md, numeric compare.
+                        sm = re.match(r"^(.*)-v([0-9]+)\.md$", m.group(1))
+                        if sm:
+                            nxt = "%s-v%d.md" % (sm.group(1), int(sm.group(2)) + 1)
+                            if os.path.isfile(rp(nxt)):
+                                head2 = "\n".join(read(rp(nxt)).split("\n")[:jm["header_lines"]])
+                                if not re.search(r"^status:\s*blocked-draft", head2, re.M):
+                                    return nxt
                     return m.group(1)
             return None
         specs = matching_docs([P["specs_glob"]])
@@ -2140,15 +2518,31 @@ def gate_9(artifacts=None, gate=None, run_id=None, spec=None):
         head = "\n".join(read(rp(a)).split("\n")[:jm["header_lines"]])
         m = re.search(pat, head, re.M)
         if not m:
+            hint = ""
+            if gate == "G4":
+                # ADV-R9-10 (v0.7.3 R9): the F-76 --spec hint fired only on the
+                # token-mismatch branch — the pre-0.7.3 layout (signed record
+                # living in v<N>, v<N+1> a draft) routes HERE, and the refusal
+                # left the operator with a true statement and no route.
+                hint = ("; note G4 resolved the highest successor spec — if the signed "
+                        "record lives in an earlier version, pass --spec with the file "
+                        "that carries it (prodsim/F-76, ADV-R9-10)")
             return False, ["%s cannot close: %s has no 'signed: [G<n>] <date> ev:jira{KEY-nn}' "
-                           "record in its header" % (gate, a)]
+                           "record in its header%s" % (gate, a, hint)]
         # F-15 (v0.6.3): the record used to carry no gate token, so any gate's
         # sign-off satisfied any gate — a superseded spec's G1 record closed
         # G4. A token, when present, must match; legacy tokenless records
         # remain valid.
         if m.group(1) and m.group(1) != gate:
+            hint = ""
+            if gate == "G4":
+                # prodsim/F-76 fix 4: the refusal names the likely cause — the
+                # reader was debugging a true statement about the wrong file.
+                hint = ("; note G4 closes against the RECONCILED spec v<N+1>, which the plan "
+                        "does not name — if this resolved to v<N>, pass --spec with the "
+                        "reconciled spec (prodsim/F-76)")
             return False, ["%s cannot close against %s: its record signs %s, not %s — a sign-off "
-                           "attests the gate it names (F-15)" % (gate, a, m.group(1), gate)]
+                           "attests the gate it names (F-15)%s" % (gate, a, m.group(1), gate, hint)]
         msgs.append("%s closure record present in %s%s"
                     % (gate, a, " (gate token %s)" % m.group(1) if m.group(1) else
                        " (legacy tokenless record — new sign-offs carry the gate: "
@@ -2360,7 +2754,7 @@ def check_parity():
     marker_re = re.compile(r"DESIGNED-NOT-IMPLEMENTED\s*[—-]+\s*(OBL-[A-Z0-9]+-[0-9]{2})")
     rows, _problems = _gap_rows()
     open_ids = {r["id_plain"] for r in (rows or []) if r["open"]}
-    engine = set(F["gates"].keys())
+    engine = set(k for k in F["gates"] if not k.startswith("$"))
     for gid, body in sorted(spec_rows.items(), key=lambda kv: int(kv[0].split("-")[1])):
         n = gid.split("-")[1]
         implemented = gid in engine and ("gate_%s" % n) in globals()
@@ -2500,7 +2894,7 @@ def sweep(args):
     gates = list(F["sweep"]["always"])
     if "--p5" in args:
         gates += F["sweep"]["p5_only"]
-    failed, total = [], 0
+    failed, total, vacuous = [], 0, 0
     ok, msgs = check_parity()
     total += 1
     print("%s %s" % ("PASS" if ok else "FAIL", "parity"))
@@ -2524,11 +2918,18 @@ def sweep(args):
         print("%s %s" % ("PASS" if ok else "FAIL", g))
         for m in msgs:
             print("     %s" % m)
+        if ok and any("VACUOUS" in m or "nothing to check" in m for m in msgs):
+            vacuous += 1
         if not ok:
             failed.append(g)
             log_rejection(g, msgs)
-    print("\nsweep%s: %d/%d passed" % (" (P5)" if "--p5" in args else "",
-                                       total - len(failed), total))
+    # DEV-R9-10 (v0.7.3 R9): the summary line is the one a human reads, and it
+    # said exactly the sentence F-70 mocks — '6/6 passed' over an empty set —
+    # while the vacuity markers sat above it, per gate, unaggregated.
+    print("\nsweep%s: %d/%d passed%s" % (" (P5)" if "--p5" in args else "",
+                                         total - len(failed), total,
+                                         " (%d vacuous — green over an empty set)" % vacuous
+                                         if vacuous else ""))
     return 1 if failed else 0
 
 
@@ -2542,7 +2943,9 @@ def main(argv):
         return 0
     cmd, args = argv[0], argv[1:]
     if cmd == "list":
-        for g, meta in sorted(F["gates"].items(), key=lambda kv: int(kv[0].split("-")[1])):
+        for g, meta in sorted(((k, v) for k, v in F["gates"].items()
+                                if not k.startswith("$")),
+                               key=lambda kv: int(kv[0].split("-")[1])):
             inert = meta.get("inert_when")
             print("%-8s %-18s blocks %-14s %s"
                   % (g, meta["where"], meta["blocks"], ("inert when " + inert) if inert else ""))
@@ -2559,7 +2962,30 @@ def main(argv):
         if not rid:
             print("usage: gates.sh check-id <run-id>", file=sys.stderr)
             return 1
+        base = _opt(args, "--base")
         if re.match(F["ids"]["run"], rid):
+            if base:
+                # prodsim/F-65 (v0.7.3): "from main" produced a run base on
+                # which the run did not exist — no PLAN for executors, gates
+                # absent, and a 258-commit-stale copy of one source file that
+                # two mutation proofs would have "restored". A base without
+                # the plan is never correct, whatever the branch is called.
+                plan_rel = fill(F["plan_schema"]["file"], run_id=rid)
+                if not git("rev-parse", "--verify", "--quiet", base).strip():
+                    print("REFUSED: --base %r is not a ref this repo can resolve — if this "
+                          "repo's default branch is not 'main', set \"main_branch\" (and "
+                          "optionally \"run_base\") in wow.config.json (prodsim/F-65, "
+                          "DEV-R9-11)" % base, file=sys.stderr)
+                    return 1
+                if not git("ls-tree", "--name-only", base, "--", plan_rel).strip():
+                    print("REFUSED: %s does not exist on --base %r — a run base that does not "
+                          "carry the run's plan gives executors nothing to execute and gates "
+                          "nothing to grade; cut the base from the branch the run lives on "
+                          "(wow.config.json run_base, prodsim/F-65)" % (plan_rel, base),
+                          file=sys.stderr)
+                    return 1
+                print("ok: %r matches ids.run and --base %r carries %s" % (rid, base, plan_rel))
+                return 0
             print("ok: %r matches ids.run" % rid)
             return 0
         slug = _run_anatomy(rid)
