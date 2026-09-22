@@ -1,4 +1,4 @@
-# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.7.3
+# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.7.4
 
 > Drop this section into your repo's CLAUDE.md (or equivalent agent memory file). Target ≤60 lines resident; everything else loads on phase entry.
 
@@ -20,7 +20,7 @@ Each `/wow-*` command loads its playbook from `docs/process/`. Do not execute a 
 
 ### Non-negotiables (full definitions in docs/process/ and scripts/wow/GATES-SPEC.md — reference, do not restate)
 
-1. **Single home per fact — with the git/Jira split.** Git owns **content**: spec text, ACs, plans, code, gaps (`docs/GAPS.md`), traceability, codebase map, evidence. Jira owns **workflow history**: status transitions, sign-offs, discussion. `docs/REQUIREMENTS.md` holds *technical* status (evidence-backed); Jira holds *workflow* status. Divergence between the two is never silently merged — gates open with a divergence diff (GATE-10) and every difference is classified as an actionable gap.
+1. **Single home per fact — with the git/Jira split.** Git owns **content**: spec text, ACs, plans, code, gaps (`docs/GAPS.md`), traceability, codebase map, evidence. Jira owns **workflow history**: status transitions, sign-offs, discussion. `docs/REQUIREMENTS.md` holds _technical_ status (evidence-backed); Jira holds _workflow_ status. Divergence between the two is never silently merged — gates open with a divergence diff (GATE-10) and every difference is classified as an actionable gap.
 2. **No persistent narrative state.** Status is derived (`scripts/wow/status.mjs`); continuity is `runs/<id>/HANDOFF.md` (≤80 lines, overwritten, ORCH-owned); history is git.
 3. **Evidence discipline.** Completion-class statuses and done-words carry `ev:` citations — checked by GATE-3 at every sweep (gate close and P5), not at commit time; a bad citation lands in a commit and is caught at the next gate. Convention (reviewed, not gated): FACT/ASSUMPTION/INFERENCE labels on load-bearing claims per `docs/process/FORMATS.md`.
 4. **Park, don't ask.** During runs: in-contract deviations are decided and logged (`DEV-U<n>-<nn>`); cross-unit, AC-touching, or irreversible actions are parked (`PARK-U<n>-<nn>`). No mid-run questions, no silent improvisation. Cascades are computed by the ORCH at wave boundaries, never by executors.

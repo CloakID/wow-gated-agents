@@ -203,4 +203,41 @@ assert_rejects "check-id --base: base without the plan is refused (F-65)" "$FIX"
   "does not exist on --base" check-id 260813-real-r1 --base stale-main
 assert_rejects "check-id --base: unresolvable ref refused (F-65)" "$FIX" \
   "not a ref this repo can resolve" check-id 260813-real-r1 --base no-such-branch
+# ---- platform/F-72 (v0.7.4): the bare run trailer looks at the STAGED set --
+FIX72="$(setup_fixture_repo)"
+mkdir -p "$FIX72/runs/260922-ph-r1" "$FIX72/src"
+printf 'position\n' > "$FIX72/runs/260922-ph-r1/HANDOFF.md"
+( cd "$FIX72" && git add runs/260922-ph-r1/HANDOFF.md )
+assert_accepts "bare [T:run] staging a phase artifact under runs/<id>/ passes (F-72 control)" \
+  "$FIX72" gate-1 <(printf 'handoff [T:260922-ph-r1]\n')
+printf 'product code\n' > "$FIX72/src/thing.py"
+( cd "$FIX72" && git add src/thing.py )
+assert_rejects "bare [T:run] staging product code is refused, task form named (platform/F-72)" \
+  "$FIX72" "PHASE-artifact trailer" gate-1 <(printf 'sneaky [T:260922-ph-r1]\n')
+# a repo may name extra phase homes in its config
+python3 - "$FIX72/scripts/wow/wow.config.json" <<'PY'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p)); c["run_staged_scope_extra"] = ["src/thing.py"]
+open(p, "w").write(json.dumps(c) + "\n")
+PY
+assert_accepts "run_staged_scope_extra widens the phase homes (F-72 control)" \
+  "$FIX72" gate-1 <(printf 'sneaky [T:260922-ph-r1]\n')
+# ---- ADV-R11-02 (v0.7.4 R11b): a MERGE commit's staged set is not authored work
+( cd "$FIX72" && git reset -q --hard HEAD && mkdir -p runs/260922-ph-r1 && printf 'pos\n' > runs/260922-ph-r1/HANDOFF.md \
+  && git add runs/260922-ph-r1/HANDOFF.md && git commit -qm "run dir [T:260922-ph-r1]" --no-verify \
+  && git checkout -q -b wow/260922-ph-r1/U1 && mkdir -p src \
+  && printf 'unit work\n' > src/unit.py && git add src/unit.py && git commit -qm "unit [T:260922-ph-r1.T01]" --no-verify \
+  && git checkout -q - && git merge --no-ff --no-commit -q wow/260922-ph-r1/U1 ) >/dev/null 2>&1
+# fixture non-vacuity: a merge is in progress AND product code is staged
+[ -f "$FIX72/.git/MERGE_HEAD" ] && ( cd "$FIX72" && git diff --cached --name-only | grep -q '^src/unit.py$' ) \
+  || { echo "  FAIL merge fixture inert (no MERGE_HEAD / nothing staged) — ADV-R11-02 test would pass vacuously"; FAIL=$((FAIL+1)); }
+assert_accepts "ORCH merge under the bare trailer is not scope-checked (ADV-R11-02)" \
+  "$FIX72" gate-1 <(printf 'merge U1 into int [T:260922-ph-r1]\n')
+( cd "$FIX72" && git merge --abort >/dev/null 2>&1; git reset -q --hard HEAD )
+# ---- DEV-R11-06: the bare form resolves an ARCHIVED run too
+mkdir -p "$FIX72/runs/archive/260101-old-r1" && printf 'x\n' > "$FIX72/runs/archive/260101-old-r1/RUN-REPORT.md"
+mkdir -p "$FIX72/docs/adr" && printf 'adr tweak\n' > "$FIX72/docs/adr/001-x.md"
+( cd "$FIX72" && git add docs/adr/001-x.md )
+assert_accepts "bare trailer of an archived run commits a phase artifact (DEV-R11-06)" \
+  "$FIX72" gate-1 <(printf 'adr [T:260101-old-r1]\n')
 finish

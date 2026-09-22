@@ -124,4 +124,19 @@ gaps21 '| ~~OBL-T-21~~ | impl_gap | m | advisory | engine-v0.5.x run | lands | e
 assert_accepts "discharged row keeps its historical successor untouched" "$FIX" parity
 gaps21 '| OBL-T-21 | impl_gap | m | advisory | engine round 7 (was `engine-v0.5.x`) | lands | ev:commit{abc1234} |'
 assert_accepts "backticked old version is a MENTION of history, not a claim" "$FIX" parity
+# ---- platform/F-76 (v0.7.4): ids_expanded is generated and must not drift --
+FIXX="$(setup_fixture_repo)"
+rows_1_12 > "$FIXX/scripts/wow/GATES-SPEC.md"
+python3 - "$FIXX/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = open(p).read()
+import re
+i = s.index('"ids_expanded": {')
+m = re.compile(r'"run": "[^"]*"').search(s, i)
+s = s[:m.start()] + '"run": "^stale$"' + s[m.end():]
+open(p, 'w').write(s)
+json.load(open(p))
+PY
+assert_rejects "a stale ids_expanded entry fails parity (platform/F-76)" "$FIXX" \
+  "ids_expanded.run is stale" parity
 finish

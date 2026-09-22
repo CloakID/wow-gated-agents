@@ -14,7 +14,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname, isAbsolute, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const F = (() => {
@@ -113,19 +113,28 @@ function installation() {
     if (!present[label]) missing.push(label);
   }
   const { dir, why } = hooksDir();
-  const hooks = {};
+  const hooks = {}, hookState = {};
   for (const h of inst.hooks) {
     const p = join(dir, h);
     const body = read(p);
-    hooks[h] = existsSync(p) && body.includes(inst.hook_marker);
-    if (!hooks[h]) missing.push(`hook:${h}`);
+    // prodsim/F-77 (v0.7.4): 'MISSING' conflated two states and sent an
+    // investigation the wrong way — a mechanism states its subject: ABSENT
+    // means no file; FOREIGN means a hook exists and carries no WoW marker
+    // (a second installer clobbered ours — the class an old checkout's
+    // lifecycle script reproduces at will, since .git/hooks is untracked).
+    const state = existsSync(p)
+      ? (body.includes(inst.hook_marker) ? 'installed' : 'FOREIGN')
+      : 'ABSENT';
+    hooks[h] = state === 'installed';        // ADV-R11-10: the boolean API stays
+    hookState[h] = state;                    // the subject lives beside it
+    if (state !== 'installed') missing.push(`hook:${h} (${state})`);
   }
   const gateIds = Object.keys(F.gates).filter(k => !k.startsWith('$'));
   const untested = gateIds.filter(g =>
     !existsSync(rp(fill(F.non_vacuity.gate_test_file, { gate: g.toLowerCase() }))));
   const wiringTest = existsSync(rp(F.non_vacuity.install_test_file));
   if (!wiringTest) missing.push('tests/' + F.non_vacuity.install_test_file.split('/').pop());
-  return { present, hooks, hooksDir: relative(ROOT, dir) || dir, hooksWhy: why,
+  return { present, hooks, hookState, hooksDir: relative(ROOT, dir) || dir, hooksWhy: why,
            missing, gates: gateIds.length, untested, wiringTest,
            node: process.version, recovery: F.gate_failure_recovery };
 }
@@ -312,9 +321,22 @@ function lanes() {
   const q = [];
   const qd = rp(rl.quick_dir);
   const resultRe = new RegExp(rl.quick_result_section, 'mi');
+  // DEV-R11-09 (v0.7.4 R11b): a stub a registry row CITES as its proof is not
+  // a stale stub whatever its result cell says (platform/F-80's rule, applied
+  // to the tool that builds the candidate list — the doc said 'excluded' while
+  // the tool still listed it, then refused the deletion it had suggested).
+  const registries = [F.gap_row.file, F.paths.requirements].map(f => read(rp(f))).join('\n');
+  const citedBy = (path) => {
+    const hits = [];
+    for (const [i, ln] of registries.split('\n').entries()) {
+      if (ln.replace(/`[^`]*`/g, '').includes('ev:file{' + path)) hits.push(i + 1);
+    }
+    return hits;
+  };
   for (const slug of lsdir(qd)) {
     const note = rp(fill(rl.quick, { slug }));
     if (!existsSync(note)) continue;
+    const cited = citedBy(fill(rl.quick, { slug }));
     const m = read(note).match(resultRe);
     // platform/F-62 residual (v0.7.2): a pattern that fails to match is an UNREADABLE
     // section, never an empty one — collapsing the two turned a JS-dialect
@@ -324,12 +346,23 @@ function lanes() {
     const unreadable = !m;
     const empty = m ? m[1].trim() === '' : false;
     const ageDays = (Date.now() - statSync(note).mtimeMs) / 86400000;
-    q.push({ slug, empty, unreadable, ageDays: Math.round(ageDays),
-             stale: empty && ageDays > rl.quick_stale_days });
+    q.push({ slug, empty, unreadable, ageDays: Math.round(ageDays), cited,
+             stale: empty && ageDays > rl.quick_stale_days && cited.length === 0 });
   }
-  const open = lsdir(rp(rl.debug_dir)).filter(f => f.endsWith('.md'));
+  const decisionName = rl.debug_decision ? rl.debug_decision.split('/').pop() : null;
+  const open = lsdir(rp(rl.debug_dir)).filter(f => f.endsWith('.md') && f !== decisionName);
   const resolved = lsdir(rp(rl.debug_resolved_dir)).filter(f => f.endsWith('.md'));
-  return { quick: q, debugOpen: open, debugResolved: resolved.length };
+  // platform/F-81 (v0.7.4): a debug record RENAMED into resolved/ was later
+  // "restored" from history as if deleted — two live copies, one slug counted
+  // once as open and once as resolved, and the derived view wrong for a day.
+  // Two directories holding one lane's records get an intersection test.
+  const both = open.filter(f => resolved.includes(f));
+  // prodsim/F-80 (v0.7.4): a batch of open records needs a DECISION SURFACE
+  // the PO reads instead of the records; its absence is mechanically visible.
+  const decision = rl.debug_decision ? rp(rl.debug_decision) : null;
+  const decisionPresent = decision ? existsSync(decision) : null;
+  return { quick: q, debugOpen: open, debugResolved: resolved.length,
+           debugBoth: both, decisionSurface: rl.debug_decision || null, decisionPresent };
 }
 
 // -------------------------------------------------------------- audit triggers
@@ -406,11 +439,19 @@ function auditTriggers(rs) {
       // DEV-R9-09 (v0.7.3 R9): on a repo with no run this diagnostic implied a
       // parse failure the operator should fix — rows-seen/parsed is only said
       // when there was a table to parse.
-      else if (scopeRun.length === 0) note = 'no runs yet — the ORCH records it in RUN-REPORT §audit triggers at first P4';
+      else if (scopeRun.length === 0) note = 'no ACTIVE run — the ORCH records it in RUN-REPORT §audit triggers at P4; archived runs are not re-derived (F-36)';
       else if (atSectionsSeen === 0) note = `run has no RUN-REPORT ${t.report_section} section yet — the ORCH records it there at P4 (F-33)`;
       else note = `not parsed from the run RUN-REPORT ## audit triggers table (${atRowsSeen} data row(s) seen, ${atRowsParsed} parsed — a row parses when it starts within 3 spaces of column 0, the AT-id leads cell 1 and an integer leads cell 2; prodsim/F-74)`;
     }
-    if (cfgT.derived_by === 'po') note = 'awaiting PO at G4 — a judgement, never derived';
+    if (cfgT.derived_by === 'po') {
+      // prodsim/F-87e (v0.7.4): F-33's own defect, fixed for orch and left in
+      // the po branch of the same function — a PO ruling recorded exactly
+      // where the format asks for it (the RUN-REPORT audit-triggers table)
+      // was invisible to the tool that reports triggers. A recorded po value
+      // is read back; only an UNrecorded one awaits the PO.
+      if (k in reported) { value = reported[k]; note = 'PO ruling read from RUN-REPORT §audit triggers (recorded at G4; F-33/F-87e)'; }
+      else note = 'awaiting PO at G4 — a judgement, never derived';
+    }
     if (k === 'AT-3') value = scopeRun.reduce((a, r) => a + (r.statuses.BLOCKED || 0), 0);
     if (k === 'AT-4') {
       value = at4Count();
@@ -469,6 +510,44 @@ const data = {
 };
 data.auditTriggers = auditTriggers(data.runs);
 
+// prodsim/F-84 (v0.7.4): status.mjs is an engine file the installer
+// overwrites, and a consumer with a fact the framework does not model had
+// nowhere to surface it but inside this file — lost silently on upgrade.
+// Repo-owned extensions live in files the installer never touches:
+// wow.config.json `status_extensions` (a list of module paths, default
+// ["scripts/status-extras.mjs"] when that file exists), each exporting
+// { section, lines } or an async function returning that. A failing
+// extension is reported, never swallowed.
+const extPaths = Array.isArray(CFG.status_extensions) ? CFG.status_extensions
+  : (existsSync(rp('scripts/status-extras.mjs')) ? ['scripts/status-extras.mjs'] : []);
+data.extensions = {};
+for (const ext of extPaths) {
+  const p = rp(ext);
+  if (!existsSync(p)) { data.extensions[ext] = { error: 'MISSING — named in wow.config.json status_extensions but not on disk' }; continue; }
+  // contract: `export default { section, lines }`, `export default async (ctx) => ({ section, lines })`,
+  // or named `export const section = …; export const lines = […]`. Anything else is an ERROR, never an
+  // empty section (DEV-R11-10). A module that never settles is a reported timeout, not a hung status
+  // (ADV-R11-12); stdout an extension writes is captured so --json stays parseable.
+  const realLog = console.log; const swallowed = [];
+  console.log = (...a) => { swallowed.push(a.join(' ')); };
+  try {
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('extension did not settle within 5s')), 5000).unref());
+    const mod = await Promise.race([import(pathToFileURL(p).href), timeout]);
+    let val = mod.default;
+    if (typeof val === 'function') val = await Promise.race([val({ F, CFG, ROOT, data }), timeout]);
+    if (val === undefined && (mod.section !== undefined || mod.lines !== undefined)) val = { section: mod.section, lines: mod.lines };
+    if (!val || typeof val !== 'object' || !Array.isArray(val.lines)) {
+      throw new Error('no usable export — expected default { section, lines } (or a function returning it), or named `section`/`lines` exports');
+    }
+    data.extensions[ext] = { section: val.section || ext, lines: val.lines.map(String) };
+    if (swallowed.length) data.extensions[ext].note = `extension wrote ${swallowed.length} line(s) to stdout — captured, not rendered`;
+  } catch (e) {
+    data.extensions[ext] = { error: `FAILED: ${e && e.message ? e.message : e} (reported, not swallowed — prodsim/F-84)` };
+  } finally {
+    console.log = realLog;
+  }
+}
+
 if (asJson) {
   console.log(JSON.stringify(data, null, 2));
   process.exit(0);
@@ -510,7 +589,7 @@ else out.push(`  INCOMPLETE — missing: ${i.missing.join(', ')}`);
 if (i.untested.length) out.push(`  gates with NO negative test (inert-gate risk): ${i.untested.join(', ')}`);
 if (!i.wiringTest) out.push(`  NO wiring test — gate logic is proved, gate wiring is not`);
 out.push(`  hooks in ${i.hooksDir} ${dim('(' + i.hooksWhy + ')')}: ` +
-  Object.entries(i.hooks).map(([k, v]) => `${k}=${v ? 'installed' : 'MISSING'}`).join('  '));
+  Object.entries(i.hookState).map(([k, v]) => `${k}=${v}${v === 'FOREIGN' ? ' (a hook exists and it is not ours — a second installer clobbered the WoW hook; run `scripts/wow/gates.sh hooks --install`, it chains; prodsim/F-77)' : v === 'ABSENT' ? ' (no file — a fresh clone? run `scripts/wow/gates.sh hooks --install`)' : ''}`).join('  '));
 out.push(dim(`  recovery: max ${i.recovery.max_fix_forward_attempts} fix-forward attempts, then ${i.recovery.then}` +
   (i.recovery.bypass_allowed ? '' : ' — bypass is never allowed')));
 out.push('');
@@ -553,9 +632,17 @@ out.push(B('Lanes'));
 const l = data.lanes;
 out.push(`  quick: ${l.quick.length}` + (l.quick.filter(q => q.stale).length
   ? `  STALE STUBS: ${l.quick.filter(q => q.stale).map(q => q.slug).join(', ')}` : '')
+  + (l.quick.filter(q => q.empty && q.cited.length).length
+  ? `  CITED (retain, not stale — platform/F-80): ${l.quick.filter(q => q.empty && q.cited.length).map(q => `${q.slug} by registry line ${q.cited.join('/')}`).join(', ')}` : '')
   + (l.quick.filter(q => q.unreadable).length
   ? `  UNREADABLE result sections (not graded, not stale — platform/F-62): ${l.quick.filter(q => q.unreadable).map(q => q.slug).join(', ')}` : ''));
-out.push(`  debug: ${l.debugOpen.length} open, ${l.debugResolved} resolved`);
+out.push(`  debug: ${l.debugOpen.length} open, ${l.debugResolved} resolved`
+  + (l.debugBoth.length ? `  PHANTOM: ${l.debugBoth.join(', ')} present at BOTH the open and resolved paths — a rename restored as a deletion; delete the open copy (platform/F-81)` : ''));
+if (l.debugOpen.length && l.decisionSurface) {
+  out.push(l.decisionPresent
+    ? `  decision surface: ${l.decisionSurface} (PO decides from this page, not from the records — prodsim/F-80)`
+    : `  NO decision surface: ${l.debugOpen.length} open record(s) and no ${l.decisionSurface} — the ORCH owes the PO a one-page classification request (LANES.md, prodsim/F-80)`);
+}
 out.push('');
 
 out.push(B('Audit triggers') + dim('  (P4 — any hit schedules an audit before new feature work)'));
@@ -580,5 +667,12 @@ else {
     out.push(dim('  nothing blocks the next spec or install'));
 }
 out.push('');
+
+for (const [ext, x] of Object.entries(data.extensions)) {
+  if (x.error) { out.push(B(`Extension ${ext}`) + `  ${x.error}`); out.push(''); continue; }
+  out.push(B(x.section) + dim('  (repo-owned extension: ' + ext + ')'));
+  for (const ln of x.lines) out.push('  ' + ln);
+  out.push('');
+}
 
 console.log(out.join('\n'));

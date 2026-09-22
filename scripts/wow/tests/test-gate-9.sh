@@ -98,4 +98,22 @@ assert_rejects "unsigned v2 resolved at G4: refusal names the --spec route (ADV-
 # ...and --spec with the file that carries the record closes it.
 assert_accepts "--spec pointing at the record-carrying v1 closes G4 (ADV-R9-10 control)" "$FIX" \
   gate-9 --gate G4 --spec docs/spec/SPEC-g4-v1.md
+# ---- platform/F-71 (v0.7.4): the drift check is per-MODIFICATION, not a
+# one-time toll — the first amendment must not license every later change.
+mkdir -p "$FIX/docs/spec"
+printf '# SPEC drift\nstatus: SIGNED\nsigned: G1 2026-09-20 ev:jira{WOW-5}\n\nbody v1\n' > "$FIX/docs/spec/SPEC-drift-v1.md"
+( cd "$FIX" && git add docs/spec/SPEC-drift-v1.md && git commit -qm "sign drift spec [WOW:publish]" --no-verify )
+# first post-signature change WITH its amendment: passes
+printf '\nAM-01 records this change. **Date:** 2026-09-21\nchanged body\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+( cd "$FIX" && git add -A && git commit -qm "amended change [WOW:publish]" --no-verify )
+assert_accepts "post-signature change carrying its NEW amendment passes (F-71 control)" "$FIX" \
+  gate-9
+# second change with NO new amendment: the old any-AM-anywhere test passed this
+printf '\nfifty more silent words\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+( cd "$FIX" && git add -A && git commit -qm "silent drift [WOW:publish]" --no-verify )
+assert_rejects "a later change with no NEW amendment fails — count-and-compare (platform/F-71)" \
+  "$FIX" "did not grow" gate-9
+printf '\nAM-02 records the second change too. **Date:** 2026-09-22\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+assert_accepts "adding AM-02 for the second change clears it (F-71 control)" "$FIX" gate-9
+( cd "$FIX" && git add -A && git commit -qm "am-02 [WOW:publish]" --no-verify )
 finish

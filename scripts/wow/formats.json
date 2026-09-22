@@ -1,6 +1,15 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.3-draft",
+  "version": "0.7.4-draft",
+  "schema_version": "1",
+  "$schema_version_comment": "platform/F-76 (v0.7.4): this file is consumed as an API and was versioned as if internal — a key changed type (regex→template) and another was removed between releases, and two consumer checks broke silently, one reporting PASS while grading nothing. schema_version is bumped whenever a key is REMOVED or CHANGES TYPE; a consumer asserts the value it was written against and fails loudly on upgrade. Additive keys and value changes do not bump it. The $removed block below keeps the removal trace.",
+  "$removed": {
+    "report_row_schema.row": "removed v0.7.2 (F-14 addendum) — status rows are resolved by a Status/Grade column header, not a single regex; consumers read status_vocab.status_columns / verdict_columns and walk the table",
+    "ids.run": "type change v0.7.1 (F-46/F-39): regex → {run_core} template expanded at load; consumers read ids_expanded.run",
+    "ids.task": "type change v0.7.1 (F-39): regex → {run_core}{task_tail} template; consumers read ids_expanded.task",
+    "ids.cannot_validate": "type change v0.7.1 (F-46): regex → template; consumers read ids_expanded.cannot_validate",
+    "branch_patterns.*": "type change v0.7.1 (F-46): regex → template; expanded at load by both engines"
+  },
   "ids": {
     "run": "^{run_core}$",
     "unit": "^U[1-9][0-9]*$",
@@ -32,6 +41,32 @@
     "$task_tail_comment": "F-39 (v0.7.1): the task-id tail is a template key like {run_core} — it was spelled twice (ids.task and the [T:] trailer), and two spellings of one grammar is the restatement class F-46 closed for the run id. Both engines expand {task_tail} at load.",
     "$run_core_comment": "F-46/F-39 (v0.7.1): the run-id shape was restated in FOUR places (run, task, cannot_validate, the [T:] trailer) plus three branch patterns — a widening of one was a silent narrowing of another, which is exactly how a 27-char slug passed P0→G2 and then no executor commit could carry a legal lane ref. {run_core} is the single source; both engines expand it at load. Slug cap raised 24→48 — a PO-chosen headroom over the longest observed failing slug (27 chars, F-46), not a value derived from slug-length data; the pattern is anchored, so there is no backtracking argument for keeping it tight. The task tail admits an insertion suffix T<nn>[a-z] — task rows get inserted into signed plans without renumbering; the F-39 report cites T13b/T07a in pilot archives (pilot-reported, not independently verified here). Validate at run-open: gates.sh check-id <id> (P1) — the operator learns the cap before a spec is signed against the id, not at day three."
   },
+  "ids_expanded": {
+      "run": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*$",
+      "unit": "^U[1-9][0-9]*$",
+      "task": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*\\.T[0-9]{2}[a-z]?$",
+      "deviation": "^DEV-(U[1-9][0-9]*|ORCH)-[0-9]{2}$",
+      "park": "^PARK-U[1-9][0-9]*-[0-9]{2}$",
+      "verifier_finding": "^VF-U[1-9][0-9]*-[0-9]{2}$",
+      "plan_defect": "^DEF-plan-[0-9]{2}$",
+      "cannot_validate": "^CV-[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*-(?:U[1-9][0-9]*-)?[0-9]{2}$",
+      "requirement": "^REQ-[0-9]{3}$",
+      "assumption": "^A-[0-9]{2}$",
+      "acceptance_criterion": "^AC-[0-9]{1,3}$",
+      "adr_file": "^[0-9]{3}-[a-z0-9-]+\\.md$",
+      "spec_file": "^SPEC-[a-z0-9-]{1,24}-v[1-9][0-9]*\\.md$",
+      "quick_dir": "^[0-9]{6}-[a-z0-9][a-z0-9-]*$",
+      "debug_file": "^[a-z0-9][a-z0-9-]*\\.md$",
+      "obligation": "^OBL-[A-Z0-9]+-[0-9]{2,}$",
+      "amendment": "^AM-[0-9]{2}$",
+      "cannot_validate_short": "^CV-[0-9]{2}$",
+      "run_date": "[0-9]{6}",
+      "run_slug": "[a-z0-9][a-z0-9-]{0,47}",
+      "run_iter": "r[1-9][0-9]*",
+      "run_core": "[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*",
+      "task_tail": "\\.T[0-9]{2}[a-z]?"
+  },
+  "$ids_expanded_comment": "platform/F-76 (v0.7.4): the MATCHABLE form of every ids.* key — templates fully expanded, the same expansion both engines perform at load. Consumers match against these and never against ids.* raw (a template matches nothing, silently). GENERATED: check-parity re-expands ids.* and fails when this block drifts; regenerate with `gates.sh formats-expand` after editing ids.*. ONE exception (DEV-R11-15): `requirement` is repo-overridable — a consumer check reads wow.config.json `requirement_id` first and falls back to ids_expanded.requirement, exactly as the engines do.",
   "paths": {
     "$comment": "Every repo-relative location the gates and status.mjs read. Inlining any of these in a consumer is the defect this section exists to prevent.",
     "requirements": "docs/REQUIREMENTS.md",
@@ -83,6 +118,8 @@
         "pattern": "\\[T:({run_core})\\]",
         "resolves": "run_dir_exists",
         "doc_literal": "[T:",
+        "staged_scope": ["runs/{run_id}/**", "runs/archive/{run_id}/**", "runs/quick/jira-queue.md", "runs/.gate-log", "scripts/wow/wow.config.json", "docs/spec/**", "docs/REQUIREMENTS.md", "docs/GAPS.md", "docs/adr/**", "docs/codebase/**", "docs/deps/**", "scripts/wow/permissions-policy.json", "docs/PUBLISH-*.md"],
+        "$staged_scope_comment": "platform/F-72 (v0.7.4): GATE-1 validated the trailer's SHAPE and never looked at the staged set, so a phase-artifact trailer rode a commit full of task output and the lane answer in git log became self-reported metadata. The bare form may stage only phase artifacts — the places P0/P1/P4/P5 name. Task work uses the fully-qualified [T:<run-id>.T<nn>] form, whose ownership the plan declares. The fnmatch list is the phase-artifact map; a repo needing more names them in wow.config.json run_staged_scope_extra.",
         "$comment": "F-08/F-10 (v0.6.3): P1 and P4 artifacts had no trailer that resolves — the spec a PO signs at G1 and the reconciled spec/divergence/RUN-REPORT at G4 sat outside git at the moment of signing, and the improvisation pressure (borrow a task id, fake a publish) is the class PR-4 existed to stop. The bare form [T:<run-id>] (no .Tnn suffix) resolves to the run DIRECTORY, which may exist before its plan. Phase-level artifacts of a run commit under it; task work still requires the fully-qualified form."
       }
     },
@@ -496,6 +533,8 @@
     "signoff_record": "^signed:(?:\\s+(G[0-9]+))?\\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\\s+ev:jira\\{[A-Z][A-Z0-9]+-[0-9]+\\}",
     "signed_status_token": "^status:.*\\bSIGNED\\b",
     "status_header": "^status:\\s*(.+)$",
+    "kind_header": "^kind:\\s*(feature|audit|fix|probe|remediation)\\s*$",
+    "$kind_header_comment": "DEV-R11-11 (v0.7.4): P4 step 3 keys the reconciliation home on the spec's kind and no received doc defined where it lives — it is a spec HEADER field, one of gap_row.spec_kinds (the same list gate-12 --kind takes; P1 lists it). Convention, read by no gate yet; a missing kind reconciles as `feature` (new version).",
     "header_lines": 25,
     "$signed_status_comment": "Case-SENSITIVE and deliberately so. Matching case-insensitively made GATE-9 read the prose 'not signable, not signed' in a blocked draft's header as a sign-off claim. A gate that fires on prose is as useless as one that never fires.",
     "closing_gates": {
@@ -524,6 +563,10 @@
     "debug_dir": "runs/debug",
     "debug_resolved": "runs/debug/resolved/{slug}.md",
     "debug_resolved_dir": "runs/debug/resolved",
+    "debug_decision": "runs/debug/classification-request.md",
+    "$debug_decision_comment": "prodsim/F-80 (v0.7.4): the debug lane put the PO's decision at the BOTTOM of the implementer's investigation and had no batch surface — four well-formed 100-line records were together undecidable ('I will not examine the records and the repo'). This is the lane-level decision surface: one page, one table, one row per open record (what is true · severity · act now? · ORCH's PROPOSED disposition · what happens if deferred), a blanket-approval clause, what approval does NOT cover, a decision line. The PO decides from it without reading a record; status.mjs names it when open records exist and reports its absence, and never counts it as an open record. It commits under the debug lane as [D:classification-request] (the file exists under runs/debug/, so the trailer resolves; DEV-R11-05).",
+    "walk": "runs/{run_id}/walk-G4.md",
+    "$walk_comment": "prodsim/F-86 (v0.7.4): P3 gives an executor a park for findings it does not own and a wave boundary to batch them at; P4's walk had neither, so a mid-walk finding had exactly one move — raise it now — and two of twenty items ate a context window before the walk was enumerated. The walk artifact is the P4 equivalent of the park: one row per RUN-REPORT failed/blocked/parked/defect item with its classification; findings surfaced mid-walk land here and are disposed of TOGETHER at G4. GATE-10 at G4 refuses close when an item the RUN-REPORT carries is absent from it.",
     "archive": "runs/archive/{run_id}/",
     "archive_dir": "runs/archive",
     "active_marker": ".active",
@@ -642,7 +685,13 @@
     "hook_marker": "wow-v2-hook",
     "$hook_marker_comment": "--check greps for this marker AND diffs the body against the canonical hook. Grepping for the string 'gates.sh' reported ok for a hook someone had rewritten to `# gates.sh` + `exit 0`.",
     "preserved_hook_suffix": ".pre-wow",
-    "$preserved_hook_comment": "A target repo's existing commit-msg/pre-commit hook is moved aside, not destroyed, and the WoW hook chains to it. Overwriting a project's lint hook to install ours is the kind of collateral damage that gets a framework uninstalled.",
+    "$preserved_hook_comment": "A target repo's existing commit-msg/pre-commit hook is moved aside, not destroyed, and the WoW hook chains to it. Overwriting a project's lint hook to install ours is the kind of collateral damage that gets a framework uninstalled. DEV-R11-03 (v0.7.4): on a SECOND clobber (husky re-installing on every npm install) the already-present .pre-wow is rotated to .pre-wow.<n> and the new foreign hook becomes the chained one — nothing is ever overwritten; the rotated copies do not run and the message says so.",
+    "hook_gate_lines": {
+      "commit-msg": ["exec_gate gate-1 --quiet \"$1\""],
+      "pre-commit": ["exec_gate gate-5  --quiet --staged", "exec_gate gate-11 --quiet --staged", "exec_gate gate-14 --quiet --staged"]
+    },
+    "hook_template": "#!/usr/bin/env bash\n# {marker} — installed by the WoW v2 package installer (install.sh) or `gates.sh hooks --install`.\n# GATE-1 runs in commit-msg, not pre-commit: the message does not exist yet at\n# pre-commit. GATE-5, GATE-11 and GATE-14 run here, on the staged set.\nset -u\nroot=\"$(git rev-parse --show-toplevel)\"\nprev=\"$0{keep}\"\n[ -x \"$prev\" ] && { \"$prev\" \"$@\" || exit $?; }\nif [ ! -x \"$root/scripts/wow/gates.sh\" ]; then\n  echo \"wow-v2: scripts/wow/gates.sh missing or not executable — gates NOT enforced for this commit\" >&2\n  exit 0\nfi\nexec_gate() { \"$root/scripts/wow/gates.sh\" \"$@\" || exit 1; }\n{gate_lines}\nexit 0\n",
+    "$hook_template_comment": "DEV-R11-02 (v0.7.4): the hook body is ONE home read by install.sh AND by `gates.sh hooks --install` (the self-heal a fresh clone or a clobbered hook runs — .git/hooks is untracked, so every clone starts with no enforcement layer, and the sweep's parity member now says so). Placeholders: {marker}, {keep}, {gate_lines} (one line per hook_gate_lines entry). --check diffs an installed hook byte-for-byte against this rendering, so a private copy anywhere would be drift.",
     "claude_md": {
       "file": "CLAUDE.md",
       "start_marker": "<!-- wow-v2:start -->",

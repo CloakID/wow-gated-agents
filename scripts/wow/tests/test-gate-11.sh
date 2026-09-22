@@ -78,4 +78,35 @@ assert_accepts "committed exclude carves out (ADV-R10-02 control)" "$FIX" gate-1
 assert_output "the PASS names the active committed exclude list (ADV-R9-09)" "$FIX" \
   "active legacy_freeze_exclude" gate-11 --staged
 ( cd "$FIX" && git reset -q --hard HEAD )
+# ---- prodsim/F-82 (v0.7.4): a SYMLINKED checkout must not empty the exclude
+# list — macOS /tmp is a symlink, relpath arithmetic escaped the repo, git
+# show failed silently and the freeze blocked the very paths F-60 carved out.
+LINKBASE="$(mktemp -d)"
+ln -s "$FIX" "$LINKBASE/via-symlink"
+mkdir -p "$FIX/.planning/history"
+printf '{"outage": 2}\n' > "$FIX/.planning/history/edge.ndjson"
+( cd "$LINKBASE/via-symlink" && git add .planning/history/edge.ndjson )
+assert_accepts "committed exclude still carves out through a symlinked path (F-82)" \
+  "$LINKBASE/via-symlink" gate-11 --staged
+( cd "$FIX" && git reset -q --hard HEAD )
+# corrupt committed config is LOUD, never an empty-and-frozen set (F-12's rule)
+( cd "$FIX" && printf 'not json {' > scripts/wow/wow.config.json \
+  && git add scripts/wow/wow.config.json \
+  && git commit -qm "corrupt [WOW:publish]" --no-verify ) >/dev/null 2>&1
+assert_rejects "unreadable committed config refuses loudly, never guesses (F-82/F-12)" "$FIX" \
+  "could not be READ" gate-11 --staged
+( cd "$FIX" && git reset -q --hard HEAD~1 )
+rm -rf "$LINKBASE"
+# ---- ADV-R11-07 (R11b): a corrupt HEAD config is repairable, and refuses only when armed
+( cd "$FIX" && printf 'not json {' > scripts/wow/wow.config.json \
+  && git add scripts/wow/wow.config.json && git commit -qm "corrupt [WOW:publish]" --no-verify ) >/dev/null 2>&1
+printf '{"migrated_from_gsd": false}\n' > "$FIX/scripts/wow/wow.config.json"
+( cd "$FIX" && git add scripts/wow/wow.config.json )
+assert_accepts "the repair commit for a corrupt HEAD config is committable when nothing is frozen (ADV-R11-07)" \
+  "$FIX" gate-11 --staged
+printf '{"migrated_from_gsd": true}\n' > "$FIX/scripts/wow/wow.config.json"
+( cd "$FIX" && git add scripts/wow/wow.config.json && git rm -q --cached .planning/STATE.md 2>/dev/null; true )
+assert_rejects "corrupt HEAD while the freeze is ARMED refuses — the committed carve-out is unknowable (ADV-R11-07)" \
+  "$FIX" "at HEAD could not be READ" gate-11 --staged
+( cd "$FIX" && git reset -q --hard HEAD~1 )
 finish

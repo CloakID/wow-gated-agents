@@ -1,4 +1,4 @@
-# P1 — SPEC — DRAFT v0.7.1
+# P1 — SPEC — DRAFT v0.7.4
 Entry: `/wow-spec <feature>` · Output: `docs/spec/SPEC-<feature>-v1.md` (durable) · Gate: **G1 (PO sign-off)** → Jira epic.
 Load: prior spec version (if any), `docs/REQUIREMENTS.md`, `docs/GAPS.md`, `docs/codebase/<area>.md`, open ADRs. Nothing else.
 
@@ -7,7 +7,7 @@ Load: prior spec version (if any), `docs/REQUIREMENTS.md`, `docs/GAPS.md`, `docs
 **Committing P1 artifacts (v0.6.3, F-08):** create `runs/<run-id>/` at P1 entry — **and validate the id first**: `scripts/wow/gates.sh check-id <run-id>` (v0.7.1, F-46 — an id the trailer grammar cannot express is refused HERE, before any artifact is signed against it, not five gates later as "trailer missing"). Then commit the spec, HANDOFF and divergence record under the bare lane form `[T:<run-id>]` — the artifact a PO signs at G1 is in git history at the moment of signing, not a working-tree file waiting for a plan to borrow a task id from.
 
 ## [ORCH] — step 0: the obligation gate (review FR-4 — a gate nothing calls is inert)
-Classify the spec's kind — feature | audit | fix | probe — a judgment call (GATES-SPEC not-gates list), then run `scripts/wow/gates.sh gate-12 --kind <kind> [--ref OBL-…]` before eliciting anything. A refusal ends the session here: the registry says what must happen first. Record the invocation and result as `ev:cmd` in the spec header.
+Classify the spec's kind — `feature | audit | fix | probe | remediation` (`gap_row.spec_kinds`) — a judgment call (GATES-SPEC not-gates list), **record it as the spec header field `kind: <kind>`** (v0.7.4, DEV-R11-11: P4 step 3 keys the reconciliation home on it — `feature` reconciles into a new version, the rest in place), then run `scripts/wow/gates.sh gate-12 --kind <kind> [--ref OBL-…]` before eliciting anything. A refusal ends the session here: the registry says what must happen first. Record the invocation and result as `ev:cmd` in the spec header.
 
 ## [ORCH] — run the discussion
 1. Elicit and draft iteratively with the PO: objectives · scope boundaries (in/out) · architecture approach + alternatives considered · dependencies (internal, external, new) · tooling.

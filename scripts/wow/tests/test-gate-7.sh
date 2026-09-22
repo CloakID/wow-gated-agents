@@ -404,4 +404,112 @@ mkdir -p "$FIXA/runs/archive/260101-done-r1"
 printf 'archived\n' > "$FIXA/runs/archive/260101-done-r1/RUN-REPORT.md"
 assert_rejects "--run on an archived run names the archive and F-36 (ADV-R10-09)" "$FIXA" \
   "ARCHIVED" gate-7 --run 260101-done-r1
+# ---- platform/F-77 + prodsim/F-88 (v0.7.4): at --p5 the named run is graded
+# FROM THE ARCHIVE — P5 step 3 archives, step 6 names the run, and the phase's
+# own documented command must pass on a clean publish and still bite on debt.
+FIXP="$(setup_fixture_repo)"
+( cd "$FIXP" && git branch -M main ) >/dev/null 2>&1
+mkdir -p "$FIXP/runs/archive/260921-pub-r1"
+printf '# RUN-REPORT\n\n## completed\n| id | status | ev |\n|---|---|---|\n| T01 | COMPLETED | ev:jira{WOW-1} |\n' \
+  > "$FIXP/runs/archive/260921-pub-r1/RUN-REPORT.md"
+assert_accepts "P5 sweep grades the just-archived named run and passes clean (F-77/F-88)" "$FIXP" \
+  gate-7 --p5 --run 260921-pub-r1
+# grading is REAL: an open CV in the archived run's report is still demanded
+cat >> "$FIXP/runs/archive/260921-pub-r1/RUN-REPORT.md" << 'R'
+
+## new-gaps
+CV-260921-pub-r1-01: rollback unexercised
+  reason: destructive
+  successor: none
+  discharge: game-day
+R
+assert_rejects "archived named run's open CV is still escrow-demanded at --p5 (F-88)" "$FIXP" \
+  "no ROW with that id" gate-7 --p5 --run 260921-pub-r1
+printf '| CV-260921-pub-r1-01 | env_unverified | PO | advisory | later | game-day | ev:jira{WOW-2} |\n' >> "$FIXP/docs/GAPS.md"
+assert_accepts "registry row escrows it; publish proceeds (F-88 control)" "$FIXP" \
+  gate-7 --p5 --run 260921-pub-r1
+# ...and surviving branch refs still fail the same invocation (F-77 non-vacuity)
+( cd "$FIXP" && git branch wow/260921-pub-r1/int ) >/dev/null 2>&1
+assert_rejects "archived named run with surviving refs still fails at --p5 (F-63/F-77)" "$FIXP" \
+  "branch refs survive" gate-7 --p5 --run 260921-pub-r1
+assert_output "the leak message states its count before its sample (prodsim/F-79)" "$FIXP" \
+  "refs survive (1):" gate-7 --p5 --run 260921-pub-r1
+( cd "$FIXP" && git branch -D wow/260921-pub-r1/int ) >/dev/null 2>&1
+# outside --p5 the archived refusal holds (F-36/F-65 unchanged)
+assert_rejects "outside --p5 an archived --run is still refused (F-36 control)" "$FIXP" \
+  "ARCHIVED" gate-7 --run 260921-pub-r1
+
+# ---- platform/F-80 (v0.7.4): a registry row's deleted proof refuses publish.
+printf '| OBL-T-90 | impl_gap | PO | advisory | later | fixed | ev:file{runs/quick/260910-note/NOTE.md:3} |\n' >> "$FIXP/docs/GAPS.md"
+assert_rejects "registry citation to a GC-deleted file refuses publish (platform/F-80)" "$FIXP" \
+  "proof has been deleted" gate-7 --p5 --run 260921-pub-r1
+# the archive rewrite of a moved run file is not a loss
+python3 - "$FIXP/docs/GAPS.md" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+open(p, 'w').write(s.replace("ev:file{runs/quick/260910-note/NOTE.md:3}",
+                             "ev:file{runs/260921-pub-r1/RUN-REPORT.md:2}"))
+PY
+assert_accepts "citation into the archived run resolves via the archive rewrite (F-80 control)" \
+  "$FIXP" gate-7 --p5 --run 260921-pub-r1
+# ---- prodsim/F-87b/d (v0.7.4): a fenced grep paste is not a table, and a
+# finding names the file it was read from.
+FIX87="$(setup_fixture_repo)"
+mkdir -p "$FIX87/runs/260922-esc-r1/reports"
+printf '# RUN-REPORT\n\n| id | status | ev |\n|---|---|---|\n| T01 | COMPLETED | ev:jira{WOW-1} |\n' \
+  > "$FIX87/runs/260922-esc-r1/RUN-REPORT.md"
+cat > "$FIX87/runs/260922-esc-r1/reports/U1-verify.md" << 'R'
+Probing the registry, pasted verbatim:
+
+```
+32:| REQ-PROBE-SIGNAL | DEFERRED | later |
+33:| REQ-OTHER | OPEN | now |
+```
+
+| id | Status | note |
+|---|---|---|
+| REQ-REAL-THING | DEFERRED | genuinely deferred |
+R
+OUT87="$( cd "$FIX87" && ./scripts/wow/gates.sh gate-7 --run 260922-esc-r1 2>&1 )"; RC87=$?
+if [ "$RC87" -ne 0 ] && printf '%s' "$OUT87" | grep -q "defers REQ-REAL-THING" \
+   && ! printf '%s' "$OUT87" | grep -q "defers 32:"; then
+  echo "  ok   real deferral demanded under its REAL id; fenced grep rows ignored (F-87b)"; PASS=$((PASS+1))
+else
+  echo "  FAIL phantom grep-prefix id or missed real deferral (F-87b)"; printf '%s\n' "$OUT87" | head -4; FAIL=$((FAIL+1))
+fi
+if printf '%s' "$OUT87" | grep -q "U1-verify.md defers"; then
+  echo "  ok   the finding names the verify report it was read from (F-87d)"; PASS=$((PASS+1))
+else
+  echo "  FAIL finding attributed to the wrong file (F-87d)"; printf '%s\n' "$OUT87" | head -3; FAIL=$((FAIL+1))
+fi
+# ---- prodsim/F-87a: a malformed registry row is loud at the escrow too -----
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-99 | x | PO | not-a-real-effect | s | d | ev:jira{W-1} |\n' \
+  > "$FIX87/docs/GAPS.md"
+assert_rejects "malformed registry row is loud at the escrow, not silently non-blocking (F-87a)" \
+  "$FIX87" "cannot fully parse" gate-7 --run 260922-esc-r1
+# ---- ADV-R11-03 (R11b): a status table INSIDE a fence is still an obligation
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$FIX87/docs/GAPS.md"
+cat > "$FIX87/runs/260922-esc-r1/reports/U1-verify.md" << 'R'
+Quoted from the plan:
+
+```markdown
+| id | Status | note |
+|---|---|---|
+| REQ-HIDDEN-THING | DEFERRED | tucked into a fence |
+```
+R
+assert_rejects "a DEFERRED row inside a fence is still escrow-demanded (ADV-R11-03)" "$FIX87" \
+  "defers REQ-HIDDEN-THING" gate-7 --run 260922-esc-r1
+# ---- DEV-R11-09 (R11b): a CITED stale stub is retained, an uncited one listed
+FIXQ="$(setup_fixture_repo)"
+mkdir -p "$FIXQ/runs/quick/260701-cited" "$FIXQ/runs/quick/260701-orphan" "$FIXQ/runs/260922-q-r1"
+printf '## what\nx\n## result\n\n' > "$FIXQ/runs/quick/260701-cited/NOTE.md"
+printf '## what\nx\n## result\n\n' > "$FIXQ/runs/quick/260701-orphan/NOTE.md"
+touch -d '60 days ago' "$FIXQ/runs/quick/260701-cited/NOTE.md" "$FIXQ/runs/quick/260701-orphan/NOTE.md"
+printf '# RUN-REPORT\n' > "$FIXQ/runs/260922-q-r1/RUN-REPORT.md"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-80 | x | PO | advisory | s | d | ev:file{runs/quick/260701-cited/NOTE.md} |\n' > "$FIXQ/docs/GAPS.md"
+assert_rejects "an UNCITED stale stub is still listed for deletion (DEV-R11-09 control)" "$FIXQ" \
+  "260701-orphan" gate-7 --run 260922-q-r1
+assert_output "a CITED stale stub is retained and says who cites it (DEV-R11-09)" "$FIXQ" \
+  "260701-cited/NOTE.md is empty and 60 days old but CITED by docs/GAPS.md:3" gate-7 --run 260922-q-r1
 finish

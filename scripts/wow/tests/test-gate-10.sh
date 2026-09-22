@@ -104,4 +104,33 @@ rec <<'D'
 D
 assert_rejects "unclassified row in the real table still fails (F-56 control)" "$FIX" \
   "unclassified" gate-10 --run 260813-x-r1 --gate G2
+# ---- platform/F-73 (v0.7.4): a workflow with no Deferred status names its
+# equivalent in wow.config.json; the §10 table resolves without relabeling.
+rec <<'D'
+| Item | Git | Jira | Classification |
+|---|---|---|---|
+| REQ-003 | DEFERRED | Intake | real-gap |
+D
+OUT73="$( cd "$FIX" && ./scripts/wow/gates.sh gate-10 --run 260813-x-r1 --gate G2 2>&1 )"
+if printf '%s' "$OUT73" | grep -q "IS expected-consistent"; then
+  echo "  FAIL DEFERRED/Intake read as consistent with NO convention set (F-73 control)"; FAIL=$((FAIL+1))
+else
+  echo "  ok   DEFERRED/Intake is a divergence while unconfigured (F-73 control)"; PASS=$((PASS+1))
+fi
+python3 - "$FIX/scripts/wow/wow.config.json" <<'PY'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p))
+c.setdefault("jira", {})["status_conventions"] = {"deferred_equivalent": "Intake"}
+open(p, "w").write(json.dumps(c) + "\n")
+PY
+assert_output "deferred_equivalent makes DEFERRED/Intake expected-consistent (platform/F-73)" "$FIX" \
+  "IS expected-consistent" gate-10 --run 260813-x-r1 --gate G2
+# ---- DEV-R11-07 (R11b): an expected-consistent row needs NO classification
+rec <<'D'
+| Item | Git | Jira | Classification |
+|---|---|---|---|
+| REQ-003 | DEFERRED | Intake | |
+D
+assert_accepts "expected-consistent pair left unclassified is not a divergence (DEV-R11-07)" "$FIX" \
+  gate-10 --run 260813-x-r1 --gate G2
 finish

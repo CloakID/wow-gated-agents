@@ -52,7 +52,17 @@ command -v python3 >/dev/null 2>&1 || {
 # the others); a private copy here would be one more place to drift.
 FORMATS="$SOURCE/scripts/wow/formats.json"
 [ -f "$FORMATS" ] || { echo "no formats.json at $FORMATS — is --source a WoW package?" >&2; exit 2; }
-eval "$(python3 - "$FORMATS" <<'MANIFEST_PY'
+
+# prodsim/F-78 + F-81 (v0.7.4): macOS's stock /bin/bash is 3.2 forever, and
+# 3.2 cannot parse a heredoc opened INSIDE command substitution — the parser
+# desynchronised on an apostrophe in a Python comment and blamed an innocent
+# line 225 lines away. INSTALL.md promises 3.2, so the promise is honored:
+# every python-in-$() block is written to a temp file first (a plain heredoc,
+# which 3.2 parses fine) and executed by path. A comment's punctuation is no
+# longer load-bearing.
+PYTMP="$(mktemp)"
+trap 'rm -f "$PYTMP"' EXIT
+cat > "$PYTMP" <<'MANIFEST_PY'
 import json, shlex, sys
 D = json.load(open(sys.argv[1]))
 I = D["install"]
@@ -70,6 +80,13 @@ print("CONFIG_FILE=%s"    % shlex.quote(I["config_file"]))
 print("HOOK_NAMES=(%s)"   % q(I["hooks"]))
 print("HOOK_MARKER=%s"    % shlex.quote(I["hook_marker"]))
 print("HOOK_KEEP=%s"      % shlex.quote(I["preserved_hook_suffix"]))
+# DEV-R11-02 (v0.7.4): the hook BODY has one home — install.hook_template —
+# rendered here for install.sh and by `gates.sh hooks --install` for self-heal.
+for hname in I["hooks"]:
+    body = I["hook_template"].replace("{marker}", I["hook_marker"]) \
+        .replace("{keep}", I["preserved_hook_suffix"]) \
+        .replace("{gate_lines}", "\n".join(I["hook_gate_lines"][hname]))
+    print("HOOK_BODY_%s=%s" % (hname.replace("-", "_"), shlex.quote(body)))
 c = I["claude_md"]
 print("CLAUDE_FILE=%s"    % shlex.quote(c["file"]))
 print("START=%s"          % shlex.quote(c["start_marker"]))
@@ -81,7 +98,7 @@ print("COMMAND_STUBS=(%s)" % q("%s:%s" % kv for kv in I["command_stubs"].items()
 print("REQ_TOOLS=(%s)"    % q("%s:%s" % kv for kv in I["prerequisites"]["required"].items()))
 print("OPT_TOOLS=(%s)"    % q("%s:%s" % kv for kv in I["prerequisites"]["optional"].items()))
 MANIFEST_PY
-)" || true
+eval "$(python3 "$PYTMP" "$FORMATS")" || true
 [ -n "${ENGINE_FILES+set}" ] || { echo "could not read the install manifest from formats.json" >&2; exit 2; }
 
 DRIFT=0
@@ -94,10 +111,10 @@ need() { # need <command> <why>
   command -v "$1" >/dev/null 2>&1 && return 0
   echo "  MISSING prerequisite: $1 — $2" >&2; missing_prereq=1
 }
-for spec in "${REQ_TOOLS[@]}"; do
+for spec in ${REQ_TOOLS[@]+"${REQ_TOOLS[@]}"}; do
   need "${spec%%:*}" "required by the package (minimum version ${spec##*:})"
 done
-for spec in "${OPT_TOOLS[@]}"; do
+for spec in ${OPT_TOOLS[@]+"${OPT_TOOLS[@]}"}; do
   t="${spec%%:*}"
   command -v "$t" >/dev/null 2>&1 || \
     echo "  note: optional tool $t (${spec##*:}+) not found — status.mjs will not run; gates are unaffected." >&2
@@ -114,7 +131,7 @@ esac
 # package blocks its own distribution while it would do harm. Rows carry
 # scope: (repo names or *); an unrecognized effect already failed gate-12's
 # validation — here we only honor the closed enum.
-BLOCKED_ROW="$(python3 - "$SOURCE" "$(basename "$TARGET")" <<'PY'
+cat > "$PYTMP" <<'PY'
 import json, os, re, sys
 src, target = sys.argv[1], sys.argv[2]
 try:
@@ -162,7 +179,7 @@ except Exception as e:
     # allowed to fire — "never silently non-blocking" (pilot N3). Fail CLOSED.
     print("CONSULT-ERROR %s" % e)
 PY
-)"
+BLOCKED_ROW="$(python3 "$PYTMP" "$SOURCE" "$(basename "$TARGET")")"
 if [ -n "$BLOCKED_ROW" ]; then
   case "$BLOCKED_ROW" in
     CONSULT-ERROR*)
@@ -199,7 +216,7 @@ for ef in "${ENGINE_FILES[@]}"; do
   # the package repo installing onto itself sources some files from their target path
   [ -e "$SOURCE/$src_rel" ] || [ -e "$SOURCE/$ef" ] || MISSING_SRC="$MISSING_SRC $ef"
 done
-for sf in "${SEED_FILES[@]}"; do
+for sf in ${SEED_FILES[@]+"${SEED_FILES[@]}"}; do
   [ -e "$SOURCE/$sf" ] || MISSING_SRC="$MISSING_SRC $sf"
 done
 # verifier F1: the refusal must happen BEFORE we write a single file — the old
@@ -277,7 +294,7 @@ done
 # owned by the repo. permissions-policy.json describes which commands THIS
 # repo's verify steps may run; treating it as an engine file meant --check
 # reported the repo's own policy as DRIFTED and the next upgrade overwrote it.
-for sf in "${SEED_FILES[@]}"; do
+for sf in ${SEED_FILES[@]+"${SEED_FILES[@]}"}; do
   if [ ! -e "$TARGET/$sf" ]; then
     if [ "$CHECK" -eq 1 ]; then drift "MISSING  $sf"
     else
@@ -303,19 +320,22 @@ if [ ! -e "$TARGET/$CONFIG_FILE" ]; then
   "wow_version": "$WOW_VERSION",
   "repo": "$(basename "$TARGET")",
   "migrated_from_gsd": false,
-  "jira": { "project_key": "<TBD>", "cloud_id": "<TBD>",
-            "mapping": { "spec": "Epic", "unit": "Story", "task": "Task", "defect": "Bug" } },
+  "jira": {
+    "project_key": "<TBD>",
+    "cloud_id": "<TBD>",
+    "mapping": { "spec": "Epic", "unit": "Story", "task": "Task", "defect": "Bug" }
+  },
   "\$mapping_note": "check YOUR Jira hierarchy before trusting 'task': standard projects usually want 'Subtask' — a premium multi-level hierarchy wants 'Task' (prodsim/F-61)",
   "merge_to_main": "pr",
   "archive": { "mode": "move", "path": "runs/archive/" },
   "hardening": { "pretooluse_lane_guard": false, "sessionstart_router_injection": false },
-  "\$optional_keys": "requirement_id, probe_command_pattern, main_branch, run_base, jira.scope, legacy_freeze_exclude — each defaults sanely when absent; scripts/wow/GATES-SPEC.md §Config keys says what each does (DEV-R9-08)"
+  "\$optional_keys": "requirement_id, probe_command_pattern, main_branch, run_base, jira.scope, jira.status_conventions, legacy_freeze_exclude, status_extensions — each defaults sanely when absent; scripts/wow/GATES-SPEC.md §Config keys says what each does (DEV-R9-08)"
 }
 CFG
     say "wrote    $CONFIG_FILE (template — set the Jira project key)"
   fi
 else
-  STAMPED="$(python3 - "$TARGET/$CONFIG_FILE" "$WOW_VERSION" "$CHECK" <<'PY'
+  cat > "$PYTMP" <<'PY'
 import io, re, sys
 p, v, check = sys.argv[1:4]
 s = io.open(p, encoding="utf-8").read()
@@ -328,7 +348,7 @@ print(m.group(1))
 if check != "1":
     io.open(p, "w", encoding="utf-8").write(s[:m.start(1)] + v + s[m.end(1):])
 PY
-)"
+  STAMPED="$(python3 "$PYTMP" "$TARGET/$CONFIG_FILE" "$WOW_VERSION" "$CHECK")"
   case "$STAMPED" in
     current) say "ok       $CONFIG_FILE (existing, not overwritten; wow_version current)" ;;
     no-key)  say "ok       $CONFIG_FILE (existing, not overwritten; carries no wow_version key)" ;;
@@ -380,8 +400,17 @@ if [ -f "$SECTION_SRC" ] && [ -n "$SECTION" ]; then
   # ADV-R10-10: an editor converting CLAUDE.md to CRLF is zero semantic change,
   # not local edits — normalize before stamping/comparing.
   strip_stamp() { tr -d '\r' | grep -v "^$STAMP_PREFIX"; }
-  SEC_HASH="$(printf '%s\n' "$SECTION" | hash_of)"
-  SECTION_STAMPED="$(printf '%s\n' "$SECTION" | sed "\$i\\
+  # prodsim/F-83 + DEV-R11-01: a FORMATTER's output is not a local edit —
+  # emphasis markers (either spelling), trailing whitespace and BLANK LINES
+  # (prettier puts one after the opening marker and one before the stamp) are
+  # formatting; the stamp hashes the NORMALIZED section so a formatted section
+  # still matches its own stamp, and substance is what the guard refuses.
+  normalize() { tr -d '*_' | sed -e 's/[[:space:]]*$//' -e '/^$/d'; }
+  SEC_HASH="$(printf '%s\n' "$SECTION" | normalize | hash_of)"
+  # written prettier-conformant: blank after the opening marker, blank before the stamp
+  SECTION_STAMPED="$(printf '%s\n' "$SECTION" | sed -e "1a\\
+" -e "\$i\\
+\\
 $STAMP_PREFIX $SEC_HASH -->")"
   cur_section() { awk "/$START/,/$END/" "$DST" 2>/dev/null | tr -d '\r'; }
   section_guard() { # returns 0 = safe to write, 1 = refuse
@@ -391,15 +420,16 @@ $STAMP_PREFIX $SEC_HASH -->")"
     [ -n "$cur" ] || return 0
     cur_body="$(printf '%s\n' "$cur" | strip_stamp)"
     cur_stamp="$(printf '%s\n' "$cur" | sed -n "s|^$STAMP_PREFIX \([0-9a-f]*\) -->\$|\1|p")"
-    cur_hash="$(printf '%s\n' "$cur_body" | hash_of)"
+    cur_hash="$(printf '%s\n' "$cur_body" | normalize | hash_of)"
     if [ -n "$cur_stamp" ] && [ "$cur_stamp" = "$cur_hash" ]; then return 0; fi
-    # unstamped or edited: identical-to-incoming is a safe no-op re-stamp
-    if [ "$cur_body" = "$SECTION" ]; then return 0; fi
+    # unstamped (pre-R9 install) or a pre-R11b stamp (hashed raw): identical to
+    # the incoming section after normalization is a safe no-op re-stamp
+    if [ "$(printf '%s\n' "$cur_body" | normalize | hash_of)" \
+       = "$(printf '%s\n' "$SECTION" | normalize | hash_of)" ]; then return 0; fi
     return 1
   }
   if [ "$CHECK" -eq 1 ]; then
-    if [ ! -f "$DST" ] || ! cur_section | strip_stamp \
-         | diff -q - <(printf '%s\n' "$SECTION") >/dev/null 2>&1; then
+    if [ ! -f "$DST" ] || [ "$(cur_section | strip_stamp | normalize | hash_of)" != "$(printf '%s\n' "$SECTION" | normalize | hash_of)" ]; then
       drift "DRIFTED  $CLAUDE_FILE wow-v2 section"
       # platform/F-66 (v0.7.3): 'DRIFTED' alone cannot be told apart from a
       # routine version difference. Show the first differing lines so the
@@ -467,7 +497,7 @@ mkcmd() {
 for pair in "${COMMAND_STUBS[@]}"; do
   n="${pair%%:*}"; d="${pair##*:}"
   mkcmd "$n" "Read \`docs/process/$d.md\` in full and follow it for \$ARGUMENTS.
-Load only the files its Load line names.
+Load only the files it names (its Load line where it has one).
 Do not proceed from memory.
 "
 done
@@ -488,31 +518,9 @@ else
   HOOKS="$COMMON/hooks"; HOOKS_WHY="common git dir (inherited by every worktree)"
 fi
 
-hook_body() { # hook_body <name>
-  local name="$1" gate_lines=""
-  case "$name" in
-    commit-msg) gate_lines='exec_gate gate-1 --quiet "$1"' ;;
-    pre-commit) gate_lines='exec_gate gate-5  --quiet --staged
-exec_gate gate-11 --quiet --staged
-exec_gate gate-14 --quiet --staged' ;;
-  esac
-  cat <<HOOK
-#!/usr/bin/env bash
-# $HOOK_MARKER — installed by the WoW v2 package installer (install.sh).
-# GATE-1 runs in commit-msg, not pre-commit: the message does not exist yet at
-# pre-commit. GATE-5, GATE-11 and GATE-14 run here, on the staged set.
-set -u
-root="\$(git rev-parse --show-toplevel)"
-prev="\$0$HOOK_KEEP"
-[ -x "\$prev" ] && { "\$prev" "\$@" || exit \$?; }
-if [ ! -x "\$root/scripts/wow/gates.sh" ]; then
-  echo "wow-v2: scripts/wow/gates.sh missing or not executable — gates NOT enforced for this commit" >&2
-  exit 0
-fi
-exec_gate() { "\$root/scripts/wow/gates.sh" "\$@" || exit 1; }
-$gate_lines
-exit 0
-HOOK
+hook_body() { # hook_body <name> — rendered from formats.json install.hook_template (one home)
+  local var="HOOK_BODY_${1//-/_}"
+  printf '%s' "${!var}"
 }
 
 write_hook() {
@@ -531,9 +539,23 @@ write_hook() {
   else
     mkdir -p "$HOOKS"
     # Preserve a project's own hook and chain to it, rather than destroying it.
-    if [ -f "$dst" ] && ! grep -q "$HOOK_MARKER" "$dst" && [ ! -f "$dst$HOOK_KEEP" ]; then
-      mv "$dst" "$dst$HOOK_KEEP"; chmod +x "$dst$HOOK_KEEP"
-      say "kept     hook $name -> $name$HOOK_KEEP (chained, runs first)"
+    if [ -f "$dst" ] && ! grep -q "$HOOK_MARKER" "$dst"; then
+      if [ ! -f "$dst$HOOK_KEEP" ]; then
+        mv "$dst" "$dst$HOOK_KEEP"; chmod +x "$dst$HOOK_KEEP"
+        say "kept     hook $name -> $name$HOOK_KEEP (chained, runs first)"
+      elif cmp -s "$dst" "$dst$HOOK_KEEP"; then
+        : # the same foreign hook re-clobbered ours; the chained copy is already it
+      else
+        # DEV-R11-03 (v0.7.4): a SECOND, different foreign hook (husky re-installs
+        # on every npm install) used to be silently overwritten — "chains, never
+        # destroys" was false on the second clobber. Rotate the old chained copy
+        # aside and chain the new one; nothing is destroyed, and the rotated
+        # copies do not run (the message says so).
+        n=1; while [ -f "$dst$HOOK_KEEP.$n" ]; do n=$((n+1)); done
+        mv "$dst$HOOK_KEEP" "$dst$HOOK_KEEP.$n"
+        mv "$dst" "$dst$HOOK_KEEP"; chmod +x "$dst$HOOK_KEEP"
+        say "kept     hook $name -> $name$HOOK_KEEP (chained, runs first); previous chained hook rotated to $name$HOOK_KEEP.$n (kept, NOT run — merge it into $name$HOOK_KEEP if it still matters)"
+      fi
     fi
     printf '%s\n' "$body" > "$dst"; chmod +x "$dst"
     say "wrote    hook $name ($HOOKS_WHY)"

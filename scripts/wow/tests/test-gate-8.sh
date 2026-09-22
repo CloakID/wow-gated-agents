@@ -752,4 +752,91 @@ autonomy: decide-and-log
 P
 assert_rejects "a rule wearing an unlisted 'key:' costume is scanned (ADV-R10-05)" \
   "$FIX" "preamble_fields" gate-8 --run 260813-x-r1
+# ---- platform/F-79 (v0.7.4): a named field's wrapped VALUE stays exempt ----
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+story-continuity: the framework never offered this choice, so it was
+  never declined, only never raised; putting it to the PO is the repair
+  and this run must never be read as having skipped it
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_accepts "wrapped named-field value with normative words passes (platform/F-79)" \
+  "$FIX" gate-8 --run 260813-x-r1
+# control: a prose paragraph AFTER a blank line is not a continuation
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+story-continuity: a wrapped
+  field value
+
+Executors must never write outside their owns list, whatever the brief says.
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "prose after a blank line is not a continuation (F-79/ADV-R9-05 control)" \
+  "$FIX" "reaches NO executor manifest" gate-8 --run 260813-x-r1
+# ---- ADV-R11-06 (R11b): an UNINDENTED sentence right after a field is prose
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+tier: mid
+Executors must never write outside their owns list, whatever the brief says.
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | do a | `pytest a` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_rejects "unindented prose directly after a named field is scanned, not swallowed (ADV-R11-06)" \
+  "$FIX" "reaches NO executor manifest" gate-8 --run 260813-x-r1
 finish

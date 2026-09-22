@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.3
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.4
 
 ## Prerequisites
 
@@ -6,7 +6,7 @@ Checked by `install.sh` before it writes anything; a missing required tool abort
 
 | Tool | Version | Used by | Missing ⇒ |
 |---|---|---|---|
-| **bash** | 3.2+ | `install.sh`, `gates.sh`, `scripts/wow/tests/*` | install aborts (macOS's 3.2 is enough — nothing uses bash-4 syntax) |
+| **bash** | 3.2+ | `install.sh`, `gates.sh`, `scripts/wow/tests/*` | install aborts (macOS's stock 3.2 is enough — nothing uses bash-4 syntax, and since v0.7.4 no heredoc is opened inside `$( )`, the one construct 3.2 cannot parse; the wiring suite has a structural tripwire for it — prodsim/F-78/F-81) |
 | **git** | 2.5+ | hooks, `git worktree`, `rev-parse --git-common-dir`, GATE-2/5/6's modified-file and freshness rules | install aborts; below 2.5 you lose worktree hook inheritance |
 | **python3** | 3.6+ | `gates.py` (the engine behind `gates.sh`), and the in-place CLAUDE.md section rewrite | install aborts — **no gates at all** |
 | **node** | 18+ | `status.mjs` | *optional.* Derived status is unavailable; enforcement is unaffected, and `install.sh` only prints a note |
@@ -66,6 +66,28 @@ scripts/wow/gates.sh sweep --p5 --run <id>       # P5: the sweep plus GATE-7
 ## Coexistence with GSD (per-repo adoption, no forced migration)
 
 Everything install.sh writes is **repo-scoped** (CLAUDE.md markers, docs/process/, scripts/wow/, commands, hooks). Repos not yet migrated keep GSD untouched — the frameworks never interact across repo boundaries; each repo migrates at its own deliberate moment. The one cross-contamination path is the **reverse** direction: GSD's engine is installed at operator level (`~/.claude/`), so `/gsd:*` commands remain invocable inside WoW repos. Closures: (a) the migrated repo's CLAUDE.md router deprecates GSD entry points for that repo; (b) **GATE-11** rejects any commit touching the frozen `.planning/` in repos flagged `migrated_from_gsd`; (c) keep user-level `~/.claude/CLAUDE.md` framework-neutral ("follow the repo's CLAUDE.md way-of-working") so the repo decides, not the operator config.
+
+## Upgrading (per repo, between runs)
+
+`bash <package-clone>/install.sh <repo>` — idempotent; `--check` first shows every drift. What an upgrade may change under you, and how you find out:
+
+- **`formats.json` is an API** (v0.7.4, platform/F-76): consumer checks match `ids_expanded.*` (fully expanded regexes), never `ids.*` raw — those are templates and match nothing. `schema_version` is bumped whenever a key is removed or changes type; assert the value your checks were written against and fail loudly on mismatch. `$removed` names every deleted key and its successor. Read those two keys before trusting a green check after an upgrade — one consumer check reported PASS for a release while grading nothing.
+- **Your facts in `status.mjs` live outside it** (prodsim/F-84): `status.mjs` is an engine file and is overwritten; a repo-owned `scripts/status-extras.mjs` (or the modules `wow.config.json` `status_extensions` names) exporting `{ section, lines }` is rendered every run and survives every upgrade.
+- **Your CLAUDE.md section is guarded** (DEV-R9-01, prodsim/F-83): a section carrying repo-local edits is refused with the would-be-lost lines shown; your formatter's output (emphasis spelling, trailing whitespace) is not an edit and does not trip it; `--force-section` discards deliberately.
+- **`wow_version` is re-stamped**; every other config key is yours. Optional keys are listed in the seeded file and in `scripts/wow/GATES-SPEC.md` §Config keys.
+- **Every sweep asserts your hooks — in every clone** (prodsim/F-77, DEV-R11-02): `.git/hooks` is untracked, so a fresh clone or CI checkout starts with NO enforcement layer and parity says so (ABSENT); a hook an old checkout's lifecycle script clobbered is FOREIGN. The self-heal is in the repo: `scripts/wow/gates.sh hooks --install` (chains a foreign hook, rotates an older chained copy aside, destroys nothing; no package clone needed). A checkout that never commits (CI) may set `enforcement_layer_check: "advisory"` in `wow.config.json`.
+
+**What goes red on an existing v0.7.3 repo after this upgrade, and the one-line remedy** (DEV-R11-13):
+
+| You will see | Why | Do |
+|---|---|---|
+| `PARITY: enforcement layer: hook … ABSENT/FOREIGN` on the first sweep in a clone | hooks are per-clone and untracked | `scripts/wow/gates.sh hooks --install` |
+| `GATE-1: bare [T:<run-id>] is a PHASE-artifact trailer and N staged file(s) are outside…` on your first commit | the bare trailer now looks at the staged set (platform/F-72) | commit task output under `[T:<run-id>.T<nn>]`; add repo-specific phase homes to `run_staged_scope_extra` |
+| `GATE-2 --close: … no walk artifact runs/<id>/walk-G4.md` at the next G4 | P4 step 2 now has an artifact (prodsim/F-86) | write the walk: one row per failed/blocked/parked/defect item, first cell = the item id |
+| `GATE-9: … AM-<nn> count did not grow across the latest modification` on a signed spec you edited after its first amendment | the drift check is per-modification now (platform/F-71) | add an `AM-<nn>` block for that change |
+| `status.mjs: NO decision surface: N open record(s)` | the debug lane's PO page is a formats entry (prodsim/F-80) | write `runs/debug/classification-request.md` per LANES |
+| `GATE-7 --p5: … a registry row's proof has been deleted` | GC once deleted cited files (platform/F-80) | restore from history, or repoint the citation if the file MOVED (`git log --follow`) |
+| `install.sh: REFUSED CLAUDE.md wow-v2 section` | the section carries a real repo-local edit | move it below the closing marker; formatter output alone no longer trips this |
 
 ## Migration (per repo, at pilot start)
 

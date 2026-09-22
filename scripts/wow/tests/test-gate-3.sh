@@ -262,4 +262,28 @@ R
 assert_accepts "~~~-fenced and indented dangling-sha quotes do not block (ADV-R10-07)" "$FIX" \
   gate-3 --paths runs/260916-x-r1/reports/quoted2.md
 rm -f "$FIX/runs/260916-x-r1/reports/quoted2.md"
+# ---- platform/F-75 (v0.7.4): an EMPTY code span must not shift the mask ----
+# `+` vs `*` in the doc-wide mask paired every later span one position out:
+# GATE-3 reported findings on CORRECT lines and masked genuinely bad ones.
+GOODSHA3="$( cd "$FIX" && git rev-parse --short=7 HEAD )"
+cat > "$FIX/docs/r-emptyspan.md" << R
+An empty span \`\` sits here; below, a backticked template is a MENTION:
+the shape is \`ev:cmd{cmd => result @ISO}\` and stays unscanned.
+| T20 | COMPLETED | ev:commit{$GOODSHA3} |
+R
+assert_accepts "empty code span does not un-mask the rest of the document (platform/F-75)" \
+  "$FIX" gate-3 --paths docs/r-emptyspan.md
+# control: a genuinely malformed BARE citation after the empty span still fails
+printf 'empty \`\` span\n| T21 | COMPLETED | ev:cmd{i ran it, fine} |\n' > "$FIX/docs/r-emptyspan2.md"
+assert_rejects "bare malformed citation after an empty span still fails (F-75 control)" \
+  "$FIX" "malformed" gate-3 --paths docs/r-emptyspan2.md
+# the two masks are two implementations of ONE rule — assert the patterns agree
+if python3 - "$PKG_DIR/scripts/wow/gates.py" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+pats = re.findall(r're\.sub\(r"(\`\[\^\`\][*+]\`)"', src)
+raise SystemExit(0 if pats and all(p == pats[0] for p in pats) and '*' in pats[0] else 1)
+PY
+then echo "  ok   per-line and doc-wide masks share one pattern (F-75 parity)"; PASS=$((PASS+1))
+else echo "  FAIL the two mask implementations drifted apart again (F-75)"; FAIL=$((FAIL+1)); fi
 finish

@@ -30,6 +30,27 @@ assert_rejects "close form: rows exist but none updated in the run" "$FIX" "neve
 printf '| REQ | R | S |\n|---|---|---|\n| REQ-001 | a | COMPLETED ev:commit{abc1234} |\n| REQ-999 | b | COMPLETED ev:commit{abc1234} |\n' \
   > "$FIX/docs/REQUIREMENTS.md"
 assert_accepts "close form: rows updated in the run" "$FIX" gate-2 --close --run 260813-x-r1
+
+# ---- prodsim/F-86 (v0.7.4, R11b: the CLOSE form owns it — ADV-R11-04): G4
+# close requires the walk artifact, one row per RUN-REPORT item, first cell = id.
+printf '# RUN-REPORT\n\n| id | status | ref |\n|---|---|---|\n| 260813-x-r1.T02 | BLOCKED | PARK-U1-01 |\n| 260813-x-r1.T03 | FAILED | VF-U1-02 |\n| 260813-x-r1.T030 | FAILED | VF-U1-03 |\n\nDEF-plan-01 overlap found.\n' \
+  > "$FIX/runs/260813-x-r1/RUN-REPORT.md"
+assert_rejects "close with items and NO walk artifact is refused (prodsim/F-86)" "$FIX" \
+  "no walk artifact" gate-2 --close --run 260813-x-r1
+printf '| item | class | disposition |\n|---|---|---|\n| 260813-x-r1.T02 | parked | fold into r2 |\n| DEF-plan-01 | defect | amend AM-02 |\n| 260813-x-r1.T030 | failed | reconciled |\n' \
+  > "$FIX/runs/260813-x-r1/walk-G4.md"
+assert_rejects "walk missing T03 is refused — T030 does not satisfy T03 (F-86, ADV-R11-09)" "$FIX" \
+  "absent from" gate-2 --close --run 260813-x-r1
+printf '| 260813-x-r1.T03 | failed | VF-U1-02 reconciled into v2 |\n' >> "$FIX/runs/260813-x-r1/walk-G4.md"
+assert_accepts "every item classified in the walk: close proceeds (F-86 control)" "$FIX" \
+  gate-2 --close --run 260813-x-r1
+assert_output "the PASS states the walk subject (DEV-R11-12)" "$FIX" "walk: 4/4" \
+  gate-2 --close --run 260813-x-r1
+# the sweep form does not demand a walk (P4 step 1 runs before step 2 writes it)
+rm -f "$FIX/runs/260813-x-r1/walk-G4.md"
+assert_accepts "sweep form never demands a walk artifact (ADV-R11-04 ordering)" "$FIX" \
+  gate-2 --run 260813-x-r1
+rm -f "$FIX/runs/260813-x-r1/RUN-REPORT.md"
 # ---- G-11 (OBL-PKG-07): scope is the GOVERNING spec/plan, never widened -----
 # Pre-fix, gate_2 walked every .md under runs/<id>/ and followed spec references
 # out to other specs — a HANDOFF pointer to an unsigned draft pulled that
