@@ -1,8 +1,8 @@
-# P5 — PUBLISH — DRAFT v0.7.5.1
+# P5 — PUBLISH — DRAFT v0.7.5
 Entry: `/wow-publish <run-id>` · Mechanical; low tier · Output: clean durable docs, closed tracker, archived run.
 
 ## [ORCH]
-The mechanics of steps 3, 4 and 6 — the archive re-point, the GC candidate list, a red sweep's failure list — are delegated to a publisher AGENT (manifest: the archive config, the run id, `docs/GAPS.md` and `docs/spec/*` for the citation grep, the sweep log path; hand-back in `orch/publish-<n>.md`) and consumed through its hand-back (v0.7.5.1, FORMATS §14; R13b, DEV-R13-16); the ORCH merges, deletes the run's branches, runs the sweep as `sweep --summary --p5 --run <run-id>`, commits and takes the PO's confirmations.
+The mechanics of steps 3, 4 and 6 — the archive re-point, the GC candidate list, a red sweep's failure list — are delegated to a publisher AGENT (manifest: the archive config, the run id, `docs/GAPS.md` and `docs/spec/*` for the citation grep, the sweep log path; hand-back in `orch/publish-<n>.md`) and consumed through its hand-back (v0.7.5, FORMATS §14; R13b, DEV-R13-16); the ORCH merges, deletes the run's branches, runs the sweep as `sweep --summary --p5 --run <run-id>`, commits and takes the PO's confirmations.
 
 0. **Merge to `main` — this step owns it** (v0.6.2, F-11: previously the merge belonged to no phase; a run could pass G4, archive itself, and never be on `main`). Merge `main` into the run branch, resolve, then open the PR or fast-forward per `merge_to_main` in wow.config.json. Before step 3 because archiving a run that never reached `main` is worse; before step 5 because step 5 is destructive (below).
 1. Durable docs: final SPEC version confirmed in `docs/spec/`; extract accepted decisions into `docs/adr/` (immutable, numbered); update `docs/codebase/` front-matter for touched areas; confirm GAPS current and the archived run's RUN-REPORT + `reports/` intact (the traceability home — F-11).

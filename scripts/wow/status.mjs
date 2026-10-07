@@ -119,7 +119,7 @@ function blankIndentedCode(t) {
   return out.join('\n');
 }
 
-// v0.7.5.1 R13b: the `## resume` section and its `clears:` line, located on
+// v0.7.5 R13b: the `## resume` section and its `clears:` line, located on
 // fence-stripped text; the resume text is the first line that is not the
 // clears line; the LAST clears line wins (HANDOFF is overwritten, and an
 // appended resume is the likely shape).
@@ -138,7 +138,7 @@ function resumeOf(handoff) {
   return { text: text === null ? '(empty)' : text, clears };
 }
 
-// v0.7.5.1 R13b (ADV-R13-11): a report "opens with ## hand-back" by the same
+// v0.7.5 R13b (ADV-R13-11): a report "opens with ## hand-back" by the same
 // predicate GATE-15 grades — heading on fence-stripped text within the first
 // lines, every required field present — not by the heading occurring anywhere.
 // Delegate reports (FORMATS §14, `handback.delegate_roles`) are counted too.
@@ -378,7 +378,7 @@ function runs() {
       hasPlan: existsSync(rp(fill(F.plan_schema.file, { run_id: d }))),
       // platform/F-97 fix 3 (v0.7.5): review rounds live in a field the deriver reads
       reviews: (read(rp(fill(F.plan_schema.file, { run_id: d }))).match(/^reviews:\s*(\S+)/m) || [])[1] || null,
-      // v0.7.5.1: the resume point a fresh ORCH restarts from, and the clears
+      // v0.7.5: the resume point a fresh ORCH restarts from, and the clears
       // count — read INSIDE the `## resume` section of the fence-stripped
       // HANDOFF, last `clears:` wins (R13b, ADV-R13-05/06, DEV-R13-09: a
       // fenced template beat the real section; a `clears:` under
@@ -568,7 +568,7 @@ function auditTriggers(rs) {
       else { value = null; note = 'not derived — no ACTIVE run; archived runs are not re-derived (F-36, platform/F-88)'; }
     }
     if (k === 'AT-6' && !(k in reported)) {
-      // v0.7.5.1 (PO trait, router-not-reader): the ORCH's context clears this
+      // v0.7.5 (PO trait, router-not-reader): the ORCH's context clears this
       // run — a SELF-REPORT (ADV-R13-09, DEV-R13-11): the RUN-REPORT row once
       // recorded at P4 (the orch branch above), else HANDOFF `## resume`
       // `clears: <n>` (inside the section, last wins — R13b); an archived run
@@ -577,7 +577,7 @@ function auditTriggers(rs) {
         const r = scopeRun[scopeRun.length - 1];
         const c = resumeOf(read(rp(fill(F.runs_layout.handoff, { run_id: r.id })))).clears;
         if (c !== null) { value = c; note = 'read from HANDOFF ## resume `clears:` — the ORCH\'s own count of forced restarts inside a phase (self-reported; a phase entry in a new session is not a clear)'; }
-        else { value = null; note = 'HANDOFF `## resume` carries no `clears: <n>` line — the ORCH writes it before every delegation batch (FORMATS §8, v0.7.5.1); unrecorded is not zero, and GATE-7 refuses a publish without the row'; }
+        else { value = null; note = 'HANDOFF `## resume` carries no `clears: <n>` line — the ORCH writes it before every delegation batch (FORMATS §8, v0.7.5); unrecorded is not zero, and GATE-7 refuses a publish without the row'; }
       } else if (k in archivedReported) { value = archivedReported[k]; note = 'read back from the ARCHIVED run\'s RUN-REPORT §audit triggers'; }
       else { value = null; note = 'no ACTIVE run'; }
     }
@@ -749,7 +749,7 @@ for (const rr of data.runs) {
   out.push(`    position: ${rr.position}`);
   if (rr.reviews !== null) out.push(`    reviews: ${rr.reviews} G2a round(s) recorded in PLAN.md (platform/F-97)`);
   out.push(rr.resume !== null ? `    resume: ${rr.resume}  (clears: ${rr.clears === null ? 'UNRECORDED — write clears: <n> under ## resume' : rr.clears})`
-                              : `    resume: NO ## resume section in HANDOFF — a fresh ORCH has nowhere to restart from (FORMATS §8, v0.7.5.1)`);
+                              : `    resume: NO ## resume section in HANDOFF — a fresh ORCH has nowhere to restart from (FORMATS §8, v0.7.5)`);
   if (rr.handbacks.reports) out.push(`    hand-backs: ${rr.handbacks.withHandback}/${rr.handbacks.reports} agent report(s) open with a ## hand-back carrying all four fields (GATE-15 grades the rest)`);
   out.push(`    PLAN=${rr.hasPlan ? 'yes' : 'no'}  RUN-REPORT=${rr.hasReport ? 'yes' : 'no'}  ` +
     `reports=${rr.reports}  open constraints=${rr.constraintsOpen}`);

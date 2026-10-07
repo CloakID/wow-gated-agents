@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.5.1
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.5
 
 ## Prerequisites
 
@@ -114,7 +114,7 @@ Everything install.sh writes is **repo-scoped** (CLAUDE.md markers, docs/process
 | `PARITY: package-owned file(s) modified since install` (advisory) | you edited an engine file in the consumer (platform/F-92) | file it upstream; the next install overwrites it |
 | `status.mjs` AT-3 on an archived run reads a number instead of `0` | read back from the archived RUN-REPORT (platform/F-88) | nothing — it is now the recorded value |
 
-**What goes red on an existing v0.7.5 repo after the v0.7.5.1 upgrade, and the one-line remedy** (the router-not-reader trait, non-negotiable #8):
+**… and from the router trait in the same release** (non-negotiable #8) — a run that was ACTIVE across the upgrade is the only shape these bite on:
 
 | You will see | Why | Do |
 |---|---|---|

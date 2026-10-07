@@ -2192,10 +2192,10 @@ def gate_14(paths=None, staged=False):
 
 
 # --------------------------------------------------------------------------
-# GATE-15 — agent-report hand-back (v0.7.5.1: the ORCH is a router, not a reader)
+# GATE-15 — agent-report hand-back (v0.7.5: the ORCH is a router, not a reader)
 # --------------------------------------------------------------------------
 def _blank_html_comments(t):
-    """ADV-R13-13 (v0.7.5.1 R13b): a `<!-- … -->` block renders as nothing and
+    """ADV-R13-13 (v0.7.5 R13b): a `<!-- … -->` block renders as nothing and
     is a mention channel like a fence; blanked with line structure kept."""
     out, inside = [], False
     for ln in t.split("\n"):
@@ -2290,7 +2290,7 @@ def _handback_position(raw_lines, start):
 
 
 def gate_15(paths=None, run_id=None, p5=False):
-    """v0.7.5.1 (PO trait, router-not-reader): the ORCH consumes an agent's
+    """v0.7.5 (PO trait, router-not-reader): the ORCH consumes an agent's
     report through a BOUNDED hand-back section — verdict, ids, pointers,
     parked — and never reads the body; evidence and pastes live below for the
     verifier. A report without the section, over the bound, missing a field,
@@ -2329,7 +2329,7 @@ def gate_15(paths=None, run_id=None, p5=False):
         if start is None:
             msgs.append("%s has no `## %s` section%s — the ORCH reads an agent report THROUGH its "
                         "hand-back (%s), never the body; open the report with one, ≤%d lines "
-                        "(FORMATS §4, v0.7.5.1 router-not-reader)"
+                        "(FORMATS §4, v0.7.5 router-not-reader)"
                         % (p, hb["heading"],
                            " (line %d `%s` resembles one but does not match `%s`)"
                            % (near + 1, lines[near].strip(), hb["heading_pattern"]) if near is not None else "",
@@ -4172,7 +4172,7 @@ def check_parity():
     for gid in sorted(engine - set(spec_rows.keys())):
         msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
                     "declarations of the gate set disagree" % gid)
-    # ---- v0.7.5.1: a gate whose registry row says "sweep" runs in one. The
+    # ---- v0.7.5: a gate whose registry row says "sweep" runs in one. The
     # sweep lists and the `where` cells are two declarations of the same fact;
     # GATE-15 landed in the registry with "sweep" in its cell, and dropping it
     # from sweep.always was invisible to every test (M203 survived).
@@ -4190,17 +4190,17 @@ def check_parity():
         wants_always = "sweep" in where and not wants_p5
         if wants_p5 and key not in p5only:
             msgs.append("%s says `where: %s` in formats.json and is not in sweep.p5_only — a gate "
-                        "nothing calls is inert (v0.7.5.1, ADV-R13-08)" % (gid, where))
+                        "nothing calls is inert (v0.7.5, ADV-R13-08)" % (gid, where))
         if wants_always and key not in always:
             msgs.append("%s says `where: %s` in formats.json and is not in sweep.always — a gate "
-                        "nothing calls at the wave boundary is inert there (v0.7.5.1, ADV-R13-08)"
+                        "nothing calls at the wave boundary is inert there (v0.7.5, ADV-R13-08)"
                         % (gid, where))
         if "sweep" not in where and key in (always | p5only):
             msgs.append("%s is in a sweep list but its registry row says `where: %s` — the two "
-                        "declarations disagree (v0.7.5.1)" % (gid, where))
+                        "declarations disagree (v0.7.5)" % (gid, where))
     for key in sorted(always | p5only):
         if key.upper() not in engine:
-            msgs.append("sweep list names %s and the registry has no such gate (v0.7.5.1)" % key)
+            msgs.append("sweep list names %s and the registry has no such gate (v0.7.5)" % key)
     # ---- platform/F-83 (v0.7.5): a subject label is a promise the engine keeps
     # Four gates declared a label and never emitted it, for two releases; the
     # registry and the call sites are two files the package owns, so their
@@ -4369,8 +4369,18 @@ def check_parity():
             if fv != top:
                 msgs.append("formats.json version %r != CHANGELOG top entry v%s — the single "
                             "version authority (CHANGELOG preamble)" % (F.get("version"), top))
+            # PO decision 2026-10-07 (v0.7.5 fold): the scheme is x.y.z[-draft]
+            # and nothing checked it — a fourth component (`0.7.5.1`) rode in on a
+            # widened title regex, and the successor arm truncated it to three,
+            # reading two versions as one. Both authorities must match the shape.
+            shape = re.compile(F["parity"]["version_shape"])
+            for label, val in (("CHANGELOG top entry", m.group(1)), ("formats.json version", str(F.get("version", "")))):
+                if not shape.match(val.lstrip("v")):
+                    msgs.append("%s %r is not a supported version shape (%s — x.y.z, optionally "
+                                "-draft; a fourth component is not a release, it is two versions "
+                                "reading as one)" % (label, val, F["parity"]["version_shape"]))
             hdr_re = re.compile(r"DRAFT\s+v([0-9][^\s]*)")
-            title_re = re.compile(r"\bv?([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:-draft)?)\b")
+            title_re = re.compile(r"\bv?(" + F["parity"]["version_shape"].strip("^$") + r")\b")
             globs = [d for d in F["parity"]["versioned_docs"] if "*" in d]
             names = [d for d in F["parity"]["versioned_docs"] if "*" not in d and os.path.isfile(rp(d))]
             for doc in sorted(set(matching_docs(globs) + names)):
@@ -4425,7 +4435,7 @@ def check_parity():
 
 
 def sweep(args):
-    """The sweep. `--summary` (v0.7.5.1 R13b, DEV-R13-02): the ORCH is a
+    """The sweep. `--summary` (v0.7.5 R13b, DEV-R13-02): the ORCH is a
     router, not a reader — a red sweep's failure list is exactly the text it
     must NOT load, and the sweep had no form that withheld it. With --summary
     only the PASS/FAIL line and the subject note of each gate are printed; the

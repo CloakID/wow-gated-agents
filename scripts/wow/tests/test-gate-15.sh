@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GATE-15 negative test (v0.7.5.1, PO trait "the ORCH is a router, not a reader"):
+# GATE-15 negative test (v0.7.5, PO trait "the ORCH is a router, not a reader"):
 # an agent report must open with a bounded `## hand-back` (verdict · ids ·
 # pointers · parked, ≤ max_lines / max_chars, no paste) that the ORCH reads
 # INSTEAD of the body, and the hand-back must be FAITHFUL to the rows beneath

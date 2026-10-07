@@ -30,7 +30,7 @@ setup_fixture_repo() {
 }
 
 # at_table_all — a complete `## audit triggers` section with a NOT-HIT row for
-# every trigger the fixture's formats.json registers (ADV-R13-06, v0.7.5.1: the
+# every trigger the fixture's formats.json registers (ADV-R13-06, v0.7.5: the
 # P5 escrow refuses a RUN-REPORT that records fewer). Reads the registry so a
 # new trigger never leaves the fixtures short.
 at_table_all() {

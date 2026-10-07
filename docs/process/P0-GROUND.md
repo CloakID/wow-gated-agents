@@ -1,8 +1,8 @@
-# P0 — GROUND — DRAFT v0.7.5.1
+# P0 — GROUND — DRAFT v0.7.5
 Entry: `/wow-ground <area|dep>` · Skip: allowed iff maps fresh per FORMATS §6 (codebase, git-checked) and §11 (external deps, probe-checked) — both via GATE-6 · Load: `docs/codebase/<area>.md`, `docs/deps/<name>.md` for declared deps, `wow.config.json`.
 
 ## [ORCH]
-0. Map writing and freshness re-verification are delegated to a mapper AGENT and consumed through its hand-back (v0.7.5.1, FORMATS §14); the ORCH runs the gate below and routes.
+0. Map writing and freshness re-verification are delegated to a mapper AGENT and consumed through its hand-back (v0.7.5, FORMATS §14); the ORCH runs the gate below and routes.
 1. Run the freshness check for the target area(s) and dependencies:
 
    ```sh

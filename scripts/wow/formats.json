@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.5.1-draft",
+  "version": "0.7.5-draft",
   "schema_version": "1",
   "$schema_version_comment": "platform/F-76 (v0.7.4): this file is consumed as an API and was versioned as if internal — a key changed type (regex→template) and another was removed between releases, and two consumer checks broke silently, one reporting PASS while grading nothing. schema_version is bumped whenever a key is REMOVED or CHANGES TYPE; a consumer asserts the value it was written against and fails loudly on upgrade. Additive keys and value changes do not bump it. The $removed block below keeps the removal trace.",
   "$removed": {
@@ -86,7 +86,7 @@
     "gate_log": "runs/.gate-log",
     "gate_log_common": "wow/gate-log",
     "sweep_log_name": "sweep-{scope}-{stamp}.log",
-    "$sweep_log_comment": "v0.7.5.1 R13b (DEV-R13-02): `sweep --summary` writes the full output beside the gate log (same directory, the common git dir) and prints only PASS/FAIL + subject lines; the printed path is the triage delegate's manifest input.",
+    "$sweep_log_comment": "v0.7.5 R13b (DEV-R13-02): `sweep --summary` writes the full output beside the gate log (same directory, the common git dir) and prints only PASS/FAIL + subject lines; the printed path is the triage delegate's manifest input.",
     "$gate_log_comment": "prodsim/F-97 (v0.7.5): gate rejections are logged to <git-common-dir>/wow/gate-log — one file shared by every worktree of the repository, surviving worktree removal (the per-worktree runs/.gate-log was deleted with the worktree at P5, and an audit could not count the audited run's P3/P4 rejections). Each line: <stamp>\t<gate>\t<worktree path>\t<branch>\t<message>. `gate_log` is the retired per-worktree path, kept so an old .gitignore entry still means something; nothing writes it since v0.7.5.",
     "spec_reference": "docs/spec/(SPEC-[a-z0-9-]+-v[0-9]+\\.md)",
     "gaps_file": "docs/GAPS.md"
@@ -645,7 +645,7 @@
     ],
     "handoff_resume_section": "resume",
     "handoff_clears_field": "^\\s*(?:[-*]\\s+)?\\**clears\\**\\s*:\\**\\s*\\**([0-9]+)\\b",
-    "$resume_comment": "v0.7.5.1 (PO trait, router-not-reader): `## resume` is the section a FRESH ORCH resumes from after a context clear — wave, next step, delegations in flight (agent · manifest pointer · expected hand-back), the one decision pending — written BEFORE every delegation batch, so a clear mid-batch loses nothing. It must let the ORCH resume at a wave boundary without opening any report. `clears: <n>` in that section counts the ORCH's context clears this run; status.mjs derives AT-6 from it (derived_by: status).",
+    "$resume_comment": "v0.7.5 (PO trait, router-not-reader): `## resume` is the section a FRESH ORCH resumes from after a context clear — wave, next step, delegations in flight (agent · manifest pointer · expected hand-back), the one decision pending — written BEFORE every delegation batch, so a clear mid-batch loses nothing. It must let the ORCH resume at a wave boundary without opening any report. `clears: <n>` in that section counts the ORCH's context clears this run; status.mjs derives AT-6 from it (derived_by: status).",
     "handoff_section_heading": "^##\\s*{name}\\s*$([\\s\\S]*?)(?=^##|$(?![\\s\\S]))",
     "open_checkbox": "^\\s*-\\s*\\[ \\]",
     "jira_queue": "jira-queue.md",
@@ -680,7 +680,7 @@
     "bypass_allowed": false
   },
   "handback": {
-    "$comment": "v0.7.5.1 (PO trait: the ORCH is a ROUTER, not a reader — delegate-by-default, non-negotiable #8). Every AGENT report opens with a bounded hand-back the ORCH reads INSTEAD of the body: verdict · ids allocated · pointers · parked. The ORCH consumes this section and nothing below it; pastes and evidence stay in the body for the verifier. GATE-15 refuses a report without one, one over the line bound, one missing a field, or one carrying a fence (a paste in the hand-back defeats its purpose). Fields may read `none`.",
+    "$comment": "v0.7.5 (PO trait: the ORCH is a ROUTER, not a reader — delegate-by-default, non-negotiable #8). Every AGENT report opens with a bounded hand-back the ORCH reads INSTEAD of the body: verdict · ids allocated · pointers · parked. The ORCH consumes this section and nothing below it; pastes and evidence stay in the body for the verifier. GATE-15 refuses a report without one, one over the line bound, one missing a field, or one carrying a fence (a paste in the hand-back defeats its purpose). Fields may read `none`.",
     "heading": "hand-back",
     "heading_pattern": "^##\\s*hand-back\\s*$",
     "must_start_within_lines": 3,
@@ -768,7 +768,7 @@
       "derived_by": "orch",
       "self_reported": true,
       "source": "runs_layout.handoff_clears_field",
-      "$comment": "v0.7.5.1 (PO trait): the ORCH records every context clear in HANDOFF `## resume` as `clears: <n>`; status.mjs reads it from there (and from the RUN-REPORT row once recorded at P4). A CLEAR is a forced restart of the ORCH inside a phase — context exhausted or compacted; a planned phase entry in a new session (`/wow-run` after `/wow-plan`) is NOT one (DEV-R13-05). It is a self-report by the party it measures (ADV-R13-09): a symptom counter, not an observation of the trait. A run that cleared more than twice means delegation was insufficient somewhere — the hit is a FRAMEWORK finding (which step ate the context, and why it was not delegated), filed upstream, and a GAPS row like every other hit. The number is the trait's own subject (a mechanism states its subject)."
+      "$comment": "v0.7.5 (PO trait): the ORCH records every context clear in HANDOFF `## resume` as `clears: <n>`; status.mjs reads it from there (and from the RUN-REPORT row once recorded at P4). A CLEAR is a forced restart of the ORCH inside a phase — context exhausted or compacted; a planned phase entry in a new session (`/wow-run` after `/wow-plan`) is NOT one (DEV-R13-05). It is a self-report by the party it measures (ADV-R13-09): a symptom counter, not an observation of the trait. A run that cleared more than twice means delegation was insufficient somewhere — the hit is a FRAMEWORK finding (which step ate the context, and why it was not delegated), filed upstream, and a GAPS row like every other hit. The number is the trait's own subject (a mechanism states its subject)."
     },
     "$derived_by_comment": "status = status.mjs computes it from the repo. orch = recorded by the orchestrator in RUN-REPORT; not derivable from files alone (AT-6 is the ORCH's own count, read from HANDOFF `## resume` before the RUN-REPORT row exists and from the row after — `self_reported: true`, DEV-R13-11). po = a judgment call recorded at G4. AT-4 was previously annotated 'derived by gates.sh gate-5 sweep' while no such counter existed in the engine — status.mjs now derives it directly, using the same citation rules gates.sh applies.",
     "report_section": "audit triggers",
@@ -934,7 +934,7 @@
       "where": "sweep + agent self-check (--paths)",
       "blocks": "gate",
       "inert_when": null,
-      "$comment": "v0.7.5.1: agent-report hand-back (handback schema). In sweep.always; every agent (executor, verifier, delegate) runs it on its own report before hand-back (P3). R13b: --p5 grades the archived named run; fidelity arms."
+      "$comment": "v0.7.5: agent-report hand-back (handback schema). In sweep.always; every agent (executor, verifier, delegate) runs it on its own report before hand-back (P3). R13b: --p5 grades the archived named run; fidelity arms."
     }
   },
   "sweep": {
@@ -998,6 +998,8 @@
       "GATES-SPEC.md"
     ],
     "schema_token": "`([a-z][a-z0-9_]*(?:_schema|_frontmatter|_row))`",
+    "version_shape": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-draft)?$",
+    "$version_shape_comment": "PO decision 2026-10-07: the package version is x.y.z[-draft] — three components, nothing else; parity refuses a CHANGELOG top entry or formats.json version of another shape, and the header/title comparison reads versions by this shape.",
     "lane_docs": [
       "docs/process/LANES.md"
     ],

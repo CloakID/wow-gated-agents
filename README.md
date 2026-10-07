@@ -1,6 +1,6 @@
 # WoW v2 — a gated, evidence-first way of working for AI coding agents
 
-**Status: DRAFT — current release: `v0.7.4-draft`; `v0.7.5-draft` (defect-and-process release: 50 pilot findings) and `v0.7.5.1-draft` (one trait: the ORCH is a router, not a reader) are built and under review; the context-reduction round moves to v0.7.6.** The top entry of [CHANGELOG.md](CHANGELOG.md) is the package's single version authority; engine debts are registered in [docs/GAPS.md](docs/GAPS.md). Three pilots running, actively seeking feedback.
+**Status: DRAFT — current release: `v0.7.4-draft`; `v0.7.5-draft` is built and reviewed (two parts: the defect-and-process release of 50 pilot findings, and the router trait — the ORCH is a router, not a reader); the context-reduction round moves to v0.7.6.** The top entry of [CHANGELOG.md](CHANGELOG.md) is the package's single version authority; engine debts are registered in [docs/GAPS.md](docs/GAPS.md). Three pilots running, actively seeking feedback.
 
 > **v0.7.4-draft** — a defect-fix release inserted ahead of the planned reduction round after both active pilots filed serious batches against v0.7.3 (23 findings: prodsim F-77…F-88, platform F-71…F-81). Publish path repaired (P5's own sweep grades the run it just archived; GC cannot delete cited proofs), macOS first contact repaired (`install.sh` parses under stock bash 3.2; symlinked checkouts no longer empty the freeze's carve-out), five high-severity engine defects closed, and three process structures added: a debug-lane decision surface, a P4 walk artifact with a G4 close check, and evidence-provenance clauses for amendments. `formats.json` gains an API contract (`ids_expanded`, `schema_version`, `$removed`).
 
@@ -23,7 +23,9 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - **[docs/reviews/](docs/reviews/)** — full findings from independent framework reviews, each run empirically against a consuming repo's real artifacts.
 - **[FIELD-MECHANISMS.md](FIELD-MECHANISMS.md)** — deployment-specific mechanisms (invariant suites, gap registration, coevolution stamps…) described by aim + dependencies; implementations are per-project.
 
-## What's new in v0.7.5.1-draft
+## What's new in v0.7.5-draft
+
+### Part 2 — the router trait
 
 **One trait, PO decision 2026-10-07: the orchestrating session is a router, not a reader.** A run ends when the ORCH's context must be cleared, and what fills that context is the report bodies, finding lists and sweep failure lists it read in order to route. Now every such step is delegated to a fresh-context agent with a closed manifest, and the ORCH consumes a bounded `## hand-back` instead (non-negotiable #8; the per-phase delegation table is FORMATS §14 — map writing, premise attack, preflight, sweep triage, reconciliation walk, RUN-REPORT assembly, walk preparation, publish mechanics).
 
@@ -33,7 +35,7 @@ Full story with evidence: [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md).
 - Executors and verifiers gain the hand-back and (verifier) grading the executor's hand-back against its rows; delegates have a `[AGENT] — delegate` section and a file; ORCH-owned files stay ORCH-accountable when a delegate writes them (FORMATS §9).
 - **Reviewed before publish, twice** (R13): an adversarial review (ADV-R13, 13 findings, all confirmed) and a developer-persona upgrade walk on a real v0.7.5 fixture (DEV-R13, 21 findings) both said "not as-is" — the one section the ORCH now routes on was the one section no gate read against anything; every blocking and major finding was remediated in-round with its own test and mutation proof (docs/reviews/).
 
-## What's new in v0.7.5-draft
+### Part 1 — the defect-and-process release
 
 **Both pilots filed 50 findings against v0.7.4 inside two weeks (platform F-82…F-105, prodsim F-89…F-114); the PO took the whole slate in one release.** Engine and formats first, process text with it; the reduction round moves to v0.7.6.
 

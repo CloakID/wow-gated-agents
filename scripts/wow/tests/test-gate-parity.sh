@@ -14,7 +14,7 @@ printf 'Lane refs: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/docs/proce
 printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/CLAUDE.md"
 
 spec() { cat > "$FIX/scripts/wow/GATES-SPEC.md"; }
-rows_1_12() { for n in $(seq 1 15); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }  # through 15 since v0.7.5.1
+rows_1_12() { for n in $(seq 1 15); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }  # through 15 since v0.7.5
 
 # Subject-absent: no spec side at all.
 assert_rejects "no GATES-SPEC.md anywhere" "$FIX" "not a pass" parity
@@ -159,14 +159,14 @@ assert_rejects "a call site removed from a labelled gate fails parity and names 
   "GATE-3 declares a subject label" parity
 cp "$WOW_DIR/gates.py" "$FIX83/scripts/wow/gates.py"
 assert_accepts "registry and call sites agree (F-83 control)" "$FIX83" parity
-# ---- v0.7.5.1: a registry row that says "sweep" runs in a sweep list, and vice versa
+# ---- v0.7.5: a registry row that says "sweep" runs in a sweep list, and vice versa
 python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))
 d["sweep"]["always"] = [g for g in d["sweep"]["always"] if g != "gate-15"]
 json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
 PY
-assert_rejects "a sweep-'where' gate missing from sweep.always fails parity and names it (v0.7.5.1)" "$FIX83" \
+assert_rejects "a sweep-'where' gate missing from sweep.always fails parity and names it (v0.7.5)" "$FIX83" \
   "GATE-15 says \`where: sweep + agent self-check (--paths)\` in formats.json and is not in sweep.always" parity
 python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
 import json, sys
@@ -200,16 +200,31 @@ p = sys.argv[1]; d = json.load(open(p))
 d["sweep"]["always"].append("gate-8")
 json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
 PY
-assert_rejects "a sweep-list entry whose registry row does not say sweep fails parity (v0.7.5.1)" "$FIX83"   "GATE-8 is in a sweep list but its registry row says" parity
+assert_rejects "a sweep-list entry whose registry row does not say sweep fails parity (v0.7.5)" "$FIX83"   "GATE-8 is in a sweep list but its registry row says" parity
 python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))
 d["sweep"]["always"] = [g for g in d["sweep"]["always"] if g != "gate-8"] + ["gate-99"]
 json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
 PY
-assert_rejects "a sweep-list entry with no registry gate fails parity (v0.7.5.1)" "$FIX83"   "sweep list names gate-99 and the registry has no such gate" parity
+assert_rejects "a sweep-list entry with no registry gate fails parity (v0.7.5)" "$FIX83"   "sweep list names gate-99 and the registry has no such gate" parity
 cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
-assert_accepts "sweep lists and registry where-cells agree (v0.7.5.1 control)" "$FIX83" parity
+assert_accepts "sweep lists and registry where-cells agree (v0.7.5 control)" "$FIX83" parity
+# ---- PO decision 2026-10-07: the version shape is x.y.z[-draft]; a fourth component is refused
+printf '# Changelog\n\n## v0.7.5.1-draft — 2026-10-07\n- x\n' > "$FIX83/CHANGELOG.md"
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["version"] = "0.7.5.1-draft"
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a four-component version is refused in both authorities even when they agree" "$FIX83" \
+  "CHANGELOG top entry '0.7.5.1-draft' is not a supported version shape" parity
+assert_rejects "… and formats.json is named too" "$FIX83" \
+  "formats.json version '0.7.5.1-draft' is not a supported version shape" parity
+printf '# Changelog\n\n## v0.7.5-draft — 2026-10-07\n- x\n' > "$FIX83/CHANGELOG.md"
+cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
+assert_accepts "x.y.z-draft in both authorities passes (control)" "$FIX83" parity
+rm -f "$FIX83/CHANGELOG.md"
 # ---- platform/F-92 fix 1 (v0.7.5): an ownership list may not cover its own home
 python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
 import json, sys
