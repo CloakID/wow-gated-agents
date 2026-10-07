@@ -321,4 +321,7 @@ printf 'moved on\n' > "$FIX/src3/core.py"
 ( cd "$FIX" && git add -A >/dev/null && git commit -qm "real change [WOW:publish]" )
 assert_rejects "real content change is STALE, naming content (F-45 control)" "$FIX" \
   "content under" gate-6 --area neutral
+# ---- platform/F-83 (v0.7.5): GATE-6 states its subject
+assert_output "an area check states its subject count (platform/F-83)" "$FIX" \
+  "subject: 1 map(s)/dep(s)" gate-6 --area neutral
 finish

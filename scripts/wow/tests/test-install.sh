@@ -20,6 +20,23 @@ if [ "${BASH_VERSINFO[0]:-0}" -lt 3 ] || { [ "${BASH_VERSINFO[0]:-0}" -eq 3 ] &&
   finish
 fi
 INSTALL="$PKG_DIR/install.sh"
+# platform/F-82 (v0.7.5): ONE sweep-membership probe, called from both
+# branches. F-78's capture-then-match fix landed on the package self-test
+# branch only; the installed-target branch — the one every consumer runs —
+# kept the pipeline form, and every consumer with a standing red gate was told
+# all six sweep gates were "in no sweep". The sweep's exit status is the
+# gates' verdict; wiring is read from the captured OUTPUT.
+# sweep_membership <repo-dir> <gates.sh path> <formats.json path>
+sweep_membership() {
+  local repo="$1" gs="$2" fj="$3" cap g
+  cap="$( cd "$repo" && "$gs" sweep --p5 2>&1 )" || true
+  for g in $(python3 -c "import json;F=json.load(open('$fj'));print(' '.join(F['sweep']['always']+F['sweep']['p5_only']))"); do
+    case "$cap" in
+      *"$g"*) ok_ "sweep --p5 runs $g" ;;
+      *) bad_ "$g is in no sweep — a gate nothing calls is inert" ;;
+    esac
+  done
+}
 if [ ! -f "$INSTALL" ]; then
   # Installed target: no installer here, but the question "are this repo's gates
   # actually connected?" is exactly as worth answering. Run the installed hooks
@@ -40,10 +57,7 @@ if [ ! -f "$INSTALL" ]; then
   if ( cd "$PKG_DIR" && "$HOOKS/commit-msg" "$MSG" ) >/dev/null 2>&1; then
     bad_ "the installed commit-msg hook accepted a laneless message — GATE-1 is not wired"
   else ok_ "the installed commit-msg hook rejects a laneless message (GATE-1 live)"; fi
-  for g in $(python3 -c "import json;F=json.load(open('$WOW_DIR/formats.json'));print(' '.join(F['sweep']['always']+F['sweep']['p5_only']))"); do
-    ( cd "$PKG_DIR" && "$WOW_DIR/gates.sh" sweep --p5 2>&1 | grep "$g" >/dev/null ) \
-      && ok_ "sweep --p5 runs $g" || bad_ "$g is in no sweep — a gate nothing calls is inert"
-  done
+  sweep_membership "$PKG_DIR" "$WOW_DIR/gates.sh" "$WOW_DIR/formats.json"
   finish
 fi
 
@@ -227,13 +241,17 @@ bash "$PKG4/install.sh" "$TC" >/dev/null 2>&1 \
 # sweep gates were reported unwired, and the operator learns the wiring test
 # is noise. Capture first, then match: the gates' verdicts cannot masquerade
 # as their wiring.
-SWEEP_CAP="$( cd "$T" && ./scripts/wow/gates.sh sweep --p5 2>&1 )" || true
-for g in $( cd "$T" && python3 -c "import json;print(' '.join(json.load(open('scripts/wow/formats.json'))['sweep']['always']+json.load(open('scripts/wow/formats.json'))['sweep']['p5_only']))" ); do
-  case "$SWEEP_CAP" in
-    *"$g"*) ok_ "sweep --p5 runs $g" ;;
-    *) bad_ "$g is in no sweep — a gate nothing calls is inert" ;;
-  esac
-done
+sweep_membership "$T" "./scripts/wow/gates.sh" "$T/scripts/wow/formats.json"
+# platform/F-82 guard: the construct is greppable, so its recurrence is cheap
+# to prevent — no `gates.sh sweep` may sit on the left of a pipe anywhere in
+# the test suite (the sweep's exit status would fail the pipeline under
+# pipefail whatever the right side found).
+if grep -rnE 'gates\.sh" sweep[^|]*\|[^|]|gates\.sh sweep[^|]*\|[^|]' "$WOW_DIR/tests/"*.sh | grep -v 'sweep_membership\|^.*#' >/dev/null; then
+  bad_ "a test pipes 'gates.sh sweep' into another command — under pipefail the sweep's verdict masquerades as its wiring (platform/F-82)" \
+       "$(grep -rnE 'gates\.sh" sweep[^|]*\|[^|]|gates\.sh sweep[^|]*\|[^|]' "$WOW_DIR/tests/"*.sh | grep -v 'sweep_membership\|^.*#')"
+else
+  ok_ "no test pipes 'gates.sh sweep' into grep — wiring is read from captured output (platform/F-82)"
+fi
 # F-78 non-vacuity: with a RED gate in the repo, wiring must still read wired.
 mkdir -p "$T/runs/quick"
 printf -- '- [ ] transition ABC-9 to Done\n' > "$T/runs/quick/jira-queue.md"
@@ -348,7 +366,8 @@ case "$NOTE_OUT" in
   *) echo "  FAIL zero-run AT note still implies a parse failure: $NOTE_OUT"; FAIL=$((FAIL+1)) ;;
 esac
 # DEV-R9-10: the sweep SUMMARY carries the vacuous count on an empty repo.
-SWEEP_OUT="$(cd "$TN" && ./scripts/wow/gates.sh sweep 2>&1 | tail -1)"
+SWEEP_OUT="$(cd "$TN" && ./scripts/wow/gates.sh sweep 2>&1)" || true   # F-82: capture, then read
+SWEEP_OUT="$(printf '%s\n' "$SWEEP_OUT" | tail -1)"
 case "$SWEEP_OUT" in
   *vacuous*) echo "  ok   empty-repo sweep summary says vacuous, not bare N/N passed (DEV-R9-10)"; PASS=$((PASS+1)) ;;
   *) echo "  FAIL sweep summary is still a bare pass count: $SWEEP_OUT"; FAIL=$((FAIL+1)) ;;
@@ -627,4 +646,67 @@ if grep -q husky-B "$TJ/$TJHOOKS/pre-commit.pre-wow" && grep -q husky-A "$TJ/$TJ
 else
   echo "  FAIL install.sh destroyed a hook on the second clobber (DEV-R11-03)"; FAIL=$((FAIL+1))
 fi
+# ---- platform/F-92 fix 2 (v0.7.5): install writes digests; parity reports drift
+TD="$(new_target digests)"
+( cd "$PKG_DIR" && bash install.sh "$TD" >/dev/null 2>&1 )
+[ -f "$TD/scripts/wow/package-digests.json" ] \
+  && { echo "  ok   install writes the package digest manifest (platform/F-92)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL no package-digests.json after install (platform/F-92)"; FAIL=$((FAIL+1)); }
+printf '\n# consumer edit\n' >> "$TD/scripts/wow/gates.py"
+P_OUT="$( cd "$TD" && bash scripts/wow/gates.sh parity 2>&1 )"
+case "$P_OUT" in
+  *"modified since install (1): scripts/wow/gates.py"*) echo "  ok   parity names the package-owned file modified since install, advisory (F-92)"; PASS=$((PASS+1)) ;;
+  *) echo "  FAIL parity silent on a modified package file (F-92)"; echo "$P_OUT" | head -5; FAIL=$((FAIL+1)) ;;
+esac
+( cd "$TD" && bash scripts/wow/gates.sh parity >/dev/null 2>&1 ) \
+  && { echo "  ok   drift is advisory by default (F-92)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL advisory drift turned parity red (F-92)"; FAIL=$((FAIL+1)); }
+python3 - "$TD/scripts/wow/wow.config.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["package_integrity_check"] = "block"; json.dump(d, open(p, "w"), indent=2)
+PY
+( cd "$TD" && bash scripts/wow/gates.sh parity >/dev/null 2>&1 ) \
+  && { echo "  FAIL package_integrity_check: block did not refuse (F-92)"; FAIL=$((FAIL+1)); } \
+  || { echo "  ok   package_integrity_check: block refuses the drift (F-92)"; PASS=$((PASS+1)); }
+# ---- platform/F-87 / F-88 / F-99 (v0.7.5): audit-trigger read-back
+TA="$(new_target at87)"
+( cd "$PKG_DIR" && bash install.sh "$TA" >/dev/null 2>&1 )
+mkdir -p "$TA/runs/260921-at-r1" "$TA/runs/archive/260920-old-r1"
+printf 'x\n' > "$TA/x.txt"; ( cd "$TA" && git add -A >/dev/null && git commit -qm "x [WOW:publish]" --no-verify )
+ASHA="$( cd "$TA" && git rev-parse --short=7 HEAD )"
+printf '# RUN-REPORT\n\n## audit triggers — recorded at P4, 2026-09-30\n\n| **AT-1** mocks | **4 — HIT** | ev:commit{%s} |\n| AT-3 blockers this run | 0 — no BLOCKED rows this run | ev:commit{%s} |\n| **AT-5** wrong-reason | **0 — NOT HIT.** Answered by the PO | ev:commit{%s} |\n\n## completed\n| id | status | ref |\n|---|---|---|\n| T01 | COMPLETED | ev:commit{%s} |\n' "$ASHA" "$ASHA" "$ASHA" "$ASHA" > "$TA/runs/260921-at-r1/RUN-REPORT.md"
+A_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; a=json.load(sys.stdin)['auditTriggers']; print(a['AT-1']['value'], a['AT-3']['value'], a['AT-5']['value'])")"
+[ "$A_OUT" = "4 0 0" ] \
+  && { echo "  ok   heading suffix + bold cells parse; the AT-3 row's own text is not a BLOCKED (platform/F-87, F-99)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL audit read-back: got '$A_OUT', want '4 0 0' (F-87/F-99)"; FAIL=$((FAIL+1)); }
+printf '# RUN-REPORT\n\n## audit triggers\n\n- AT-1 = 48\n- AT-2 = 11\n' > "$TA/runs/260921-at-r1/RUN-REPORT.md"
+B_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; a=json.load(sys.stdin)['auditTriggers']; print(a['AT-1']['note'])")"
+case "$B_OUT" in *"section present, 0 table rows"*) echo "  ok   bullets in the section read as 'present, 0 table rows', not 'no section' (F-87 fix 3)"; PASS=$((PASS+1)) ;; *) echo "  FAIL bullet section note: $B_OUT (F-87)"; FAIL=$((FAIL+1)) ;; esac
+printf '# RUN-REPORT\n\n## audit triggers\n\n| AT-3 blockers this run | 2 — threshold >1, **HIT** | ev:commit{%s} |\n| AT-5 | 1 | ev:commit{%s} |\n' "$ASHA" "$ASHA" > "$TA/runs/archive/260920-old-r1/RUN-REPORT.md"
+C_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260920-old-r1 | python3 -c "import json,sys; a=json.load(sys.stdin)['auditTriggers']; print(a['AT-3']['value'], a['AT-5']['value'], a['AT-1']['value'])")"
+[ "$C_OUT" = "2 1 None" ] \
+  && { echo "  ok   an archived run's AT-3 and AT-5 are read back; an unrecorded trigger is null, never 0 (platform/F-88)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL archived read-back: got '$C_OUT', want '2 1 None' (F-88)"; FAIL=$((FAIL+1)); }
+printf '# PLAN\nspec: x\nreviews: 3\n' > "$TA/runs/260921-at-r1/PLAN.md"
+R_OUT="$(cd "$TA" && node scripts/wow/status.mjs 2>&1)"
+case "$R_OUT" in *"reviews: 3 G2a round(s)"*) echo "  ok   review rounds are read from the plan's reviews: field (platform/F-97)"; PASS=$((PASS+1)) ;; *) echo "  FAIL reviews: not rendered (F-97)"; FAIL=$((FAIL+1)) ;; esac
+# ---- R12b: DEV-R12-07 / DEV-R12-14 / DEV-R12-23d — installer messages a consumer can act on
+TS="$(new_target seeds)"
+( cd "$PKG_DIR" && bash install.sh "$TS" >/dev/null 2>&1 )
+S2="$( cd "$PKG_DIR" && bash install.sh "$TS" 2>&1 )"
+case "$S2" in *"wow-v2 section (unchanged)"*) echo "  ok   an identical section is reported unchanged, not replaced (DEV-R12-23d)"; PASS=$((PASS+1)) ;; *) echo "  FAIL identical section not reported unchanged (DEV-R12-23d)"; FAIL=$((FAIL+1)) ;; esac
+printf '{"permissions": {"allow": [], "deny": [], "ask": []}}\n' > "$TS/scripts/wow/permissions-policy.json"
+mkdir -p "$TS/runs"; printf 'old\n' > "$TS/runs/.gate-log"
+S3="$( cd "$PKG_DIR" && bash install.sh "$TS" 2>&1 )"
+case "$S3" in *"package TEMPLATE differs from your copy"*) echo "  ok   a seed file that differs from the package template is named, not overwritten (DEV-R12-07)"; PASS=$((PASS+1)) ;; *) echo "  FAIL seed drift silent (DEV-R12-07)"; FAIL=$((FAIL+1)) ;; esac
+case "$S3" in *"runs/.gate-log is the RETIRED"*) echo "  ok   a stale per-worktree gate log is named for deletion (DEV-R12-14)"; PASS=$((PASS+1)) ;; *) echo "  FAIL stale runs/.gate-log not named (DEV-R12-14)"; FAIL=$((FAIL+1)) ;; esac
+grep -q '"ask": \[\]' "$TS/scripts/wow/permissions-policy.json" \
+  && { echo "  ok   the seed file was not overwritten (F-06 holds)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL seed file overwritten (F-06)"; FAIL=$((FAIL+1)); }
+# ---- audit 2026-10-06 §6.1 / B1 (v0.7.5): the status counter blanks ~~~ fences and indented code
+printf '# RUN-REPORT\n\n## completed\n| id | status | ref |\n|---|---|---|\n| T01 | COMPLETED | ev:commit{%s} |\n\nExample of a bad table:\n\n~~~md\n| T9 | BLOCKED | PARK-U1-09 |\n| T8 | BLOCKED | PARK-U1-08 |\n~~~\n\n    | T7 | BLOCKED | PARK-U1-07 |\n' "$ASHA" > "$TA/runs/260921-at-r1/RUN-REPORT.md"
+B1_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in d['runs'] if x['id']=='260921-at-r1'][0]; print(r['statuses']['BLOCKED'], d['auditTriggers']['AT-3']['value'])")"
+[ "$B1_OUT" = "0 0" ] \
+  && { echo "  ok   a ~~~-fenced or indented example table does not count as BLOCKED rows / AT-3 (audit B1)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL AT-3 inflated by a fenced/indented example: got '$B1_OUT', want '0 0' (audit B1)"; FAIL=$((FAIL+1)); }
 finish

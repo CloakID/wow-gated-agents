@@ -133,4 +133,22 @@ rec <<'D'
 D
 assert_accepts "expected-consistent pair left unclassified is not a divergence (DEV-R11-07)" "$FIX" \
   gate-10 --run 260813-x-r1 --gate G2
+# ---- platform/F-83 (v0.7.5): GATE-10 states its subject
+assert_output "a classified divergence table states its row count (platform/F-83)" "$FIX" \
+  "subject: 1 divergence row(s)" gate-10 --run 260813-x-r1 --gate G2
+# ---- R12b: DEV-R12-21 — a dash is "none" on an expected-consistent row
+rec <<'D'
+| Item | Git | Jira | Classification |
+|---|---|---|---|
+| REQ-003 | DEFERRED | Intake | — |
+D
+assert_accepts "an em-dash classification on an expected-consistent row is empty, not a defect (DEV-R12-21)" "$FIX" \
+  gate-10 --run 260813-x-r1 --gate G2
+rec <<'D'
+| Item | Git | Jira | Classification |
+|---|---|---|---|
+| REQ-003 | COMPLETED | To Do | — |
+D
+assert_rejects "a dash on a REAL divergence is still unclassified (DEV-R12-21 control)" "$FIX" \
+  "unclassified" gate-10 --run 260813-x-r1 --gate G2
 finish

@@ -77,6 +77,7 @@ print("ENGINE_FILES=(%s)" % q(I["engine_files"]))
 print("SEED_FILES=(%s)"   % q(I.get("seed_files", [])))
 print("ENGINE_DIRS=(%s)"  % q(I["engine_dirs"]))
 print("CONFIG_FILE=%s"    % shlex.quote(I["config_file"]))
+print("DIGEST_MANIFEST=%s" % shlex.quote(I.get("digest_manifest", "")))
 print("HOOK_NAMES=(%s)"   % q(I["hooks"]))
 print("HOOK_MARKER=%s"    % shlex.quote(I["hook_marker"]))
 print("HOOK_KEEP=%s"      % shlex.quote(I["preserved_hook_suffix"]))
@@ -303,9 +304,21 @@ for sf in ${SEED_FILES[@]+"${SEED_FILES[@]}"}; do
       say "seeded   $sf (template — now repo-owned, never overwritten)"
     fi
   else
-    say "ok       $sf (repo-owned, not compared to the package)"
+    # DEV-R12-07 (R12b): repo-owned, never overwritten — but when the package's
+    # TEMPLATE changed since this copy was seeded, say so, or a release note
+    # like "git reset moved to the ask set" never reaches an upgraded consumer.
+    if cmp -s "$SOURCE/$sf" "$TARGET/$sf"; then
+      say "ok       $sf (repo-owned, identical to the package template)"
+    else
+      say "ok       $sf (repo-owned, not overwritten; the package TEMPLATE differs from your copy — diff it by hand: \`diff $SOURCE/$sf $TARGET/$sf\`; carry what you want, DEV-R12-07)"
+    fi
   fi
 done
+# DEV-R12-14 (R12b): v0.7.5 retired the per-worktree runs/.gate-log — a stale
+# one left in the tree gets committed by the 'git add -A' the epilogue suggests.
+if [ -f "$TARGET/runs/.gate-log" ]; then
+  say "note     runs/.gate-log is the RETIRED per-worktree rejection log (v0.7.5 logs to <git-common-dir>/wow/gate-log, prodsim/F-97) — delete it before committing; it holds no live state"
+fi
 
 # 2. wow.config.json — created once, never overwritten (it holds repo-local
 # truth) — EXCEPT the wow_version key, which the installer owns (DEV-R9-04:
@@ -328,7 +341,6 @@ if [ ! -e "$TARGET/$CONFIG_FILE" ]; then
   "\$mapping_note": "check YOUR Jira hierarchy before trusting 'task': standard projects usually want 'Subtask' — a premium multi-level hierarchy wants 'Task' (prodsim/F-61)",
   "merge_to_main": "pr",
   "archive": { "mode": "move", "path": "runs/archive/" },
-  "hardening": { "pretooluse_lane_guard": false, "sessionstart_router_injection": false },
   "\$optional_keys": "requirement_id, probe_command_pattern, main_branch, run_base, jira.scope, jira.status_conventions, legacy_freeze_exclude, status_extensions — each defaults sanely when absent; scripts/wow/GATES-SPEC.md §Config keys says what each does (DEV-R9-08)"
 }
 CFG
@@ -358,6 +370,36 @@ PY
          say "stamped  $CONFIG_FILE wow_version: $STAMPED -> $WOW_VERSION (the one key the installer owns; DEV-R9-04)"
        fi ;;
   esac
+fi
+
+# 2a. package digests (platform/F-92 fix 2, v0.7.5): sha256 of every
+# package-owned file as installed, so check-parity can say "modified since
+# install" about a file an agent edits to license its own change.
+if [ -n "$DIGEST_MANIFEST" ] && [ "$CHECK" -ne 1 ]; then
+  cat > "$PYTMP" <<'PY'
+import hashlib, io, json, os, sys
+target, out = sys.argv[1], sys.argv[2]
+files = sys.argv[3:]
+d = {}
+for rel in files:
+    p = os.path.join(target, rel)
+    if os.path.isfile(p):
+        d[rel] = hashlib.sha256(open(p, "rb").read()).hexdigest()
+io.open(os.path.join(target, out), "w", encoding="utf-8").write(
+    json.dumps({"$comment": "written by install.sh — sha256 of package-owned files as installed (platform/F-92); check-parity reports drift",
+                "digests": d}, indent=2, sort_keys=True) + "\n")
+print(len(d))
+PY
+  DIGEST_LIST=""
+  for f in "${ENGINE_FILES[@]}"; do
+    case "$f" in */GATES-SPEC.md) DIGEST_LIST="$DIGEST_LIST scripts/wow/$(basename "$f")" ;; *) DIGEST_LIST="$DIGEST_LIST $f" ;; esac
+  done
+  for d in "${ENGINE_DIRS[@]}"; do
+    for f in $(cd "$SOURCE" && find "$d" -type f | sort); do DIGEST_LIST="$DIGEST_LIST $f"; done
+  done
+  # shellcheck disable=SC2086
+  N_DIG="$(python3 "$PYTMP" "$TARGET" "$DIGEST_MANIFEST" $DIGEST_LIST)"
+  say "wrote    $DIGEST_MANIFEST ($N_DIG package-owned file digest(s); check-parity reports drift — platform/F-92)"
 fi
 
 # 2b. docs/GAPS.md — seeded empty-but-valid (DEV-R9-02: a fresh adopter's first
@@ -447,7 +489,10 @@ $STAMP_PREFIX $SEC_HASH -->")"
     else say "ok       $CLAUDE_FILE wow-v2 section"; fi
   else
     if [ -f "$DST" ] && grep -q -- "$START" "$DST"; then
-      if [ "$FORCE_SECTION" -eq 0 ] && ! section_guard; then
+      if [ "$(cur_section | strip_stamp | normalize | hash_of)" = "$(printf '%s\n' "$SECTION" | normalize | hash_of)" ] \
+         && cur_section | grep -q "^$STAMP_PREFIX"; then
+        say "ok       $CLAUDE_FILE wow-v2 section (unchanged)"   # DEV-R12-23d: identical content is not 'replaced'
+      elif [ "$FORCE_SECTION" -eq 0 ] && ! section_guard; then
         echo "  REFUSED  $CLAUDE_FILE wow-v2 section: its content does not match the stamp the installer wrote (or predates stamping and differs from the package) — these lines would be LOST:" >&2
         cur_section | strip_stamp | diff - <(printf '%s\n' "$SECTION") 2>/dev/null \
           | grep '^<' | head -12 | sed 's/^/           /' >&2

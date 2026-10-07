@@ -180,8 +180,17 @@ def modified_in_run(run_id=None):
       - the run base branch to HEAD, when FORMATS §1's base branch exists,
       - failing that, the commits whose messages carry this run's lane refs.
     A run with none of these has modified nothing, which is a legitimate answer."""
+    # platform/F-94 (v0.7.5): two blind spots in the idiom, inherited by three
+    # consumer copies that cited this line as the authority. (1) RENAMES: git's
+    # default rename detection prints only the destination, so a file moved
+    # OUT of a guarded surface never appears under its old path — --no-renames
+    # lists both ends. (2) QUOTING: with core.quotePath=true (default) a
+    # non-ASCII path prints as "helm/\303\274-values.yaml", quoted and
+    # octal-escaped, and never equals itself — core.quotePath=false prints the
+    # bytes. Both flags on every call site; consumers copying this idiom copy
+    # both.
     out = set()
-    for line in git("status", "--porcelain").split("\n"):
+    for line in git("-c", "core.quotePath=false", "status", "--porcelain", "--no-renames").split("\n"):
         if len(line) > 3:
             p = line[3:].strip()
             if " -> " in p:
@@ -190,30 +199,50 @@ def modified_in_run(run_id=None):
     if run_id:
         base = fill(F["branch_patterns"]["base_ref"], run_id=run_id)
         if git("rev-parse", "--verify", "--quiet", base).strip():
-            for f in git("diff", "--name-only", "%s...HEAD" % base).split("\n"):
+            for f in git("-c", "core.quotePath=false", "diff", "--no-renames", "--name-only",
+                         "%s...HEAD" % base).split("\n"):
                 if f.strip():
                     out.add(f.strip())
         else:
             shas = [s for s in git("log", "--format=%H", "--grep", run_id).split("\n") if s.strip()]
             for s in shas:
-                for f in git("show", "--pretty=format:", "--name-only", s).split("\n"):
+                for f in git("-c", "core.quotePath=false", "show", "--no-renames",
+                             "--pretty=format:", "--name-only", s).split("\n"):
                     if f.strip():
                         out.add(f.strip())
     return out
 
 
+def gate_log_path():
+    """prodsim/F-97 (v0.7.5): the rejection log was resolved against ROOT —
+    the WORKTREE the gate ran in — so every unit/verifier/int worktree logged
+    to its own untracked runs/.gate-log and P5 deleted the log with the
+    worktree; an audit that had to count the audited run's gate rejections
+    found none from P3 or P4. The log lives in the COMMON git directory
+    (shared by every worktree of one repository, survives worktree removal):
+    paths.gate_log_common, relative to `git rev-parse --git-common-dir`. The
+    per-worktree runs/.gate-log is retired; nothing writes it since v0.7.5."""
+    common = git("rev-parse", "--git-common-dir").strip() or ".git"
+    common = common if os.path.isabs(common) else rp(common)
+    return os.path.join(common, P.get("gate_log_common", "wow/gate-log"))
+
+
 def log_rejection(gate, messages):
-    d = rp(os.path.dirname(P["gate_log"]))
+    lp = gate_log_path()
+    d = os.path.dirname(lp)
     if not os.path.isdir(d):
         try:
             os.makedirs(d)
         except Exception:
             return
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # each line records WHERE it came from (worktree path, branch), so one
+    # shared log can still be split by unit (F-97 fix 2).
+    branch = git("rev-parse", "--abbrev-ref", "HEAD").strip() or "-"
     try:
-        with open(rp(P["gate_log"]), "a", encoding="utf-8") as fh:
+        with open(lp, "a", encoding="utf-8") as fh:
             for m in messages:
-                fh.write("%s\t%s\t%s\n" % (stamp, gate, m))
+                fh.write("%s\t%s\t%s\t%s\t%s\n" % (stamp, gate, ROOT, branch, m))
     except Exception:
         pass
 
@@ -510,8 +539,16 @@ def _dangling_commit_citations(p, lines):
     return out
 
 
-def _preflight(paths, staged):
+def _anchor_slug(heading):
+    """GitHub-style heading anchor: lowercase, punctuation dropped, spaces → -."""
+    h = re.sub(r"[`*_]", "", heading.strip()).lower()
+    h = re.sub(r"[^\w\s-]", "", h)
+    return re.sub(r"\s", "-", h.strip())
+
+
+def _preflight(paths, staged, line_only=False):
     msgs = []
+    bare = re.compile(r"ev:file\{([^}:#]+?)(?:#([^}]+))?\}")
     for p in paths:
         if excluded(p):
             continue
@@ -529,6 +566,56 @@ def _preflight(paths, staged):
             if lineno < 1 or lineno > n:
                 msgs.append("%s:%d cites %s:%d — DRIFTED (file has %d lines)"
                             % (p, at, target, lineno, n))
+        # prodsim/F-112 (v0.7.5): the preflight read only ev:file{path:line};
+        # a bare ev:file{path} or ev:file{path#anchor} in a DURABLE document
+        # was read by no gate, so P5's archive move left registry citations
+        # dangling for weeks. Bare and anchored forms resolve through the same
+        # archive-rewrite resolver (a moved target is not a dead one); an
+        # anchored form also needs the heading to exist in the target. Mentions
+        # (backticked) and placeholders (<…>) are skipped.
+        if line_only or not p.endswith(".md"):
+            continue   # the citation discipline is a markdown one; source files quote templates
+        # DEV-R12-02 (R12b): the bare/anchored arm is F-112's case — a DURABLE
+        # document citing into a run. A run's own documents (a new plan whose
+        # Non-vacuity cells cite evidence the run will produce) are promises,
+        # not dangling citations; GATE-13 and the verifier's re-run judge them.
+        if p.replace(os.sep, "/").startswith(P["runs_dir"].rstrip("/") + "/"):
+            continue
+        masked = _mask_inline_code_doc(_strip_fenced_blocks("\n".join(lines)))
+        for at, line in enumerate(masked, 1):
+            for m in bare.finditer(line):
+                target, anchor = m.group(1).strip(), (m.group(2) or "").strip()
+                if not target or any(ch in target for ch in "<>…%$*()|") or target == "path":
+                    continue
+                resolved = _resolve_target(target, staged)
+                if resolved is None:
+                    msgs.append("%s:%d cites ev:file{%s} — GONE at its cited path and at the "
+                                "archive rewrite (runs/<id>/x → runs/archive/<id>/x); a durable "
+                                "document's citation into an archived run is re-pointed at P5, "
+                                "not left to dangle (prodsim/F-112)"
+                                % (p, at, m.group(1) + ("#" + anchor if anchor else "")))
+                    continue
+                if anchor:
+                    ttxt = read_staged(resolved) if staged else ""
+                    if not ttxt:
+                        full = rp(resolved)
+                        ttxt = read(full) if os.path.isfile(full) else ""
+                    heads = [_anchor_slug(h) for h in re.findall(r"^#{1,6}\s+(.+)$", ttxt or "", re.M)]
+                    want = _anchor_slug(anchor)
+                    # ADV-R12-05 / DEV-R12-19 (R12b): FORMATS §3 promises CONTENT
+                    # anchors — a heading slug (a fragment is enough; the
+                    # hyphen-collapsed form too, so `--` from an em dash and
+                    # `-` both resolve) OR the anchor text as a bare token or a
+                    # table-row first cell anywhere in the target.
+                    squash = lambda x: re.sub(r"-+", "-", x)
+                    in_heads = any(want in h or squash(want) in squash(h) for h in heads)
+                    in_body = re.search(r"(?<![\w-])" + re.escape(anchor) + r"(?![\w-])", ttxt or "") is not None
+                    if want and not in_heads and not in_body:
+                        msgs.append("%s:%d cites ev:file{%s#%s} — the target exists (%s) but no heading "
+                                    "slugs to '%s' and the text '%s' appears nowhere in it; headings "
+                                    "there: %s (prodsim/F-112)"
+                                    % (p, at, m.group(1), anchor, resolved, want, anchor,
+                                       ", ".join(heads[:6]) + (" …" if len(heads) > 6 else "") or "none"))
     return msgs
 
 
@@ -557,11 +644,14 @@ def gate_5(paths=None, staged=False, sweep=False, run_id=None):
     cold = [p for p in docs if p not in changed]
     blocking = _preflight(hot, False)
     advisory = _preflight(cold, False)
+    # ADV-R12-05 (R12b): AT-4 is "stale file:LINE refs" — the bare/anchored
+    # arm's findings are advisory here but never counted into the trigger.
+    at4 = len(_preflight(cold, False, line_only=True))
     msgs = list(blocking)
     for a in advisory:
         msgs.append("advisory (unmodified doc, not blocking — feeds AT-4): %s" % a)
     msgs.append("AT-4 count this sweep: %d stale file:line ref(s) in unmodified docs "
-                "(threshold %s%d)" % (len(advisory),
+                "(threshold %s%d)" % (at4,
                                       F["audit_triggers"]["AT-4"]["comparator"],
                                       F["audit_triggers"]["AT-4"]["threshold"]))
     return (len(blocking) == 0), msgs
@@ -862,7 +952,7 @@ def _subject_note(gate_id, n):
     return ["subject: %d %s" % (n, label)]
 
 
-def gate_3(paths=None):
+def gate_3(paths=None, run_id=None):
     sv = F["status_vocab"]
     ev_required = set(sv["evidence_required"])
     ref_required = dict(sv["reference_required"])
@@ -878,19 +968,62 @@ def gate_3(paths=None):
     verdict_cols = set(c.lower() for c in sv.get("verdict_columns", []))
     verdict_vocab = list(sv.get("verdict_vocab", []))
     verdict_refs = dict(sv.get("verdict_reference_required", {}))
+    closure_cols = set(c.lower() for c in sv.get("closure_columns", []))
+    closure_vocab = set(w.upper() for w in sv.get("closure_vocab", ["CLOSED"]))
+    ruling_cols = set(c.lower() for c in sv.get("ruling_columns", []))
+    attest_ruling = F["evidence"].get("attest_ruling")
     targets = paths if paths else gated_docs()
+    # prodsim/F-94 item 1 (v0.7.5): `gate-3 --run <id>` was accepted by the
+    # dispatcher and READ BY NOTHING — the executor and the verifier (three
+    # times) saw "PASS, 20 documents" over a scan that never opened the run's
+    # findings file. A named run adds every .md under its directory, active
+    # or archived (the named run is under judgment, so the archive exclusion
+    # does not apply to it; F-36 keeps every OTHER archived run out).
+    run_docs = set()
     msgs, notes = [], []
+    if run_id:
+        rdir = rp(P["runs_dir"], run_id)
+        archived = False
+        if not os.path.isdir(rdir):
+            rdir = os.path.join(rp(F["runs_layout"]["archive_dir"]), run_id)
+            archived = True
+        if not os.path.isdir(rdir):
+            return False, ["--run %s names no directory under %s/ (active or archived) — a scan "
+                           "over a missing run judges nothing, and that is not a pass "
+                           "(prodsim/F-94, ADV-R9-06)" % (run_id, P["runs_dir"])]
+        if archived:
+            # platform/F-65: archived runs are graded under the vocabulary of
+            # their time; the named run adds nothing (ADV-R12-02 / DEV-R12-01).
+            notes.append("note: --run %s is ARCHIVED — graded at its own publish under the "
+                         "vocabulary of its time (platform/F-65); nothing added to the scan"
+                         % run_id)
+        else:
+            # ADV-R12-02 / DEV-R12-01 (R12b): the first cut walked EVERY .md
+            # under the run — PLAN.md (gate-8's subject: a Done-means `PASS`
+            # is not a status), divergence records (FORMATS §10's Jira words
+            # by design), HANDOFF, orch/ notes, pasted evidence. The run's
+            # gated documents are the gated-doc globs applied to THIS run.
+            for g in F["scan_targets"]["gated_docs"]:
+                if not g.startswith(P["runs_dir"].rstrip("/") + "/*/"):
+                    continue
+                for cand in _untracked_matching((g.replace("*/", run_id + "/", 1),)):
+                    run_docs.add(cand)
+            targets = sorted(set(targets) | run_docs)
     scanned = 0
 
     for p in targets:
-        if excluded(p):
+        if excluded(p) and p not in run_docs:
             continue
         full = rp(p)
         if not os.path.isfile(full):
             continue
-        in_fence = False
+        in_fence = None        # prodsim/F-113 case o: the fence CHAR (` or ~), closed only by its kind
         status_idx = None      # which column of the current table holds status
         verdict_idx = None     # which column holds the verifier verdict (F-10)
+        closure_idx = None     # which column records a finding's closure (prodsim/F-94 item 4)
+        ruling_idx = None      # which column holds a PO ruling (prodsim/F-110)
+        verdict_hdr = None     # the header text that made the column a verdict column (platform/F-91)
+        verdict_reported = False
         prev_cells = None
         # F-14 addendum (v0.7.2): a report section DECLARED to hold status
         # rows, holding a table with no status column at all, was graded by
@@ -921,17 +1054,76 @@ def gate_3(paths=None):
                 notes.append("note: %s:%d cites ev:commit{%s} which does not resolve here — "
                              "advisory outside runs/ (legitimate for pre-rewrite or GC'd "
                              "history; prodsim/F-68)" % (p, lineno, sha))
-        for i, line in enumerate(lines_of(full), 1):
-            s = line.strip()
-            if s.startswith("```"):
-                in_fence = not in_fence
+        # prodsim/F-96 (v0.7.5): `capture: <path>` above a fence binds the
+        # fence body to the capture file, byte for byte, AFTER any formatter.
+        cap_re = re.compile(F["evidence"].get("capture_line") or r"^\s*capture:\s*(\S+)\s*$")
+        doc_lines = lines_of(full)
+        # ADV-R12-10 (R12b): a `capture:` line inside a fence is a template
+        # (a mention); the comparison is byte-for-byte on raw bytes.
+        unfenced = _strip_fenced_blocks("\n".join(doc_lines)).split("\n")
+        raw_bytes = open(full, "rb").read().split(b"\n")
+        for ci, cl in enumerate(doc_lines):
+            cm = cap_re.match(unfenced[ci] if ci < len(unfenced) else "")
+            if not cm:
                 continue
-            if in_fence:
+            j = ci + 1
+            while j < len(doc_lines) and not doc_lines[j].strip():
+                j += 1
+            if j >= len(doc_lines) or not _FENCE_OPEN.match(doc_lines[j]):
+                msgs.append("%s:%d `capture: %s` is not followed by a fenced paste — the line "
+                            "binds a fence to its capture file and binds nothing here "
+                            "(prodsim/F-96)" % (p, ci + 1, cm.group(1)))
+                continue
+            fence_tok = _FENCE_OPEN.match(doc_lines[j]).group(1)[0]
+            body = []
+            k = j + 1
+            while k < len(doc_lines):
+                fm2 = _FENCE_OPEN.match(doc_lines[k])
+                if fm2 and fm2.group(1)[0] == fence_tok:
+                    break
+                body.append(doc_lines[k])
+                k += 1
+            # DEV-R12-04 (R12b): the path resolves through the archive rewrite
+            # like every other citation — a repo-relative capture line went
+            # red at P5 step 6 once the run was archived.
+            resolved_cap = _resolve_target(cm.group(1))
+            cand = ([rp(resolved_cap)] if resolved_cap else []) + \
+                   [os.path.join(os.path.dirname(full), cm.group(1))]
+            cap_path = next((c for c in cand if os.path.isfile(c)), None)
+            if cap_path is None:
+                msgs.append("%s:%d `capture: %s` names no file (tried repo-relative and "
+                            "document-relative) — a paste that cites a capture it does not "
+                            "have is an assertion (prodsim/F-96)" % (p, ci + 1, cm.group(1)))
+                continue
+            cap_lines = open(cap_path, "rb").read().split(b"\n")
+            if cap_lines and cap_lines[-1] == b"":
+                cap_lines = cap_lines[:-1]
+            body = raw_bytes[j + 1:k] if k <= len(raw_bytes) else [b.encode("utf-8") for b in body]
+            if cap_lines != body:
+                n = next((x for x, (a, b) in enumerate(zip(cap_lines, body)) if a != b),
+                         min(len(cap_lines), len(body)))
+                msgs.append("%s:%d pasted fence differs from its capture %s at paste line %d "
+                            "(%d capture line(s), %d pasted) — the formatter or a hand edit "
+                            "rewrote the evidence after the paste; re-paste from the capture or "
+                            "wrap it in prettier-ignore (FORMATS §3, prodsim/F-96)"
+                            % (p, j + 1, cm.group(1), n + 1, len(cap_lines), len(body)))
+        for i, line in enumerate(doc_lines, 1):
+            s = line.strip()
+            fm = _FENCE_OPEN.match(line)
+            # ADV-R12-15 (R12b): a closer is the same character AND at least
+            # the opener's length (CommonMark) — a ```-line inside a ````
+            # fence is content.
+            if fm and (in_fence is None or (fm.group(1)[0] == in_fence[0]
+                                            and len(fm.group(1)) >= len(in_fence))):
+                in_fence = None if in_fence is not None else fm.group(1)
+                continue
+            if in_fence is not None:
                 continue
             if s.startswith("#"):
                 cur_sec = s.lstrip("#").strip().lower()
             if not s:
-                status_idx, verdict_idx, prev_cells = None, None, None
+                status_idx, verdict_idx, closure_idx, ruling_idx, prev_cells = None, None, None, None, None
+                verdict_hdr, verdict_reported = None, False
                 continue
 
             is_row = line.count("|") >= 2
@@ -942,6 +1134,11 @@ def gate_3(paths=None):
                             status_idx = idx
                         if h.lower() in verdict_cols:
                             verdict_idx = idx
+                            verdict_hdr = h
+                        if h.lower() in closure_cols:
+                            closure_idx = idx
+                        if h.lower() in ruling_cols:
+                            ruling_idx = idx
                     if is_report and cur_sec in rs["sections"] \
                             and status_idx is None and verdict_idx is None:
                         msgs.append("%s:%d section '%s' is a DECLARED status section "
@@ -975,6 +1172,18 @@ def gate_3(paths=None):
             has_ev = _has_evidence(masked)
             has_ref = _has_reference(masked, skip_first_cell=is_row)
             cells = _cells(line) if is_row else []
+            # prodsim/F-110 (v0.7.5): a ruling quotes the question it answered.
+            if ruling_idx is not None and ruling_idx < len(cells) and attest_ruling:
+                # DEV-R12-13 (R12b): the attest usually sits in the row's ev
+                # cell beside the Decision cell — the whole ROW is read.
+                rcell = masked
+                for am in re.finditer(F["evidence"]["types"]["attest"], rcell):
+                    if not re.search(attest_ruling, am.group(0)):
+                        msgs.append("%s:%d attest in a ruling column (%s) carries no question — a "
+                                    "ruling records the question as put AND the words given: "
+                                    "ev:attest{PO: Q \"…\" A \"…\" @<date>}; a correct answer "
+                                    "beside the wrong question reads as a ruling on the reverse "
+                                    "case (prodsim/F-110)" % (p, i, ", ".join(sorted(ruling_cols))))
             prev_cells = cells if is_row else None
             if status_idx is not None:
                 checked = [cells[status_idx]] if status_idx < len(cells) else []
@@ -982,13 +1191,47 @@ def gate_3(paths=None):
                 checked = [c for idx, c in enumerate(cells) if idx != verdict_idx]
             else:
                 checked = cells
+            # ADV-R12-03 (R12b): the first cut dropped the closure column from
+            # every check — `| Outcome |` became a one-word fail-open escape for
+            # COMPLETED-without-evidence. Only the closure VOCABULARY is exempt
+            # in that column; a status word there is still a status.
+            if closure_idx is not None and closure_idx < len(cells) and status_idx is None:
+                cv = re.sub(sv["cell_decoration"], "", cells[closure_idx]).strip().upper()
+                if cv in closure_vocab:
+                    checked = [c for idx, c in enumerate(cells)
+                               if idx != verdict_idx and idx != closure_idx]
+            # platform/F-102 (v0.7.5): in a table with NO status header every
+            # cell is scanned, and a counts table whose first cell is a reading
+            # word a signed plan contracted (`live`) was refused as the status
+            # synonym LIVE. In that headerless shape the synonym check binds
+            # only where a status would be WRITTEN: the token in uppercase, or
+            # a row that also carries a task/requirement id (a status row).
+            # A named Status column is checked as before.
+            first_cell = (cells[0].strip().strip("`") if cells else "")
+            row_is_status_shaped = status_idx is not None or bool(
+                re.search(F["ids"]["task"].strip("^$"), line)
+                or re.search(_req_id_pattern().strip("^$"), line)
+                # ADV-R12-08 (R12b): an AC-/U-/VF-/PARK-/CV-keyed row is a
+                # status row too — `| AC-3 | Passed |` is the F-20 claim.
+                or any(re.fullmatch(F["ids"][k].strip("^$"), first_cell)
+                       for k in list(sv["reference_id_patterns"]) + ["acceptance_criterion", "unit", "obligation"]))
 
             if verdict_idx is not None and verdict_idx < len(cells):
                 v = re.sub(sv["cell_decoration"], "", cells[verdict_idx]).strip()
                 if v:
                     if v not in verdict_vocab:
-                        msgs.append("%s:%d verdict '%s' is not in the verdict vocabulary (%s) — "
-                                    "F-10" % (p, i, v, ", ".join(verdict_vocab)))
+                        # platform/F-91 (v0.7.5): the refusal named the VALUE and
+                        # never the HEADER that made the column a verdict column
+                        # — eleven lines about one header read as eleven defects
+                        # when the fix was one rename. Once per table.
+                        if not verdict_reported:
+                            msgs.append("%s:%d column '%s' is a verdict column (status_vocab."
+                                        "verdict_columns) — its value '%s' is not in the verdict "
+                                        "vocabulary (%s); rename the column, or use the vocabulary "
+                                        "(F-10; further rows of this table share the header and "
+                                        "are not listed, platform/F-91)"
+                                        % (p, i, verdict_hdr, v, ", ".join(verdict_vocab)))
+                            verdict_reported = True
                     else:
                         need = verdict_refs.get(v)
                         if need and not re.search(F["ids"][need].strip("^$"), line):
@@ -1035,7 +1278,8 @@ def gate_3(paths=None):
                 elif bare.lower() in done_words and len(bare.split()) == 1 and not has_ev:
                     msgs.append("%s:%d done-word '%s' used as a status without an ev: citation"
                                 % (p, i, bare))
-                elif up in forbidden and up not in allowed:
+                elif up in forbidden and up not in allowed \
+                        and (row_is_status_shaped or bare.isupper()):
                     hint = (" — a verdict belongs under a Grade/Verdict header, not a status "
                             "column (F-20)" if up in [v.upper() for v in verdict_vocab] else "")
                     msgs.append("%s:%d '%s' is not in the status vocabulary (%s)%s"
@@ -1231,21 +1475,46 @@ def gate_2(run_id=None, spec=None, close=False):
     # header declares `requirements:` or any unit declares `governs:`, those
     # declarations ARE the set; mention is no longer claim.
     declared = set()
+    # platform/F-100 + prodsim/F-90 (v0.7.5, two pilots): a declaration that
+    # names NOTHING (`requirements: none` — an audit delivers findings, not
+    # product) yielded an empty set, and `if declared:` read empty as absent,
+    # so the gate fell back to the text scan F-17 retired and enrolled a
+    # requirement the spec merely cited as background. The close form then
+    # demanded that row be updated by a run that never governed it — and the
+    # only green paths edited the record to satisfy the instrument. A present
+    # declaration IS the set, even when empty: the sentinel in
+    # requirements_row_schema.empty_declaration says so explicitly; any other
+    # id-less value is refused loudly, so a typo is never read as "none".
+    declaration_present = False
     for s in sorted(set(sources)):
         txt = read(rp(s))
         m = re.search(schema["spec_declaration"],
                       "\n".join(txt.split("\n")[:F["jira_mapping"]["header_lines"]]), re.M)
         if m:
-            for dm in re.finditer(req_pat, m.group(1)):
-                declared.add(dm.group(0))
+            declaration_present = True
+            # DEV-R12-05 (R12b): the sentinel ENDS the declaration — an id the
+            # `<why>` mentions as background is not declared.
+            if re.match(schema["empty_declaration"], m.group(1).strip(), re.I):
+                found = []
+            else:
+                found = [dm.group(0) for dm in re.finditer(req_pat, m.group(1))]
+            if not found and not re.match(schema["empty_declaration"], m.group(1).strip(), re.I):
+                return False, pre_msgs + [
+                    "%s declares `requirements: %s` — no id matches %s and the value is not "
+                    "the empty-set sentinel (%s); a declaration that yields nothing is either "
+                    "the empty set, written as the sentinel, or a typo — it is never read as "
+                    "absent (platform/F-100, prodsim/F-90)"
+                    % (s, m.group(1).strip()[:60], _req_id_pattern(), schema["empty_declaration"])]
+            declared.update(found)
         for pat_name in ("inline_list_field", "list_field"):
             for gm in re.finditer(fill(F["plan_schema"][pat_name], name="governs"), txt, re.M):
                 for dm in re.finditer(req_pat, gm.group(1)):
                     declared.add(dm.group(0))
-    if declared:
+    if declared or declaration_present:
         named = declared
         pre_msgs.append("obligation set from declarations (requirements:/governs:) — %d id(s); "
-                        "mention is not claim (F-17)" % len(named))
+                        "mention is not claim (F-17%s)"
+                        % (len(named), "; an explicit empty set, platform/F-100" if not named else ""))
     else:
         for s in sorted(set(sources)):
             for m in re.finditer(req_pat, read(rp(s))):
@@ -1269,19 +1538,32 @@ def gate_2(run_id=None, spec=None, close=False):
             "(repo-local truth, never overwritten by install)"
             % (len(unreadable), F["ids"]["requirement"])]
     if not named:
-        return True, pre_msgs + ["no requirement ids (pattern %s) named by the "
-                                 "active spec/plan" % _req_id_pattern()]
-
-    missing = sorted(r for r in named if r not in rows)
-    if missing:
-        return False, pre_msgs + ["REQ id named by the active spec/plan has no row in %s: %s"
-                                  % (schema["file"], ", ".join(missing))]
-    msgs = pre_msgs + ["%d REQ id(s) checked, all have rows" % len(named)]
+        # platform/F-83 (v0.7.5): the label was declared in the registry and
+        # never emitted — a PASS over zero requirement rows read like a PASS.
+        # The close form's WALK still binds over an empty requirement set (an
+        # audit run with `requirements: none` has failed/parked items too —
+        # the early return here used to skip the walk entirely).
+        if declaration_present:
+            # ADV-R12-16 (R12b): a DECLARED empty set is graded, not vacuous —
+            # the sweep must not count an audit publish as green-over-nothing.
+            msgs = pre_msgs + ["subject: 0 requirement row(s) — a declared empty set, graded as "
+                               "such (platform/F-100); not vacuous"]
+        else:
+            msgs = pre_msgs + ["no requirement ids (pattern %s) named by the "
+                               "active spec/plan" % _req_id_pattern()] + _subject_note("GATE-2", 0)
+        if not close:
+            return True, msgs
+    else:
+        missing = sorted(r for r in named if r not in rows)
+        if missing:
+            return False, pre_msgs + ["REQ id named by the active spec/plan has no row in %s: %s"
+                                      % (schema["file"], ", ".join(missing))]
+        msgs = pre_msgs + ["%d REQ id(s) checked, all have rows" % len(named)] + _subject_note("GATE-2", len(named))
     if not close:
         msgs.append("consistency form: updated-row check binds at phase close "
                     "(gate-2 --close, at G4/P4) — F-09")
         return True, msgs
-    if run_id and schema.get("must_be_updated_in_run"):
+    if named and run_id and schema.get("must_be_updated_in_run"):
         touched = _req_rows_touched(run_id)
         stale = sorted(r for r in named if r not in touched)
         if stale:
@@ -1321,8 +1603,15 @@ def gate_4(run_id=None):
         msgs.append("no wiring test at %s — gate logic and gate wiring are different claims"
                     % wiring)
 
+    # platform/F-84 (v0.7.5): the inventory arm is never empty and the per-run
+    # arm was empty in 14 of 14 pilot runs; one bare PASS covered both. The
+    # arms report separately, and the per-run arm carries the subject label.
+    n_gates = len([g for g in F["gates"] if not g.startswith("$")])
+    notes = ["inventory: %d/%d gate(s) carry a negative test"
+             % (n_gates - len([m for m in msgs if "negative test" in m]), n_gates)]
     if run_id is None:
         run_id = discover_run()
+    inv_total = 0
     if run_id:
         d = rp(P["runs_dir"], run_id)
         for base, _dirs, files in os.walk(d):
@@ -1333,6 +1622,7 @@ def gate_4(run_id=None):
                 rel = os.path.relpath(p, ROOT)
                 txt = read(p)
                 n_inv = len(re.findall(nv["invariant_marker"], txt, re.M))
+                inv_total += n_inv
                 proofs = re.findall(nv["proof_marker"], txt, re.M)
                 if n_inv > len(proofs):
                     msgs.append("%s declares %d invariant(s) but records %d non-vacuity proof(s)"
@@ -1347,7 +1637,7 @@ def gate_4(run_id=None):
                             msgs.append("%s non-vacuity proof cites nothing runnable: '%s' — a "
                                         "proof names an ev: citation or an existing file"
                                         % (rel, proof.strip()))
-    return (len(msgs) == 0), msgs
+    return (len(msgs) == 0), msgs + notes + _subject_note("GATE-4", inv_total)
 
 
 # --------------------------------------------------------------------------
@@ -1546,7 +1836,8 @@ def gate_6(area=None, run_id=None, deps=None, probe=True):
         msgs.append(why)
         if not good:
             ok = False
-    return ok, msgs
+    # platform/F-83 (v0.7.5): label declared, never emitted.
+    return ok, msgs + _subject_note("GATE-6", len(areas) + len(deps))
 
 
 # --------------------------------------------------------------------------
@@ -1651,10 +1942,11 @@ def gate_12(kind=None, ref=None):
                                   "(an empty table is a valid registry), and that is not a pass"]
     if problems:
         return False, problems
+    sub = _subject_note("GATE-12", len(rows))   # platform/F-83 (v0.7.5)
     blocking = [r for r in rows if r["open"] and r["effect_value"] == "blocks-new-feature-work"]
     if not blocking:
         return True, ["no open blocks-new-feature-work obligation (%d open row(s) total)"
-                      % sum(1 for r in rows if r["open"])]
+                      % sum(1 for r in rows if r["open"])] + sub
     ids = [r["id_plain"] for r in blocking]
     if kind == "feature":
         return False, ["open blocks-new-feature-work obligation(s): %s — new feature work is "
@@ -1708,6 +2000,33 @@ def _remediation_ref_ok(ref):
 # --------------------------------------------------------------------------
 # GATE-13 — plan Verify non-vacuity (F-9, pilot #1; their local GATE-12)
 # --------------------------------------------------------------------------
+def _signed_frozen_rows(plan_rel):
+    """prodsim/F-107 (v0.7.5) / DEV-R12-09 (R12b): the task rows a SIGNED plan
+    carried at its signing commit, keyed by task id → (verify, nonvac, action).
+    None when the plan is unsigned or the signature is not yet committed (an
+    uncommitted signature freezes nothing)."""
+    head = "\n".join((read(rp(plan_rel)) or "").split("\n")[:F["jira_mapping"]["header_lines"]])
+    signed = re.search(F["jira_mapping"]["signoff_record"], head, re.M)
+    if not signed:
+        return None
+    intro = git("log", "--format=%H", "-1", "-S", signed.group(0), "--", plan_rel).strip()
+    signed_txt = git("show", "%s:%s" % (intro, plan_rel)) if intro else ""
+    if not signed_txt:
+        return None
+    import tempfile
+    frozen = {}
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as tf:
+        tf.write(signed_txt)
+    try:
+        for u0 in _parse_plan(tf.name)["units"]:
+            for t0 in u0["tasks"]:
+                frozen[t0["id"]] = ((t0.get("verify") or "").strip(), (t0.get("nonvac") or "").strip(),
+                                    (t0.get("action") or "").strip())
+    finally:
+        os.unlink(tf.name)
+    return frozen
+
+
 def gate_13(run_id=None):
     """A task's Verify command is the sole mechanical arbiter of COMPLETED,
     and GATE-4's scope predicate (invariant_marker) cannot see a markdown task
@@ -1733,9 +2052,17 @@ def gate_13(run_id=None):
     if not os.path.isfile(rp(plan_rel)):
         return False, ["no %s — GATE-13 has nothing to check, and that is not a pass" % plan_rel]
     head = "\n".join((read(rp(plan_rel)) or "").split("\n")[:F["jira_mapping"]["header_lines"]])
-    if re.search(F["jira_mapping"]["signoff_record"], head, re.M):
-        return True, ["plan is signed — a frozen artifact; GATE-13 binds while the plan is "
-                      "being written, at G2"]
+    signed = re.search(F["jira_mapping"]["signoff_record"], head, re.M)
+    # prodsim/F-107 (v0.7.5): a signed plan was skipped WHOLE — but P3 step
+    # 10 lets a mid-run amendment add or change task rows, and those rows were
+    # never at G2, so no lint ever read them (eight amendments, four inert
+    # verifies, every amendment commit reporting gate-13 green). Rows signed
+    # at G2 stay frozen; rows added or changed since the signing commit are
+    # linted, and a signed plan with no such rows says so with a zero subject.
+    amended_only = None
+    if signed:
+        fr = _signed_frozen_rows(plan_rel)
+        amended_only = {k: v[:2] for k, v in fr.items()} if fr is not None else {}
     plan = _parse_plan(rp(plan_rel))
     if not plan["units"]:
         return False, ["%s parses into no units — a plan the schema cannot read is not a plan "
@@ -1747,12 +2074,23 @@ def gate_13(run_id=None):
     msgs = []
     exempt = ps["task_verify_exempt_marker"]
     nv_name = ps["non_vacuity_column"]
+    linted_amended = 0
     for u in plan["units"]:
+        if amended_only is not None and not any(
+                amended_only.get(t["id"]) != ((t.get("verify") or "").strip(),
+                                              (t.get("nonvac") or "").strip())
+                for t in u["tasks"]):
+            continue   # F-107: no row of this unit changed since signing
         if u["tasks"] and not u.get("nv_header_seen"):
             msgs.append("unit %s's task table has no '%s' column — every Verify states the "
                         "wrong answer it rejects, or the check is only believed to check (F-9)"
                         % (u["id"], nv_name))
         for t in u["tasks"]:
+            if amended_only is not None:
+                cur = ((t.get("verify") or "").strip(), (t.get("nonvac") or "").strip())
+                if amended_only.get(t["id"]) == cur:
+                    continue   # F-107: signed at G2 and unchanged since — frozen
+                linted_amended += 1
             # DEV-R9-05 (v0.7.3 R9): a row whose cell count disagrees with its
             # header parses into a DIFFERENT table (F-18) — GATE-8 said so
             # while GATE-13, reading the same shifted row at the same G2
@@ -1799,6 +2137,13 @@ def gate_13(run_id=None):
                                 "deliberately and visibly with '%s <reason>'"
                                 % (t["id"], idiom, ver[:60], vl["accept_marker"]))
     n = sum(len(u["tasks"]) for u in plan["units"])
+    if amended_only is not None:
+        note = ["plan is signed — rows signed at G2 are frozen; %d row(s) added or changed "
+                "since the signing commit were linted (prodsim/F-107)%s"
+                % (linted_amended, "" if linted_amended else " — signed, nothing amended")]
+        if not msgs:
+            return True, note + _subject_note("GATE-13", linted_amended)
+        return False, msgs + note + _subject_note("GATE-13", linted_amended)
     if not msgs:
         return True, ["no inert idioms; non-vacuity statements present"] + \
             _subject_note("GATE-13", n)
@@ -1849,6 +2194,25 @@ def gate_14(paths=None, staged=False):
 # --------------------------------------------------------------------------
 # GATE-7 — P5 sweep
 # --------------------------------------------------------------------------
+def _quick_stub_age_days(slug, note):
+    """prodsim/F-114 (v0.7.5): stub age was read from the NOTE's mtime, which
+    a fresh clone or checkout resets to now — so on exactly the machine most
+    likely to run GC (a new checkout, a CI runner) every stale stub read as 0
+    days old and went unlisted. The directory name carries the stub's date
+    (YYMMDD, the ids anatomy); that is the age LANES means. mtime is the
+    fallback only when the slug carries no parseable date."""
+    dm = re.match(r"^(\d{2})(\d{2})(\d{2})-", slug)
+    if dm and 1 <= int(dm.group(2)) <= 12 and 1 <= int(dm.group(3)) <= 31:
+        try:
+            born = time.mktime((2000 + int(dm.group(1)), int(dm.group(2)), int(dm.group(3)),
+                                0, 0, 0, 0, 0, -1))
+            if born <= time.time():   # ADV-R12-12: a date in the future is not a date
+                return (time.time() - born) / 86400.0
+        except (ValueError, OverflowError):
+            pass
+    return (time.time() - os.path.getmtime(note)) / 86400.0
+
+
 def gate_7(p5=False, run_id=None):
     rl = F["runs_layout"]
     msgs = []
@@ -1944,7 +2308,7 @@ def gate_7(p5=False, run_id=None):
                 continue
             m = re.search(rl["quick_result_section"], read(note), re.M | re.I)
             if (m is None) or (m.group(1).strip() == ""):
-                age = (time.time() - os.path.getmtime(note)) / 86400.0
+                age = _quick_stub_age_days(slug, note)
                 if age > rl["quick_stale_days"]:
                     # DEV-R11-09 (platform/F-80's rule at the tool that builds
                     # the candidate list): a stub a registry row CITES is not
@@ -2208,17 +2572,82 @@ def gate_7(p5=False, run_id=None):
         # registry requires the FULL form. Real reports use the short form
         # (frisbii's CV-01..05 were invisible to the long regex, so the escrow
         # was vacuous for exactly the records it exists to catch).
-        long_spans = [m.span() for m in re.finditer(cv_pat.pattern, text)]
-        for m in re.finditer(cv_short.pattern, text):
-            if any(s <= m.start() < e for s, e in long_spans):
-                continue
-            nn = m.group(0).split("-")[-1]
-            want = re.compile("^CV-%s-(?:U[1-9][0-9]*-)?%s$" % (re.escape(this_run), nn))
-            if not any(want.match(g) for g in gap_ids):
+        # prodsim/F-89 (v0.7.5; five recurrences across four runs): the
+        # shorthand pattern ran with its anchors stripped and NO boundary, so
+        # the first two digits of any `CV-<date…>` token — a truncated full id,
+        # an ellipsis, a placeholder-suffixed id, a 150-char subject cut — read
+        # as `CV-26`, the gate demanded a registry row for an id that cannot
+        # exist, and the only consumer-side exit was rewording an independent
+        # verifier's record. A shorthand is a WHOLE token: nothing id-shaped on
+        # either side. The bounded form lives in formats.json
+        # (ids.cannot_validate_short_token) so status.mjs can read the same
+        # rule. Each verdict names the FILE it was read from (F-87d), not the
+        # concatenated RUN-REPORT path, and is given once per shorthand per run.
+        # prodsim/F-102 (v0.7.5): the shorthand walk never consulted
+        # _cv_discharged_in_run, so one record was closed under its long
+        # spelling and demanded under its short one. A shorthand resolves to
+        # every full id in the run whose number is <nn>; it is satisfied when
+        # any of them has a registry row OR an evidenced in-run discharge; an
+        # unevidenced discharge stays demanded, as in the long walk (F-51).
+        cv_short_tok = re.compile(F["ids"].get("cannot_validate_short_token")
+                                  or r"(?<![\w-])CV-[0-9]{2}(?![\w-]|…|\.\.\.)")
+        full_in_run = set(m.group(0) for m in re.finditer(cv_pat.pattern, text))
+        seen_short = set()
+        for src_rel, src_text in named_texts:
+            long_spans = [m.span() for m in re.finditer(cv_pat.pattern, src_text)]
+            for m in re.finditer(cv_short_tok, src_text):
+                if any(s <= m.start() < e for s, e in long_spans):
+                    continue
+                nn = m.group(0).split("-")[-1]
+                if nn in seen_short:   # ADV-R9-04 applied here (F-102): one verdict per id
+                    continue
+                seen_short.add(nn)
+                want = re.compile("^CV-%s-(?:(?:U[1-9][0-9]*|AM[0-9]{2})-)?%s$" % (re.escape(this_run), nn))
+                if any(want.match(g) for g in gap_ids):
+                    continue
+                stands_for = sorted(f for f in full_in_run if want.match(f))
+                verdicts = [_cv_discharged_in_run(f) for f in stands_for]
+                if any(c and e for c, e in verdicts):
+                    continue
+                if any(c and not e for c, e in verdicts):
+                    msgs.append("%s uses shorthand %s for %s, which is marked discharged "
+                                "WITHOUT an ev: citation — an unevidenced closure is an "
+                                "assertion, and the record stays escrow-demanded (F-51, "
+                                "prodsim/F-102)" % (src_rel, m.group(0), ", ".join(stands_for)))
+                    continue
                 msgs.append("%s uses shorthand %s but %s has no full-form row "
                             "CV-%s-[U<n>-]%s — the short form is run-local; the registry "
-                            "keeps the id that outlives the run (OBL-PKG-13)"
-                            % (rr_rel, m.group(0), F["gap_row"]["file"], this_run, nn))
+                            "keeps the id that outlives the run (OBL-PKG-13; a record "
+                            "discharged in-run carries 'discharged: <date> ev:…' in its "
+                            "block, F-51/prodsim/F-102)"
+                            % (src_rel, m.group(0), F["gap_row"]["file"], this_run, nn))
+        # prodsim/F-105 (v0.7.5): two verifiers of one unit (a fix-wave delta
+        # verifier and an amendment delta verifier) each took "the next free
+        # number" in the same segment and minted one VF id for two findings;
+        # the signed plan cited one meaning, so neither could be renumbered.
+        # A VF id DEFINED (heading, list-item head, or table-row first cell)
+        # in two report files of one run is refused at the escrow.
+        # ADV-R12-01 / DEV-R12-03 (R12b): the first cut read every named text
+        # and every table row — the RUN-REPORT's own `## defects` row (the
+        # shape P3 mandates) read as a second definition and every run with a
+        # FAIL grade was refused at P5. A definition is the id heading a
+        # heading or list item in a VERIFY report (the files that allocate);
+        # a table row anywhere is a reference.
+        vf_pat = F["ids"]["verifier_finding"].strip("^$")
+        defn = re.compile(r"^\s*(?:#{1,6}\s+|[-*]\s+)\**(%s)\b" % vf_pat, re.M)
+        vf_homes = {}
+        for src_rel, src_text in named_texts:
+            if not src_rel.endswith("-verify.md"):
+                continue
+            for dm in defn.finditer(_strip_fenced_blocks(src_text)):
+                vf_homes.setdefault(dm.group(1), set()).add(src_rel)
+        for vf_id, homes in sorted(vf_homes.items()):
+            if len(homes) > 1:
+                msgs.append("%s is DEFINED in %d report files (%s) — one id, two findings; a "
+                            "verifier allocates in its own segment (VF-U<n>-<nn> for a unit's "
+                            "verifier, VF-AM<nn>-<nn> for an amendment's delta verifier) so "
+                            "parallel verifiers cannot collide (prodsim/F-105, platform/F-93)"
+                            % (vf_id, len(homes), ", ".join(sorted(homes))))
         sv = F["status_vocab"]
         # prodsim/F-87b (v0.7.4): DEFERRED discovery over RAW text parsed a
         # fenced block of pasted `grep -n` output as table rows — the
@@ -2271,13 +2700,34 @@ def gate_7(p5=False, run_id=None):
                 if not isinstance(spec, dict) or "threshold" not in spec:
                     continue
                 hit = val > spec["threshold"] if spec["comparator"] == ">"                     else val >= spec["threshold"]
-                if hit and not any(re.search(r"\b%s\b" % at_id, t) for t in open_row_texts):
+                # prodsim/F-91 fix 2 (R12b, ADV-R12-18): the AT-2 row's citation
+                # is a RUNNABLE command over a stated range — two archived
+                # figures could not be reproduced from prose or a list of names.
+                sec_txt = sec.group(1)
+                ls_ = sec_txt.rfind("\n", 0, am.start()) + 1
+                le_ = sec_txt.find("\n", am.end())
+                row_line = sec_txt[ls_:le_ if le_ >= 0 else None]
+                if at_id in F["audit_triggers"].get("runnable_citation_required", []) \
+                        and not re.search(F["evidence"]["types"]["cmd"], _mask_inline_code(row_line)):
+                    msgs.append("%s records %s = %d without an ev:cmd{…} citation on the row — the "
+                                "figure is reproducible only from a runnable command over a stated "
+                                "range (prodsim/F-91, platform/F-101; a list of names or a prose "
+                                "filter is not re-derivable)" % (rr_rel, at_id, val))
+                # prodsim/F-98 (v0.7.5): the escrow asked only whether ANY open
+                # row mentioned the trigger id — a row about the counting rule
+                # satisfied every later hit unrecorded. A hit's record names
+                # the trigger AND the run it fired on, in one row.
+                bound = any(re.search(r"\b%s\b" % at_id, t) and this_run in t
+                            for t in open_row_texts)
+                if hit and not bound:
                     msgs.append("%s records %s = %d (%s %s threshold %s) — a trigger hit is an "
-                                "owed audit; it needs an OPEN %s row naming %s, or the "
-                                "obligation retires with the archived run (F8, escrow third "
+                                "owed audit; it needs an OPEN %s row naming BOTH %s and the run "
+                                "%s (a row that mentions the trigger about another run or about "
+                                "its counting rule is not this hit's record, prodsim/F-98), or "
+                                "the obligation retires with the archived run (F8, escrow third "
                                 "class)" % (rr_rel, at_id, val, spec["comparator"],
                                             "over" if hit else "under", spec["threshold"],
-                                            F["gap_row"]["file"], at_id))
+                                            F["gap_row"]["file"], at_id, this_run))
     if run_id is not None and runs_walked == 0 and os.path.isdir(escrow_root):
         msgs.append("--run %s walked 0 runs — no %s and no reports/*-verify.md under it; "
                     "an escrow that judged nothing is not a pass (ADV-R9-06)"
@@ -2396,7 +2846,9 @@ def _parse_plan(path):
                     ver = cells[verify_col] if verify_col is not None and verify_col < len(cells) \
                         else (cells[2] if len(cells) > 2 else "")
                     nv = cells[nv_col] if nv_col is not None and nv_col < len(cells) else ""
-                    u["tasks"].append({"id": tid, "verify": ver, "nonvac": nv,
+                    act_col = _table_column(header, "Action")
+                    act = cells[act_col] if act_col is not None and act_col < len(cells) else ""
+                    u["tasks"].append({"id": tid, "verify": ver, "nonvac": nv, "action": act,
                                        "cells_n": len(cells),
                                        "header_n": len(header),
                                        "header_seen": verify_col is not None})
@@ -2450,7 +2902,7 @@ def _spec_acs(spec_txt):
     return acs
 
 
-def gate_8(run_id):
+def gate_8(run_id, boundary=None):
     ps = F["plan_schema"]
     if not run_id:
         return False, ["gate-8 needs --run <run-id>"]
@@ -2590,8 +3042,31 @@ def gate_8(run_id):
             return int(u["fields"].get("wave") or 0)
         except (TypeError, ValueError):
             return 0
+
+    def _consumes_at(u):
+        # prodsim/F-104 (v0.7.5): a unit re-dispatched at a later boundary
+        # consumes from the tree cut at THAT boundary, which carries every
+        # lower wave; `wave:` stays what GATE-8 reads for the unit's outputs.
+        try:
+            d = int(u["fields"].get("dispatched_at_wave") or 0)
+        except (TypeError, ValueError):
+            d = 0
+        return d if d > _wave(u) else _wave(u)
+    orch_globs = list(ps["orch_owned_paths"])
+    orch_inputs = []   # (unit, path): checked for existence on int at --boundary
     for u in plan["units"]:
+        d = u["fields"].get("dispatched_at_wave")
+        if d and _consumes_at(u) == _wave(u):
+            msgs.append("%s declares dispatched_at_wave: %s, which is not LATER than its wave: %d "
+                        "— a re-dispatch runs at a later boundary or it is not a re-dispatch "
+                        "(prodsim/F-104)" % (u["id"], d, _wave(u)))
         for inp in u.get("inputs") or []:
+            # prodsim/F-108 (v0.7.5): an input under an ORCH-owned glob has no
+            # producer UNIT by design — it is accepted here and its existence
+            # on int is the wave boundary's question (--boundary).
+            if any(fnmatch.fnmatch(inp, og) for og in orch_globs):
+                orch_inputs.append((u, inp))
+                continue
             producers = [v for v in plan["units"] if v["id"] != u["id"]
                          and any(fnmatch.fnmatch(inp, o) or inp == o
                                  or (_static_prefix(o) and
@@ -2600,14 +3075,132 @@ def gate_8(run_id):
             if not producers:
                 msgs.append("%s declares input '%s' that NO other unit owns — the input has "
                             "no producer, so the executor meets a missing path and the good "
-                            "outcome is only a park (F-58)" % (u["id"], inp))
-            elif not any(_wave(v) < _wave(u) for v in producers):
-                msgs.append("%s (wave %d) declares input '%s' produced by %s (wave %d) — not "
+                            "outcome is only a park (F-58; an ORCH-written record is declarable "
+                            "when it sits under an ORCH-owned path, prodsim/F-108)" % (u["id"], inp))
+            # ADV-R12-07 (R12b): a producer re-dispatched at a later boundary
+            # makes its outputs available THERE — the fail-safe reading, so a
+            # same-wave consumer of its new output is refused (F-58's case).
+            elif not any(_consumes_at(v) < _consumes_at(u) for v in producers):
+                msgs.append("%s (wave %d%s) declares input '%s' produced by %s (wave %d) — not "
                             "a STRICTLY LOWER wave, so the input cannot be on the consumer's "
                             "branch under the wave-cut model (F-58: the same-wave-producer "
                             "case adversarial review missed twice)"
-                            % (u["id"], _wave(u), inp, producers[0]["id"],
-                               _wave(producers[0])))
+                            % (u["id"], _wave(u),
+                               ", consuming at wave %d" % _consumes_at(u)
+                               if _consumes_at(u) != _wave(u) else "",
+                               inp, producers[0]["id"], _consumes_at(producers[0])))
+    if boundary is not None:
+        try:
+            bwave = int(boundary)
+        except ValueError:
+            return False, ["--boundary takes a wave number"]
+        int_ref = fill(F["branch_patterns"]["int_ref"], run_id=run_id)
+        checked = 0
+        int_exists = bool(git("rev-parse", "--verify", "--quiet", int_ref).strip())
+        for u, inp in orch_inputs:
+            if _consumes_at(u) != bwave:
+                continue
+            checked += 1
+            if not int_exists:
+                msgs.append("%s is cut at wave %d and declares ORCH-owned input '%s', but the "
+                            "integration branch %s does not exist yet — cut int from the run base "
+                            "first (P3 branch model), then write the record there (prodsim/F-108)"
+                            % (u["id"], bwave, inp, int_ref))
+                continue
+            if not git("cat-file", "-e", "%s:%s" % (int_ref, inp), rc=True):
+                msgs.append("%s is cut at wave %d and declares ORCH-owned input '%s', which does "
+                            "not exist on %s — the ORCH writes the record BEFORE the consuming "
+                            "wave is cut, or the dispatch is held (prodsim/F-108)"
+                            % (u["id"], bwave, inp, int_ref))
+        boundary_note = ["boundary %d: %d ORCH-owned input(s) checked on %s" % (bwave, checked, int_ref)]
+    else:
+        boundary_note = []
+
+    # platform/F-97 (v0.7.5): reads-vs-declarations — every repo path a task's
+    # Action/Verify names must exist or be produced by someone the wave order
+    # can deliver; every id a clause names must be allocated somewhere.
+    rl_cfg = ps.get("reads_lint")
+    if rl_cfg and plan["units"]:
+        # DEV-R12-09 (R12b): like GATE-13 (F-107), a SIGNED plan's rows are
+        # frozen — only rows added or changed since the signing commit are
+        # linted; an uncommitted signature freezes nothing.
+        frozen_rows = _signed_frozen_rows(rel)
+        tracked = set(files)
+        top_dirs = set(f.split("/", 1)[0] for f in files if "/" in f)
+        top_dirs |= set(d for d in os.listdir(ROOT) if os.path.isdir(rp(d)) and not d.startswith("."))
+        path_tok = re.compile(rl_cfg["path_token"])
+        run_prefix = P["runs_dir"].rstrip("/") + "/" + run_id + "/"
+        plan_txt = read(path)
+        run_txt = ""
+        for b, _d, fs in os.walk(rp(P["runs_dir"], run_id)):
+            for fn in fs:
+                if fn.endswith(".md") and os.path.join(b, fn) != path:
+                    run_txt += read(os.path.join(b, fn)) + "\n"
+        # ADV-R12-09a (R12b): a CV/PARK id from a PRIOR run (which P2 now loads)
+        # is allocated in the archive; the archive's reports are searched too.
+        arch_dir = rp(F["runs_layout"]["archive_dir"])
+        if os.path.isdir(arch_dir):
+            for b, _d, fs in os.walk(arch_dir):
+                for fn in fs:
+                    if fn.endswith(".md"):
+                        run_txt += read(os.path.join(b, fn)) + "\n"
+        accept = F["verify_lint"]["accept_marker"]
+        reported = set()
+
+        def _owned_by(u, pth):
+            return any(fnmatch.fnmatch(pth, o) or pth == o
+                       or (_static_prefix(o) and pth.startswith(_static_prefix(o) + "/"))
+                       for o in u["owns"])
+        for u in plan["units"]:
+            for t in u["tasks"]:
+                cells_txt = " ".join(x for x in (t.get("action") or "", t.get("verify") or ""))
+                if accept in cells_txt:
+                    continue
+                if frozen_rows is not None and frozen_rows.get(t["id"]) == (
+                        (t.get("verify") or "").strip(), (t.get("nonvac") or "").strip(),
+                        (t.get("action") or "").strip()):
+                    continue   # DEV-R12-09: signed at G2 and unchanged since
+                for pm in path_tok.finditer(cells_txt):
+                    pth = pm.group(1).strip("`'\"")
+                    if pth.split("/", 1)[0] not in top_dirs or "*" in pth or pth.endswith("/"):
+                        continue
+                    if (t["id"], pth) in reported:
+                        continue   # ADV-R12-09c: once per (task, path)
+                    if pth in tracked or os.path.exists(rp(pth)):
+                        continue
+                    if _owned_by(u, pth) or pth in (u.get("inputs") or []):
+                        continue
+                    # a unit's own reports/evidence, or a LOWER-wave unit's
+                    # (ADV-R12-09b: delivered by the branch model like owns:)
+                    rm_ = re.search(r"/(?:reports|evidence)/(U[1-9][0-9]*)(?:[-./]|$)", pth)
+                    if pth.startswith(run_prefix) and rm_:
+                        who = rm_.group(1)
+                        if who == u["id"] or any(v["id"] == who and _consumes_at(v) < _consumes_at(u)
+                                                 for v in plan["units"]):
+                            continue
+                    if any(_owned_by(v, pth) and _consumes_at(v) < _consumes_at(u)
+                           for v in plan["units"] if v["id"] != u["id"]):
+                        continue
+                    reported.add((t["id"], pth))
+                    msgs.append("%s task %s names path '%s' which exists nowhere the wave order can "
+                                "deliver: not tracked at HEAD, not under this unit's owns:/inputs:, "
+                                "not owned by a lower-wave unit — a clause pointing at nothing "
+                                "survives review and fails at execution; declare it, or accept "
+                                "deliberately with '%s <reason>' (platform/F-97)"
+                                % (u["id"], t["id"], pth, accept))
+                for kind in rl_cfg["id_kinds"]:
+                    pat = F["ids"][kind].strip("^$")
+                    for im in re.finditer(pat, cells_txt):
+                        rid = im.group(0)
+                        # the id is allocated OUTSIDE the task's own row(s)
+                        rest = "\n".join(ln for ln in (plan_txt + "\n" + run_txt).split("\n")
+                                         if t["id"] not in ln)
+                        if re.search(r"(?<![\w-])" + re.escape(rid) + r"(?![\w-])", rest):
+                            continue
+                        msgs.append("%s task %s names %s and nothing in the plan or the run tree "
+                                    "allocates it — an id a clause references is a row somewhere, "
+                                    "or the clause points at nothing (platform/F-97)"
+                                    % (u["id"], t["id"], rid))
 
     # (c) every auto task has a verify command, in the column the header names
     empty = set(x.strip().lower() for x in ps["task_verify_empty"])
@@ -2694,7 +3287,7 @@ def gate_8(run_id):
             for ac, tasks in plan["coverage"].items():
                 if tasks.strip().lower() in empty:
                     msgs.append("coverage matrix maps %s to no task" % ac)
-    return (len(msgs) == 0), msgs + _subject_note("GATE-8", len(plan["units"]))
+    return (len(msgs) == 0), msgs + boundary_note + _subject_note("GATE-8", len(plan["units"]))
 
 
 # --------------------------------------------------------------------------
@@ -2704,7 +3297,8 @@ def _governing_artifact(gate, run_id, spec):
     jm = F["jira_mapping"]
     kind = jm["closing_gates"].get(gate)
     if kind == "plan" and run_id:
-        return fill(F["plan_schema"]["file"], run_id=run_id)
+        return _resolve_target(fill(F["plan_schema"]["file"], run_id=run_id)) or \
+            fill(F["plan_schema"]["file"], run_id=run_id)
     if kind == "spec":
         if spec:
             return spec
@@ -2714,7 +3308,9 @@ def _governing_artifact(gate, run_id, spec):
             # run's spec, chosen alphabetically. Resolve through the named
             # run's plan the way GATE-2's _governing_sources does, and refuse
             # rather than guess when that fails (the G-11 principle).
-            plan_rel = fill(F["plan_schema"]["file"], run_id=run_id)
+            # DEV-R12-23c (R12b): an archived run's plan is still the governing record
+            plan_rel = _resolve_target(fill(F["plan_schema"]["file"], run_id=run_id)) or \
+                fill(F["plan_schema"]["file"], run_id=run_id)
             if os.path.isfile(rp(plan_rel)):
                 m = re.search(F["plan_schema"]["spec_header"], read(rp(plan_rel)), re.M)
                 if m:
@@ -2795,6 +3391,7 @@ def gate_9(artifacts=None, gate=None, run_id=None, spec=None):
                        "'signed: %s <date> ev:jira{...}')" % gate))
         artifacts = artifacts or [a]
 
+    unscoped = artifacts is None
     if artifacts is None:
         artifacts = matching_docs([P["specs_glob"]])
         artifacts += _untracked_matching((fill(F["plan_schema"]["file"], run_id="*"),))
@@ -2828,7 +3425,10 @@ def gate_9(artifacts=None, gate=None, run_id=None, spec=None):
                 # tied to the MODIFICATION: the AM count must have GROWN since
                 # the commit that introduced the signature (count-and-compare,
                 # F-71's fix 1 — no format change, mechanically checkable).
-                am_re = re.compile(F["ids"]["amendment"].strip("^$"))
+                # platform/F-103 + prodsim/F-106 (v0.7.5): tokens → RECORD
+                # lines; a citation of another document's AM-05 (or the
+                # substring inside `PAM-05`) is not this document's record.
+                am_re = re.compile(F["ids"]["amendment_record"], re.M)
                 # the comparison base is the state BEFORE the latest
                 # modification — comparing against the signature commit would
                 # itself be a one-time toll one step later (one amendment
@@ -2848,12 +3448,20 @@ def gate_9(artifacts=None, gate=None, run_id=None, spec=None):
                     msgs.append("%s was modified after the commit that introduced its signed: "
                                 "record and its AM-<nn> count did not grow across the latest "
                                 "modification (%d before this change, %d after) — an amendment "
-                                "records THIS modification, not the document's history: add an "
-                                "`AM-%02d` block naming what changed and why (FORMATS §1); the "
+                                "records THIS modification, not the document's history: add a "
+                                "record LINE `AM-%02d — <YYYY-MM-DD> — <who> — <what changed; widens "
+                                "scope: yes/no>` (only this shape counts, FORMATS §1; a citation of "
+                                "another document's AM-nn does not); the "
                                 "signature line and the text it signs are otherwise drifting "
                                 "apart with no trace (F-29, platform/F-71)"
                                 % (a, base_ams, now_ams, now_ams + 1))
     bad = [m for m in msgs if "claims SIGNED" in m or "not SIGNED" in m or "F-29" in m]
+    # platform/F-85 (v0.7.5): the registry called GATE-9 always-one-subject
+    # "by design" — true of the --gate form, false of the form every sweep
+    # runs, which iterates a glob-derived list and said nothing about its
+    # size. The unscoped form states its subject; --gate stays unlabelled.
+    if unscoped:
+        msgs = msgs + _subject_note("GATE-9", len(artifacts))
     return (len(bad) == 0), msgs
 
 
@@ -2886,12 +3494,35 @@ def _walk_items(run_id):
     """prodsim/F-86: every RUN-REPORT item P4 step 2 must classify — rows whose
     status is FAILED/BLOCKED/PARKED (by header-resolved status column, whole
     row otherwise) plus every plan-defect id — read on fence-stripped text."""
-    rr = rp(fill(F["report_row_schema"]["file"], run_id=run_id))
-    if not os.path.isfile(rr):
+    rr_rel = _resolve_target(fill(F["report_row_schema"]["file"], run_id=run_id))
+    if rr_rel is None:
         return None
+    rr = rp(rr_rel)
     txt = _strip_fenced_blocks(read(rr))
     sv = F["status_vocab"]
     items = []
+    # platform/F-98 (v0.7.5): plan-defect ids were enrolled by a bare token
+    # scan over the whole RUN-REPORT — a DEF-plan in a COMPLETED row's
+    # evidence cell, or the two endpoints of a range "found and repaired at
+    # G2a", became walk items with no class that fits (P4 had no "resolved,
+    # nothing owed"), so closed records were routed into the registry F-51
+    # keeps for open obligations. Rows govern: a DEF-plan id is enrolled from
+    # a row's FIRST cell when that row's status is walkable, with ranges
+    # expanded by the rule GATE-2 applies to requirement ranges; an id that
+    # has a row anywhere is never enrolled from prose; an id with NO row at
+    # all is still enrolled from prose (fail-safe: seeing more).
+    dp = F["ids"]["plan_defect"].strip("^$")
+    walkable = tuple(sv.get("walkable_statuses", ["FAILED", "BLOCKED", "PARKED"]))
+    rowed_ids = set()
+
+    def _expand_first_cell(cell):
+        ids = [m.group(0) for m in re.finditer(dp, cell)]
+        if len(ids) == 2 and re.search(re.escape(ids[0]) + r"\s*(?:…|\.\.\.|-|–|to)\s*" + re.escape(ids[1]), cell):
+            a, b = int(ids[0].rsplit("-", 1)[1]), int(ids[1].rsplit("-", 1)[1])
+            if a <= b:
+                stem = ids[0].rsplit("-", 1)[0]
+                return ["%s-%02d" % (stem, n) for n in range(a, b + 1)]
+        return ids
     for kind, cells, colmap, _hdr in _table_scan(txt.splitlines()):
         if kind != "row" or not cells:
             continue
@@ -2900,12 +3531,23 @@ def _walk_items(run_id):
             idx = next((colmap[c.lower()] for c in sv["status_columns"] if c.lower() in colmap), None)
             if idx is not None:
                 status_cells = [cells[idx]] if idx < len(cells) else []
-        if any(c.strip().upper().startswith(("FAILED", "BLOCKED", "PARKED")) for c in status_cells):
-            rid = cells[0].strip().strip("`")
-            if rid and rid not in items:
-                items.append(rid)
-    for m in re.finditer(F["ids"]["plan_defect"].strip("^$"), txt):
-        if m.group(0) not in items:
+        first = cells[0].strip().strip("`")
+        first_ids = _expand_first_cell(first)
+        rowed_ids.update(first_ids)
+        # DEV-R12-18 (R12b): a `## defects` row with status OPEN is an open
+        # defect — walkable for a DEF-plan-keyed row.
+        defect_open = bool(first_ids) and any(
+            c.strip().upper().startswith(tuple(sv.get("walkable_defect_statuses", ["OPEN"])))
+            for c in status_cells)
+        if defect_open or any(c.strip().upper().startswith(walkable) for c in status_cells):
+            if first_ids:
+                for rid in first_ids:
+                    if rid not in items:
+                        items.append(rid)
+            elif first and first not in items:
+                items.append(first)
+    for m in re.finditer(dp, txt):
+        if m.group(0) not in items and m.group(0) not in rowed_ids:
             items.append(m.group(0))
     return items
 
@@ -2918,10 +3560,16 @@ def _walk_check(run_id):
     G4 close is refused while an item the RUN-REPORT carries is absent."""
     rl = F["runs_layout"]
     items = _walk_items(run_id)
+    if items is None:
+        # DEV-R12-06 (R12b): no RUN-REPORT at either path — nothing owed is
+        # not the same as nothing FOUND; say which.
+        return ["G4 close: no %s for run %s at its path or the archive rewrite — the walk "
+                "has no population to check, and that is not a pass (DEV-R12-06)"
+                % (os.path.basename(F["report_row_schema"]["file"]), run_id)]
     if not items:
         return []
-    wp = rp(fill(rl["walk"], run_id=run_id))
-    wrel = fill(rl["walk"], run_id=run_id)
+    wrel = _resolve_target(fill(rl["walk"], run_id=run_id)) or fill(rl["walk"], run_id=run_id)
+    wp = rp(wrel)
     if not os.path.isfile(wp):
         return ["G4 close: %s carries %d failed/blocked/parked/defect item(s) (%s%s) and there "
                 "is no walk artifact %s — P4 step 2's walk is enumerated there, one row per "
@@ -2942,6 +3590,24 @@ def _walk_check(run_id):
                 "before the gate closes (prodsim/F-86)"
                 % (len(missing), len(items), wrel, ", ".join(missing[:4]),
                    " …" if len(missing) > 4 else "")]
+    # platform/F-98 fix 3 (v0.7.5): the fifth class, `resolved-in-run`, routes
+    # nowhere and therefore MUST cite the repairing commit/amendment (F-51's
+    # `discharged: <date> ev:…` applied to the walk) — an uncited "resolved"
+    # is the assertion the walk exists to refuse.
+    rclass = F["runs_layout"].get("walk_resolved_class", "resolved-in-run")
+    bad = []
+    for ln in wtxt.splitlines():
+        cs = _cells(ln)
+        if len(cs) < 2 or _is_separator(ln):
+            continue
+        if cs[1].strip().strip("`").lower().startswith(rclass) and \
+                not re.search(F["evidence"]["opener"], _mask_inline_code(ln)):
+            bad.append(cs[0].strip().strip("`"))
+    if bad:
+        return ["G4 close: walk row(s) classified `%s` carry no ev: citation: %s — this class "
+                "routes nowhere, so it cites the repairing commit or amendment (ev:commit{…} / "
+                "ev:file{…}) or it is an assertion, not a resolution (platform/F-98; a "
+                "backticked ev: is a mention)" % (rclass, ", ".join(bad[:4]))]
     return []
 
 
@@ -3001,6 +3667,8 @@ def gate_10(run_id, gate):
                             % (rel, i, g, j))
         rows += 1
         got = cells[class_col].strip().lower() if class_col < len(cells) else ""
+        if got in ("—", "–", "-", "n/a"):
+            got = ""   # DEV-R12-21 (R12b): the dash every table uses for "none" IS empty
         # an expected-consistent row with an EMPTY classification is not a
         # divergence; a non-vocabulary word in the column is a defect either way
         if got not in jm["classifications"] and not (consistent and got == ""):
@@ -3013,7 +3681,7 @@ def gate_10(run_id, gate):
                 return False, msgs + ["%s asserts 'no divergences' with no ev: citation of the "
                                       "query that produced it. An empty diff is a claim like any "
                                       "other." % rel]
-            return True, msgs + ["%s records no divergences, with evidence" % rel]
+            return True, msgs + ["%s records no divergences, with evidence" % rel] + _subject_note("GATE-10", 0)
         if not saw_class_table:
             return False, msgs + ["%s has no '%s' column — GATE-10 reads the classification from "
                                   "that column, not from anywhere in the row"
@@ -3031,7 +3699,7 @@ def gate_10(run_id, gate):
         return False, msgs + ["%d divergence(s) unclassified in the %s column (need one of %s): %s"
                               % (len(unclassified), jm["classification_column"],
                                  "/".join(jm["classifications"]), "; ".join(unclassified[:5]))]
-    return True, msgs + ["%d divergence(s), all classified" % rows]
+    return True, msgs + ["%d divergence(s), all classified" % rows] + _subject_note("GATE-10", rows)
 
 
 # --------------------------------------------------------------------------
@@ -3055,7 +3723,29 @@ def _list_opt(args, flag):
     return out
 
 
+# prodsim/F-94 amendment (v0.7.5): `--run` is read by nine gates and by the
+# sweep, so a reader had every reason to expect `gate-3 --run` to mean
+# something — and the dispatcher neither consumed nor rejected it. Every gate
+# names the flags it READS; any other --flag is refused before the gate runs.
+GATE_FLAGS = {
+    "gate-1": set(), "gate-2": {"--run", "--spec", "--close"}, "gate-3": {"--paths", "--run"},
+    "gate-4": {"--run"}, "gate-5": {"--staged", "--sweep", "--paths", "--run"},
+    "gate-6": {"--area", "--run", "--deps", "--no-probe"}, "gate-7": {"--p5", "--run"},
+    "gate-8": {"--run", "--boundary"}, "gate-9": {"--paths", "--gate", "--run", "--spec"},
+    "gate-10": {"--run", "--gate"}, "gate-11": {"--staged", "--paths"},
+    "gate-12": {"--kind", "--ref"}, "gate-13": {"--run"}, "gate-14": {"--paths", "--staged"},
+    "parity": set(),
+}
+
+
 def run_gate(name, args):
+    known = GATE_FLAGS.get(name)
+    if known is not None:
+        unread = [a for a in args if a.startswith("--") and a not in known]
+        if unread:
+            return False, ["%s does not read %s — a flag a gate ignores is a scope the caller "
+                           "believes was graded and was not; this gate reads: %s (prodsim/F-94)"
+                           % (name, ", ".join(unread), ", ".join(sorted(known)) or "no flags")]
     if name == "gate-1":
         positional = [a for a in args if not a.startswith("--")]
         if not positional:
@@ -3065,7 +3755,7 @@ def run_gate(name, args):
         return gate_2(run_id=_opt(args, "--run"), spec=_opt(args, "--spec"),
                       close=("--close" in args))
     if name == "gate-3":
-        return gate_3(_list_opt(args, "--paths") or None)
+        return gate_3(_list_opt(args, "--paths") or None, run_id=_opt(args, "--run"))
     if name == "gate-4":
         return gate_4(run_id=_opt(args, "--run"))
     if name == "gate-5":
@@ -3086,7 +3776,7 @@ def run_gate(name, args):
     if name == "gate-14":
         return gate_14(paths=(_list_opt(args, "--paths") or None), staged=("--staged" in args))
     if name == "gate-8":
-        return gate_8(_opt(args, "--run"))
+        return gate_8(_opt(args, "--run"), boundary=_opt(args, "--boundary"))
     if name == "gate-9":
         return gate_9(_list_opt(args, "--paths") or None, gate=_opt(args, "--gate"),
                       run_id=_opt(args, "--run"), spec=_opt(args, "--spec"))
@@ -3219,6 +3909,33 @@ def check_parity():
     for gid in sorted(engine - set(spec_rows.keys())):
         msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
                     "declarations of the gate set disagree" % gid)
+    # ---- platform/F-83 (v0.7.5): a subject label is a promise the engine keeps
+    # Four gates declared a label and never emitted it, for two releases; the
+    # registry and the call sites are two files the package owns, so their
+    # pairing is mechanical. Labelled ⇔ a `_subject_note("<id>"` call site.
+    engine_src = read(os.path.join(HERE, "gates.py"))
+    called = set(re.findall(r'_subject_note\("(GATE-\d+)"', engine_src))
+    labelled = set(g for g in engine if F["gates"][g].get("subject"))
+    for gid in sorted(labelled - called):
+        msgs.append("%s declares a subject label in formats.json (gates.%s.subject) and gates.py "
+                    "never emits it — a PASS over an empty set would read like a PASS "
+                    "(platform/F-83)" % (gid, gid))
+    for gid in sorted(called - labelled):
+        msgs.append("gates.py emits a subject note for %s and formats.json declares no label "
+                    "for it — the note is silent (platform/F-83)" % gid)
+    # ---- platform/F-92 fix 1 (v0.7.5): no ownership/exemption list may exempt
+    # the file that holds it. A four-line insert made plan_schema.
+    # agent_writable_paths cover scripts/wow/**, and the run-level ownership
+    # check it fed went green on its own manufacture.
+    ps = F["plan_schema"]
+    for key in ("agent_writable_paths", "orch_owned_paths", "delta_verifier_paths"):
+        for glob_ in ps.get(key) or []:
+            for guarded in ("scripts/wow/formats.json", "scripts/wow/gates.py", "docs/process/P3-RUN.md"):
+                if fnmatch.fnmatch(guarded, glob_):
+                    msgs.append("plan_schema.%s contains %r, which matches the package-owned path %s "
+                                "— an ownership list that covers its own home is self-licensing "
+                                "(platform/F-92)" % (key, glob_, guarded))
+                    break
     # ---- F-35 (v0.6.4): the machine home is shared by two regex dialects ----
     # \Z is Python end-of-string and a JavaScript literal 'Z' — one key, two
     # engines, opposite answers (16 healthy quick notes proposed for deletion).
@@ -3316,6 +4033,35 @@ def check_parity():
                             "notices); run `scripts/wow/gates.sh hooks --install` — it chains "
                             "the foreign hook and rotates an older chained copy aside, never "
                             "destroys (prodsim/F-77)" % (h, where))
+    # platform/F-92 fix 2 (v0.7.5): package-owned files carry an install-time
+    # digest; drift is "modified since install" — visible, not forbidden.
+    dm = F["install"].get("digest_manifest")
+    if dm and os.path.isfile(rp(dm)):
+        try:
+            recorded = json.load(open(rp(dm))).get("digests") or {}
+        except (ValueError, OSError):
+            recorded = None
+        mode_i = str(cfg().get("package_integrity_check") or "advisory")
+        sink_i = msgs if mode_i == "block" else layer_notes
+        if recorded is None:
+            sink_i.append("%s is unreadable — the package digest manifest cannot be compared "
+                          "(platform/F-92)" % dm)
+        else:
+            drifted = []
+            for rel, h in sorted(recorded.items()):
+                fp = rp(rel)
+                if not os.path.isfile(fp):
+                    drifted.append(rel + " (missing)")
+                elif hashlib.sha256(open(fp, "rb").read()).hexdigest() != h:
+                    drifted.append(rel)
+            if drifted:
+                sink_i.append("package-owned file(s) modified since install (%d): %s%s — a package "
+                              "file edited in a consumer is either an upstream finding or a "
+                              "self-licensing edit; the next install overwrites it either way "
+                              "(platform/F-92; %s)"
+                              % (len(drifted), ", ".join(drifted[:4]), " …" if len(drifted) > 4 else "",
+                                 "blocking: package_integrity_check" if mode_i == "block"
+                                 else "advisory; set package_integrity_check: \"block\" to refuse"))
     ch = rp("CHANGELOG.md")
     if not os.path.isfile(ch):
         msgs_note = "version authority: package-repo check — skipped here (no CHANGELOG.md); " \
@@ -3363,7 +4109,12 @@ def check_parity():
         return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
     cur = _ver_tuple(str(F.get("version", "")))
     rows, _probs = _gap_rows()
-    if rows and cur:
+    # DEV-R12-08 (R12b): this is a PACKAGE-registry rule (the package's own
+    # rows name package versions as successors). In a consumer the version in
+    # a successor cell is the consumer's upgrade plan, not a release claim —
+    # and the arm ran there only when parity had already failed, so a clone
+    # and its origin disagreed. Package repo only (CHANGELOG.md present).
+    if rows and cur and os.path.isfile(rp("CHANGELOG.md")):
         for r in rows:
             if not r["open"]:
                 continue
@@ -3397,7 +4148,7 @@ def sweep(args):
         log_rejection("PARITY", msgs)
     for g in gates:
         a = []
-        if run_id and g in ("gate-2", "gate-4", "gate-5", "gate-7"):
+        if run_id and g in ("gate-2", "gate-3", "gate-4", "gate-5", "gate-7"):
             a = ["--run", run_id]
         if g == "gate-5":
             a = ["--sweep"] + a
@@ -3433,7 +4184,8 @@ def main(argv):
         print(__doc__)
         print("usage: gates.sh <gate-1..gate-14 [--run <id>] [--paths …] [--staged] [--close] "
               "[--gate G<n>] [--spec <file>] | sweep [--p5] [--run <id>] | parity | list | "
-              "check-id <run-id> [--base <ref>] | hooks --install|--check | formats-expand "
+              "check-id <run-id> [--base <ref>] | verify-cmd <task-id> [--run <id>] | "
+              "history --run <id> | hooks --install|--check | formats-expand "
               "(package repo only — rewrites formats.json)>")
         return 0
     cmd, args = argv[0], argv[1:]
@@ -3479,6 +4231,84 @@ def main(argv):
         json.load(open(p))
         print("ids_expanded regenerated (%d keys)" % len(gen))
         return 0
+    if cmd == "history":
+        # prodsim/F-99 (v0.7.5): a verifier committed its report twice,
+        # soft-reset the unit branch and committed once more; the discarded
+        # commits survive only in the local reflog, which P5 never archives.
+        # Before a wave boundary merges wow/<run>/U<n>, this reads each unit
+        # branch's reflog and refuses any reset / rebase / amend entry since
+        # the branch was cut. Local by construction: run it in the checkout
+        # that holds the branches, before P5 removes them.
+        run_id = _opt(args, "--run")
+        if not run_id:
+            print("usage: gates.sh history --run <run-id>", file=sys.stderr)
+            return 1
+        refs = [r for r in git("for-each-ref", "--format=%(refname:short)",
+                               "refs/heads/wow/%s/" % run_id).split("\n") if r.strip()]
+        units = [r for r in refs if re.match(r"^wow/%s/U[1-9][0-9]*$" % re.escape(run_id), r)]
+        bad, checked = [], 0
+        rewrite = re.compile(F["branch_patterns"].get(
+            "history_rewrite_entry", r"^(reset:|rebase|commit \(amend\)|reset )"))
+        for b in units:
+            checked += 1
+            entries = [e for e in git("reflog", "show", "--format=%gs", b).split("\n") if e.strip()]
+            hits = [e for e in entries if rewrite.search(e)]
+            if hits:
+                bad.append("%s: %d history-rewrite entr%s since the branch was cut — %s — a "
+                           "correction is a NEW commit; a rewritten unit branch replaces what "
+                           "was first written with no trace outside this local reflog "
+                           "(prodsim/F-99). Recovery: `git reflog show %s` names the discarded "
+                           "tip(s); re-commit each as a NEW commit on top (`git cherry-pick -n "
+                           "<sha>` then commit), record a DEV-ORCH-<nn> naming the rewrite, and "
+                           "merge only after this check passes on the restored branch (P3 step 5)"
+                           % (b, len(hits), "y" if len(hits) == 1 else "ies",
+                              "; ".join(h[:60] for h in hits[:3]), b))
+        for m in bad:
+            print("HISTORY: %s" % m, file=sys.stderr)
+        note = ("subject: %d unit branch(es) of %s" % (checked, run_id) if checked else
+                "subject: 0 unit branch(es) of %s — VACUOUS for this checkout (no wow/%s/U* "
+                "branches here; the check is local to the checkout that holds them, prodsim/F-99)"
+                % (run_id, run_id))
+        print("     %s" % note)
+        if bad:
+            log_rejection("HISTORY", bad)
+            return 1
+        print("HISTORY PASS")
+        return 0
+    if cmd == "verify-cmd":
+        # prodsim/F-111 (v0.7.5): a Verify cell escapes `|` as `\|` (F-18) and
+        # nothing said how the RUNNABLE command is recovered — an executor ran
+        # the cell with the escapes in place and did not get the signed
+        # result. This prints the task's Verify as GATE-13's parser reads it:
+        # escapes removed, one wrapping code span stripped. Paste its output.
+        tid = args[0] if args else ""
+        if not tid:
+            print("usage: gates.sh verify-cmd <task-id> [--run <run-id>]", file=sys.stderr)
+            return 1
+        run_id = _opt(args, "--run") or (tid.split(".T")[0] if ".T" in tid else None)
+        if not run_id:
+            print("verify-cmd: cannot derive the run from %r — pass --run" % tid, file=sys.stderr)
+            return 1
+        plan_rel = fill(F["plan_schema"]["file"], run_id=run_id)
+        if not os.path.isfile(rp(plan_rel)):
+            arch = os.path.join(F["runs_layout"]["archive_dir"], run_id, os.path.basename(plan_rel))
+            plan_rel = arch if os.path.isfile(rp(arch)) else plan_rel
+        if not os.path.isfile(rp(plan_rel)):
+            print("verify-cmd: no %s" % plan_rel, file=sys.stderr)
+            return 1
+        for u in _parse_plan(rp(plan_rel))["units"]:
+            for t in u["tasks"]:
+                if (t.get("id") or "").strip().strip("`") == tid:
+                    v = (t.get("verify") or "").strip()   # _cells already turned \| into |
+                    marker = F["verify_lint"]["accept_marker"]
+                    if marker in v:                          # ADV-R12-17: the escape is not part of the command
+                        v = v[:v.index(marker)].strip()
+                    if len(v) > 1 and v.startswith("`") and v.endswith("`"):
+                        v = v[1:-1]
+                    print(v)
+                    return 0
+        print("verify-cmd: task %s not found in %s" % (tid, plan_rel), file=sys.stderr)
+        return 1
     if cmd == "check-id":
         # F-46 (v0.7.1): validate the run id WHERE THE RUN IS CREATED (P1),
         # not where it is first referenced — a 27-char slug passed P0→G2 and

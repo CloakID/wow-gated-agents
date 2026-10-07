@@ -157,6 +157,10 @@ rmdir "$FIX/runs/260820-ghost-r1/reports" "$FIX/runs/260820-ghost-r1"
 assert_accepts "runs holding files are not phantoms (control)" "$FIX" gate-7
 
 # ---- F-11 (v0.6.2, --p5 only): the run branch may not be behind main --------
+# (v0.7.5: this commit used to be carried by the untracked runs/.gate-log the
+# gates wrote into the fixture — prodsim/F-97 moved the log into .git/, so the
+# fixture writes its own file to commit.)
+printf 'base\n' > "$FIX/base.txt"
 ( cd "$FIX" && git add -A >/dev/null && git commit -qm "base [WOW:publish]" \
   && git branch -M main && git checkout -qb wow/260816-x-r1/int \
   && git checkout -q main && printf 'grant\n' > grant.txt && git add grant.txt \
@@ -234,13 +238,21 @@ printf '%s\n| CV-260903-cv-r1-U2-03 | env_unverified | PO | advisory | later | r
 assert_accepts "unit-scoped full form also satisfies (control)" "$FIX13" gate-7 --run 260903-cv-r1
 
 # (3) F8 third class: an audit-trigger HIT in a RUN-REPORT is an owed audit.
-printf '## audit triggers\n| AT-2 | 6 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+printf '## audit triggers\n| AT-2 | 6 | ev:cmd{git log --oneline base..int --grep=repairs => 6 @2026-10-06T10:00:00Z} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
 printf '%s\n' "$HDR13" > "$FIX13/docs/GAPS.md"
 assert_rejects "AT-2 over threshold with no open row naming it (F8)" "$FIX13" \
   "owed audit" gate-7 --run 260903-cv-r1
-printf '%s\n| OBL-T-51 | audit_owed | PO | advisory | audit run | AT-2 remediation audit performed | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
-assert_accepts "open row naming AT-2 escrows the hit (control)" "$FIX13" gate-7 --run 260903-cv-r1
-printf '## audit triggers\n| AT-2 | 3 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+# prodsim/F-98 (v0.7.5): a row that merely MENTIONS the trigger — about its
+# counting rule, or about another run's hit — is not this hit's record.
+printf '%s\n| OBL-T-51 | audit_owed | PO | advisory | audit run | AT-2 counting rule is undefined (F-91) | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_rejects "an open row that mentions AT-2 without naming THIS run does not escrow the hit (prodsim/F-98)" "$FIX13" \
+  "naming BOTH AT-2 and the run 260903-cv-r1" gate-7 --run 260903-cv-r1
+printf '%s\n| OBL-T-51 | audit_owed | PO | advisory | audit run | AT-2 hit on 260900-other-r1, audit owed | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_rejects "an open row recording ANOTHER run's AT-2 hit does not escrow this one (prodsim/F-98)" "$FIX13" \
+  "naming BOTH AT-2" gate-7 --run 260903-cv-r1
+printf '%s\n| OBL-T-51 | audit_owed | PO | advisory | audit run | AT-2 remediation audit owed for 260903-cv-r1 | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "open row naming AT-2 AND the run escrows the hit (control)" "$FIX13" gate-7 --run 260903-cv-r1
+printf '## audit triggers\n| AT-2 | 3 | ev:cmd{git log --oneline base..int --grep=repairs => 3 @2026-10-06T10:00:00Z} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
 printf '%s\n' "$HDR13" > "$FIX13/docs/GAPS.md"
 assert_accepts "under-threshold trigger owes nothing (control)" "$FIX13" gate-7 --run 260903-cv-r1
 # ---- ADV-R9-04 (v0.7.3 R9): discharge resolution is order-INDEPENDENT ------
@@ -511,5 +523,86 @@ printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---
 assert_rejects "an UNCITED stale stub is still listed for deletion (DEV-R11-09 control)" "$FIXQ" \
   "260701-orphan" gate-7 --run 260922-q-r1
 assert_output "a CITED stale stub is retained and says who cites it (DEV-R11-09)" "$FIXQ" \
-  "260701-cited/NOTE.md is empty and 60 days old but CITED by docs/GAPS.md:3" gate-7 --run 260922-q-r1
+  "260701-cited/NOTE.md is empty and" gate-7 --run 260922-q-r1
+# ---- prodsim/F-89 (v0.7.5, five recurrences): a shorthand is a WHOLE token ----
+FIX89="$(setup_fixture_repo)"
+mkdir -p "$FIX89/runs/260903-sh-r1/reports"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$FIX89/docs/GAPS.md"
+printf '# RUN-REPORT\nno records\n' > "$FIX89/runs/260903-sh-r1/RUN-REPORT.md"
+cat > "$FIX89/runs/260903-sh-r1/reports/U2-verify.md" << 'R'
+No `CV-260903-sh-r1-U2-` records were allocated. A grep for CV-260903-sh… found nothing,
+and the placeholder CV-260903-sh-r1-U<n>-01 matched no row. Subject cut: "carried as CV-2609".
+R
+assert_accepts "a truncated / placeholder / cut full id is NOT a CV-26 shorthand (prodsim/F-89)" "$FIX89" \
+  gate-7 --run 260903-sh-r1
+printf 'Carried: CV-07 stays open. Again: CV-07 is carried.\n' >> "$FIX89/runs/260903-sh-r1/reports/U2-verify.md"
+assert_rejects "a real whole-token shorthand with no row is still demanded (F-89 control)" "$FIX89" \
+  "reports/U2-verify.md uses shorthand CV-07" gate-7 --run 260903-sh-r1
+OUT89="$(cd "$FIX89" && bash scripts/wow/gates.sh gate-7 --run 260903-sh-r1 2>&1)" || true
+if [ "$(printf '%s\n' "$OUT89" | grep -c 'uses shorthand CV-07')" = "1" ]; then
+  echo "  ok   shorthand verdict given once and attributed to the file it was read from (F-87d/F-102)"; PASS=$((PASS+1))
+else
+  echo "  FAIL shorthand verdict duplicated or misattributed"; printf '%s\n' "$OUT89" | head -4; FAIL=$((FAIL+1))
+fi
+# ---- prodsim/F-102 (v0.7.5): a shorthand honours an evidenced in-run discharge
+cat > "$FIX89/runs/260903-sh-r1/reports/U3-verify.md" << 'R'
+CV-260903-sh-r1-U3-13: the probe could not be run against the live gateway
+  reason: gateway down during wave 2
+  discharged: 2026-10-03 ev:cmd{node probe.mjs => 200 @2026-10-03T10:00:00Z}
+Later ruling: CV-13 is closed as above; CV-13 needs no registry row.
+R
+printf 'Carried: CV-260903-sh-r1-07 stays open.\n' > "$FIX89/runs/260903-sh-r1/reports/U2-verify.md"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| CV-260903-sh-r1-07 | env_unverified | PO | advisory | later | replayed | ev:commit{abc1234} |\n' > "$FIX89/docs/GAPS.md"
+assert_accepts "shorthand of a record discharged in-run WITH evidence passes (prodsim/F-102)" "$FIX89" \
+  gate-7 --run 260903-sh-r1
+sed -i 's/  discharged: 2026-10-03 ev:cmd{node probe.mjs => 200 @2026-10-03T10:00:00Z}/  discharged: 2026-10-03/' "$FIX89/runs/260903-sh-r1/reports/U3-verify.md"
+assert_rejects "shorthand of an UNEVIDENCED in-run discharge stays demanded (F-102/F-51)" "$FIX89" \
+  "uses shorthand CV-13 for CV-260903-sh-r1-U3-13, which is marked discharged WITHOUT" gate-7 --run 260903-sh-r1
+# ---- prodsim/F-105 + platform/F-93 (v0.7.5): one VF id defined in two reports
+FIX105="$(setup_fixture_repo)"
+mkdir -p "$FIX105/runs/260930-vf-r1/reports"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$FIX105/docs/GAPS.md"
+printf '# RUN-REPORT\n' > "$FIX105/runs/260930-vf-r1/RUN-REPORT.md"
+printf '## Findings\n- **VF-U3-07** (note): wiring test not run by npm test\n' > "$FIX105/runs/260930-vf-r1/reports/U3-verify.md"
+printf '## Findings\n- **VF-U3-07** (should): PAM-03 discharge of T63 (i)\nCites VF-U3-07 above.\n' > "$FIX105/runs/260930-vf-r1/reports/AM-03-verify.md"
+assert_rejects "VF-U3-07 defined in two report files of one run is refused (prodsim/F-105)" "$FIX105" \
+  "VF-U3-07 is DEFINED in 2 report files" gate-7 --run 260930-vf-r1
+printf '## Findings\n- **VF-AM03-01** (should): PAM-03 discharge of T63 (i)\nCites VF-U3-07 (U3 verify) for context.\n' > "$FIX105/runs/260930-vf-r1/reports/AM-03-verify.md"
+assert_accepts "the amendment verifier allocating in its own segment passes; a CITATION is not a definition (F-105 control)" "$FIX105" \
+  gate-7 --run 260930-vf-r1
+# ---- prodsim/F-114 (v0.7.5): stub age is the directory date, not the mtime
+FIX114="$(setup_fixture_repo)"
+mkdir -p "$FIX114/runs/quick/250101-old-stub" "$FIX114/runs/260922-q2-r1"
+printf '## what\nx\n## result\n\n' > "$FIX114/runs/quick/250101-old-stub/NOTE.md"   # fresh mtime (a new clone)
+printf '# RUN-REPORT\n' > "$FIX114/runs/260922-q2-r1/RUN-REPORT.md"
+printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$FIX114/docs/GAPS.md"
+assert_rejects "an empty stub dated 250101 with a FRESH mtime is still stale (prodsim/F-114)" "$FIX114" \
+  "250101-old-stub/NOTE.md has an empty result" gate-7 --run 260922-q2-r1
+cp "$WOW_DIR/status.mjs" "$FIX114/scripts/wow/"
+S_OUT="$( cd "$FIX114" && node scripts/wow/status.mjs --json | python3 -c "import json,sys; q=json.load(sys.stdin)['lanes']['quick']; print([x['stale'] for x in q if x['slug']=='250101-old-stub'][0])" )"
+[ "$S_OUT" = "True" ] && { echo "  ok   status.mjs reads the same age (F-114)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL status.mjs stub age still mtime-based: $S_OUT (F-114)"; FAIL=$((FAIL+1)); }
+# ---- R12b: ADV-R12-01 / DEV-R12-03 — a RUN-REPORT defects row is a REFERENCE, not a definition
+printf '# RUN-REPORT\n\n## defects\n| id | what | status |\n|---|---|---|\n| VF-U3-07 | wiring test not run | COMPLETED ev:commit{abc1234} |\n\n## findings carried\n- VF-U3-07 — carried to G4\n' > "$FIX105/runs/260930-vf-r1/RUN-REPORT.md"
+printf '## Findings\n- **VF-U3-07** (note): wiring test not run by npm test\n' > "$FIX105/runs/260930-vf-r1/reports/U3-verify.md"
+printf '## Findings\n| finding | Closure |\n|---|---|\n| VF-U3-07 | CLOSED |\n' > "$FIX105/runs/260930-vf-r1/reports/AM-03-verify.md"
+assert_accepts "a RUN-REPORT defects row and a closure table row naming a VF are references, not definitions (ADV-R12-01, DEV-R12-03)" "$FIX105" \
+  gate-7 --run 260930-vf-r1
+# ---- R12b: ADV-R12-18 — the AT-2 row cites a runnable command
+printf '## audit triggers\n| AT-2 | 6 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+printf '%s\n| OBL-T-51 | audit_owed | PO | advisory | audit run | AT-2 remediation audit owed for 260903-cv-r1 | ev:commit{abc1234} |\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_rejects "an AT-2 row whose citation is not a runnable command is refused (prodsim/F-91 fix 2, ADV-R12-18)" "$FIX13" \
+  "records AT-2 = 6 without an ev:cmd" gate-7 --run 260903-cv-r1
+printf '## audit triggers\n| AT-2 | 6 | ev:cmd{git log --oneline base..int --grep=repairs => 6 @2026-10-06T10:00:00Z} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+assert_accepts "an AT-2 row citing a runnable command passes (ADV-R12-18 control)" "$FIX13" gate-7 --run 260903-cv-r1
+# ---- R12b: ADV-R12-06 — a backticked AT row is a mention, never a recorded value
+printf '## audit triggers\n| trigger | threshold |\n|---|---|\n| `AT-5` | `1` fires the audit |\n\n| AT-5 | 0 | ev:commit{abc1234} |\n' > "$FIX13/runs/260903-cv-r1/RUN-REPORT.md"
+printf '%s\n' "$HDR13" > "$FIX13/docs/GAPS.md"
+assert_accepts "a backticked threshold-documentation row does not parse as a recorded hit (ADV-R12-06)" "$FIX13" gate-7 --run 260903-cv-r1
+# ---- R12b: ADV-R12-12 — an invalid directory date falls back to mtime, never a negative age
+mkdir -p "$FIX114/runs/quick/261399-bad-date"
+printf '## what\nx\n## result\n\n' > "$FIX114/runs/quick/261399-bad-date/NOTE.md"
+touch -d '60 days ago' "$FIX114/runs/quick/261399-bad-date/NOTE.md"
+assert_rejects "an unparseable directory date falls back to the mtime (ADV-R12-12)" "$FIX114" \
+  "261399-bad-date/NOTE.md has an empty result and is 60 days old" gate-7 --run 260922-q2-r1
 finish

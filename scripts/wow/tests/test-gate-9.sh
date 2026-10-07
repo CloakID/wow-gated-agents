@@ -67,7 +67,7 @@ printf '\nbody v2 — widened after signature\n' >> "$FIX/docs/spec/SPEC-am-v1.m
 ( cd "$FIX" && git add -A >/dev/null && git commit -qm "amend [WOW:publish]" )
 assert_rejects "signed artifact modified with no amendment record (F-29)" "$FIX" "AM-" \
   gate-9 --paths docs/spec/SPEC-am-v1.md
-printf '\nAM-01: 2026-08-15 PO widened scope (D-9); scope-widening: yes\n' >> "$FIX/docs/spec/SPEC-am-v1.md"
+printf '\nAM-01 — 2026-08-15 — PO (D-9) — widened scope; widens scope: yes\n' >> "$FIX/docs/spec/SPEC-am-v1.md"
 assert_accepts "amendment record makes the post-signature change visible (F-29 control)" "$FIX" \
   gate-9 --paths docs/spec/SPEC-am-v1.md
 
@@ -104,7 +104,7 @@ mkdir -p "$FIX/docs/spec"
 printf '# SPEC drift\nstatus: SIGNED\nsigned: G1 2026-09-20 ev:jira{WOW-5}\n\nbody v1\n' > "$FIX/docs/spec/SPEC-drift-v1.md"
 ( cd "$FIX" && git add docs/spec/SPEC-drift-v1.md && git commit -qm "sign drift spec [WOW:publish]" --no-verify )
 # first post-signature change WITH its amendment: passes
-printf '\nAM-01 records this change. **Date:** 2026-09-21\nchanged body\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+printf '\nAM-01 — 2026-09-21 — PO — records this change\nchanged body\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
 ( cd "$FIX" && git add -A && git commit -qm "amended change [WOW:publish]" --no-verify )
 assert_accepts "post-signature change carrying its NEW amendment passes (F-71 control)" "$FIX" \
   gate-9
@@ -113,7 +113,33 @@ printf '\nfifty more silent words\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
 ( cd "$FIX" && git add -A && git commit -qm "silent drift [WOW:publish]" --no-verify )
 assert_rejects "a later change with no NEW amendment fails — count-and-compare (platform/F-71)" \
   "$FIX" "did not grow" gate-9
-printf '\nAM-02 records the second change too. **Date:** 2026-09-22\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+printf '\nAM-02 — 2026-09-22 — PO — records the second change too\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
 assert_accepts "adding AM-02 for the second change clears it (F-71 control)" "$FIX" gate-9
 ( cd "$FIX" && git add -A && git commit -qm "am-02 [WOW:publish]" --no-verify )
+# ---- platform/F-103 + prodsim/F-106 (v0.7.5): records, not tokens
+printf '\nCites the spec amendment AM-07 and the plan PAM-03 for context.\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+assert_rejects "citing another document's AM-07 (or PAM-03) does not count as this document's amendment (platform/F-103, prodsim/F-106)" \
+  "$FIX" "did not grow" gate-9
+printf '\nAM-03 — 2026-10-06 — PO (D-9) — §2 adds the citation above; widens scope: no\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+assert_accepts "a record line in the FORMATS §1 block form counts (F-103 control)" "$FIX" gate-9
+( cd "$FIX" && git add -A && git commit -qm "am-03 [WOW:publish]" --no-verify )
+# ---- platform/F-85 (v0.7.5): the unscoped form states its subject; --gate does not
+assert_output "unscoped gate-9 states how many artifacts it walked (platform/F-85)" "$FIX" \
+  "subject: 13 signed artifact(s)" gate-9
+FIX85="$(setup_fixture_repo)"
+assert_output "unscoped gate-9 over no specs and no plans is VACUOUS, loudly (F-85)" "$FIX85" \
+  "subject: 0 signed artifact(s) — VACUOUS" gate-9
+# ---- R12b: ADV-R12-11 — decorated and table-form amendment records count
+printf '\nfurther silent words\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+( cd "$FIX" && git add -A && git commit -qm "drift 3 [WOW:publish]" --no-verify )
+printf '\n**AM-04** — 2026-10-06 — PO — the third change\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+assert_accepts "a bold-id amendment record counts (ADV-R12-11)" "$FIX" gate-9
+( cd "$FIX" && git add -A && git commit -qm "am-04 [WOW:publish]" --no-verify )
+printf '\nmore words\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+( cd "$FIX" && git add -A && git commit -qm "drift 4 [WOW:publish]" --no-verify )
+printf '\n| AM-05 | 2026-10-06 | PO | the fourth change |\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+assert_accepts "a table-form amendment record counts (ADV-R12-11)" "$FIX" gate-9
+( cd "$FIX" && git add -A && git commit -qm "am-05 [WOW:publish]" --no-verify )
+printf '\nstill more\n' >> "$FIX/docs/spec/SPEC-drift-v1.md"
+assert_output "the refusal prints the record shape (DEV-R12-20)" "$FIX" "record LINE \`AM-" gate-9
 finish

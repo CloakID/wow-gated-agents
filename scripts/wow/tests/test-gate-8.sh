@@ -839,4 +839,261 @@ autonomy: decide-and-log
 P
 assert_rejects "unindented prose directly after a named field is scanned, not swallowed (ADV-R11-06)" \
   "$FIX" "reaches NO executor manifest" gate-8 --run 260813-x-r1
+
+# ---- prodsim/F-104 (v0.7.5): a re-dispatched unit consumes at its later boundary
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — producer
+owns:
+- src/a.py
+tier: mid
+wave: 3
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | build | `pytest a` | works |
+
+### U4 — re-dispatched
+owns:
+- src/d.py
+inputs:
+- src/a.py
+tier: mid
+wave: 1
+dispatched_at_wave: 4
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T63 | use a | `pytest d` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T63 |
+P
+assert_accepts "a wave-1 unit re-dispatched at wave 4 may read a wave-3 output (prodsim/F-104)" "$FIX" \
+  gate-8 --run 260813-x-r1
+sed -i 's/^dispatched_at_wave: 4$/dispatched_at_wave: 3/' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_rejects "re-dispatched at wave 3 it cannot read a wave-3 output (F-104 control)" "$FIX" \
+  "consuming at wave 3) declares input 'src/a.py' produced by U1 (wave 3) — not a STRICTLY LOWER" gate-8 --run 260813-x-r1
+sed -i 's/^dispatched_at_wave: 3$/dispatched_at_wave: 1/' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_rejects "dispatched_at_wave not later than wave is refused (F-104)" "$FIX" \
+  "not LATER than its wave" gate-8 --run 260813-x-r1
+# ---- prodsim/F-108 (v0.7.5): ORCH-owned records are declarable inputs
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — reader
+owns:
+- src/a.py
+inputs:
+- runs/260813-x-r1/orch/B3-classification.md
+tier: mid
+wave: 2
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | read B3 | `cat runs/260813-x-r1/orch/B3-classification.md` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T01 |
+P
+assert_accepts "an input under runs/<id>/orch/ needs no producer unit (prodsim/F-108)" "$FIX" \
+  gate-8 --run 260813-x-r1
+assert_rejects "at the wave boundary with no int branch yet, the refusal says so (DEV-R12-23g)" "$FIX" \
+  "integration branch wow/260813-x-r1/int does not exist yet" gate-8 --run 260813-x-r1 --boundary 2
+( cd "$FIX" && git checkout -q -b wow/260813-x-r1/int && git checkout -q - )
+assert_rejects "at the wave boundary the ORCH record must exist on int (F-108)" "$FIX" \
+  "does not exist on wow/260813-x-r1/int" gate-8 --run 260813-x-r1 --boundary 2
+( cd "$FIX" && git checkout -q wow/260813-x-r1/int && mkdir -p runs/260813-x-r1/orch \
+  && printf 'B3: classified\n' > runs/260813-x-r1/orch/B3-classification.md \
+  && git add runs/260813-x-r1/orch/B3-classification.md >/dev/null && git commit -qm "orch record [T:260813-x-r1]" --no-verify && git checkout -q - )
+assert_accepts "ORCH record present on int: boundary check passes (F-108 control)" "$FIX" \
+  gate-8 --run 260813-x-r1 --boundary 2
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — claimer
+owns:
+- runs/260813-x-r1/orch/notes.md
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | x | `true` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+P
+assert_rejects "a unit cannot CLAIM an orch/ path (F-108)" "$FIX" "claims ORCH-owned path" gate-8 --run 260813-x-r1
+# ---- platform/F-95 (v0.7.5): a delta verifier's report is nobody's unit output
+sed -i 's#^- runs/260813-x-r1/orch/notes.md#- runs/260813-x-r1/reports/AM-01-verify.md#' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_rejects "a unit cannot claim reports/AM-01-verify.md either (platform/F-95)" "$FIX" \
+  "not an AGENT-writable path" gate-8 --run 260813-x-r1
+# ---- platform/F-97 (v0.7.5): reads-vs-declarations — a clause pointing at nothing
+mkdir -p "$FIX/src"
+printf 'a\n' > "$FIX/src/a.py"
+( cd "$FIX" && git add src/a.py >/dev/null && git commit -qm "src [WOW:publish]" --no-verify )
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+reviews: 2
+
+## Units
+
+### U1 — reader
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T31 | compare | `diff runs/260813-x-r1/RUN-REPORT.md src/a.py` | same |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T31 |
+| AC-2 | 260813-x-r1.T31 |
+P
+assert_rejects "a Verify naming an ORCH-owned file that does not exist during P3 is refused at G2 (platform/F-97, DEF-plan-02 replay)" "$FIX" \
+  "names path 'runs/260813-x-r1/RUN-REPORT.md' which exists nowhere" gate-8 --run 260813-x-r1
+sed -i 's#`diff runs/260813-x-r1/RUN-REPORT.md src/a.py`#`diff runs/260813-x-r1/evidence/U1/out.txt src/a.py`#' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_accepts "a path under the unit's own evidence dir is the unit's to write (F-97 control)" "$FIX" gate-8 --run 260813-x-r1
+sed -i 's#`diff runs/260813-x-r1/evidence/U1/out.txt src/a.py`#`test -f src/ghost.py \&\& echo PARK-U1-01`#' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_rejects "an untracked, unowned path is refused (F-97)" "$FIX" "names path 'src/ghost.py'" gate-8 --run 260813-x-r1
+assert_rejects "an id no row allocates is refused (F-97 fix 2)" "$FIX" "names PARK-U1-01 and nothing" gate-8 --run 260813-x-r1
+sed -i 's#`test -f src/ghost.py \&\& echo PARK-U1-01`#`test -f src/ghost.py` lint-ok: ghost is created by T31 itself#' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_accepts "lint-ok accepts the clause deliberately and visibly (F-97 escape)" "$FIX" gate-8 --run 260813-x-r1
+# ---- R12b: ADV-R12-07 — a re-dispatched producer's outputs are available at its dispatched wave
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U2 — producer re-dispatched
+owns:
+- src/b.py
+tier: mid
+wave: 1
+dispatched_at_wave: 2
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T02 | write b (AM-01 at wave 2) | `pytest b` | works |
+
+### U3 — consumer
+owns:
+- src/c.py
+inputs:
+- src/b.py
+tier: mid
+wave: 2
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T03 | use b | `pytest c` | works |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T02 |
+| AC-2 | 260813-x-r1.T03 |
+P
+assert_rejects "a wave-2 consumer of a unit re-dispatched at wave 2 is the same-wave case (ADV-R12-07)" "$FIX" \
+  "produced by U2 (wave 2) — not a STRICTLY LOWER" gate-8 --run 260813-x-r1
+# ---- R12b: DEV-R12-09 — the reads lint is frozen with the signed rows
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+signed: 2026-08-13 ev:jira{WOW-1}
+
+## Units
+
+### U1 — reader
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T31 | compare | `diff runs/260813-x-r1/RUN-REPORT.md src/a.py` | same |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T31 |
+| AC-2 | 260813-x-r1.T31 |
+P
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "sign [WOW:publish]" --no-verify )
+assert_accepts "a SIGNED and committed plan's rows are frozen for the reads lint (DEV-R12-09)" "$FIX" gate-8 --run 260813-x-r1
+sed -i 's#^| 260813-x-r1.T31 | compare | `diff runs/260813-x-r1/RUN-REPORT.md src/a.py` | same |$#&\n| 260813-x-r1.T32 | added by AM-01 | `cat runs/260813-x-r1/RUN-REPORT.md` | read |#' "$FIX/runs/260813-x-r1/PLAN.md"
+assert_rejects "a row ADDED after signing is linted (DEV-R12-09 control)" "$FIX" \
+  "task 260813-x-r1.T32 names path 'runs/260813-x-r1/RUN-REPORT.md'" gate-8 --run 260813-x-r1
+# ---- R12b: ADV-R12-09 — prior-run ids resolve in the archive; lower-wave evidence is deliverable
+mkdir -p "$FIX/runs/archive/260801-prior-r1/reports"
+printf '%s\n' '- CV-260801-prior-r1-U2-03: the probe could not run' > "$FIX/runs/archive/260801-prior-r1/reports/U2-verify.md"
+plan <<'P'
+# PLAN — 260813-x-r1
+spec: docs/spec/SPEC-x-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+tier: mid
+wave: 1
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T01 | discharge CV-260801-prior-r1-U2-03 | `test -f runs/260813-x-r1/evidence/U1/t01.log` | logged |
+
+### U2 — second
+owns:
+- src/b.py
+tier: mid
+wave: 2
+autonomy: decide-and-log
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260813-x-r1.T07 | read U1 log | `grep ok runs/260813-x-r1/evidence/U1/t01.log` | read |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260813-x-r1.T01 |
+| AC-2 | 260813-x-r1.T07 |
+P
+assert_accepts "a prior run's CV id resolves in the archive and a lower-wave unit's evidence is deliverable (ADV-R12-09)" "$FIX" gate-8 --run 260813-x-r1
 finish

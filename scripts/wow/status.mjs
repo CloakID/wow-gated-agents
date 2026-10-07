@@ -101,6 +101,24 @@ function hooksDir() {
            why: 'common git dir (inherited by worktrees)' };
 }
 
+// ADV-R10-01's rule, ported (audit B1): a 4-space/tab INDENTED code block is a
+// mention channel too — starts at an indented line after a blank line, runs
+// while lines stay indented or blank. Same shape as gates.py _blank_indented_code.
+function blankIndentedCode(t) {
+  const out = []; let prevBlank = true, inBlock = false;
+  for (const ln of t.split('\n')) {
+    const indented = /^(?: {4}|\t)/.test(ln); const blank = !ln.trim();
+    if (inBlock) {
+      if (blank) { out.push(ln); prevBlank = true; continue; }
+      if (indented) { out.push(''); prevBlank = false; continue; }
+      inBlock = false;
+    }
+    if (indented && prevBlank && !blank) { inBlock = true; out.push(''); prevBlank = false; continue; }
+    out.push(ln); prevBlank = blank;
+  }
+  return out.join('\n');
+}
+
 function installation() {
   const inst = F.install;
   const want = {};
@@ -252,14 +270,26 @@ function runs() {
     const counts = {};
     for (const v of F.status_vocab.allowed) counts[v] = 0;
     {
-      let inFence = false, statusIdx = null, headerCells = null;
+      let statusIdx = null, headerCells = null;
       const statusCols = F.status_vocab.status_columns.map(c => c.toLowerCase());
       const prefixRe = new RegExp(F.status_vocab.status_prefix, 'i');
       const stripSpans = (l) => l.replace(/`[^`]*`/g, '');
-      for (const rawLine of report.split('\n')) {
+      // platform/F-99 (v0.7.5): the '## audit triggers' section RECORDS
+      // counts and never states a status — its own AT-3 row ('0 — no
+      // BLOCKED rows') was counted as a BLOCKED and derived AT-3 = HIT.
+      // The section is skipped for status counting.
+      const atHeadRe = new RegExp('^#{1,6}\\s*' + F.audit_triggers.report_section + '\\b', 'i');
+      let inAtSection = false;
+      // AUDIT 2026-10-06 §6.1 / B1 (v0.7.5): the counter kept a ```-only
+      // toggle while the escrow learned ~~~ fences and indented code (ADV-R10-
+      // 01/-03) — a ~~~-fenced example status table inflated AT-3. One helper,
+      // both engines: fences of either kind are blanked by their own closer,
+      // and an indented code block is blanked too.
+      const countable = blankIndentedCode(stripFencedBlocks(report));
+      for (const rawLine of countable.split('\n')) {
         const line = rawLine;
-        if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
-        if (inFence) continue;
+        if (/^#{1,6}\s/.test(line)) inAtSection = atHeadRe.test(line);
+        if (inAtSection) continue;
         if (!line.trim()) { statusIdx = null; headerCells = null; continue; }
         if (/^\s*\|/.test(line)) {
           const cells = cellsOf(line);
@@ -301,6 +331,8 @@ function runs() {
       handoffLines,
       handoffOverLimit: handoffLines > rl.handoff_max_lines,
       hasPlan: existsSync(rp(fill(F.plan_schema.file, { run_id: d }))),
+      // platform/F-97 fix 3 (v0.7.5): review rounds live in a field the deriver reads
+      reviews: (read(rp(fill(F.plan_schema.file, { run_id: d }))).match(/^reviews:\s*(\S+)/m) || [])[1] || null,
       hasReport: !!report,
       missingReportSections: report ? missingSections : [],
       constraintsOpen: (handoff.match(new RegExp(rl.open_checkbox, 'gm')) || []).length,
@@ -345,7 +377,11 @@ function lanes() {
     // deriver: unreadable is reported as its own state and is never stale.
     const unreadable = !m;
     const empty = m ? m[1].trim() === '' : false;
-    const ageDays = (Date.now() - statSync(note).mtimeMs) / 86400000;
+    // prodsim/F-114 (v0.7.5): age from the DIRECTORY DATE (YYMMDD), not the
+    // note's mtime, which a fresh clone resets to now — same rule as gates.py.
+    const dm = slug.match(/^(\d{2})(\d{2})(\d{2})-/);
+    const born = dm ? new Date(2000 + +dm[1], +dm[2] - 1, +dm[3]).getTime() : statSync(note).mtimeMs;
+    const ageDays = (Date.now() - born) / 86400000;
     q.push({ slug, empty, unreadable, ageDays: Math.round(ageDays), cited,
              stale: empty && ageDays > rl.quick_stale_days && cited.length === 0 });
   }
@@ -431,16 +467,31 @@ function auditTriggers(rs) {
       if (m) { reported[m[1]] = parseInt(m[2], 10); atRowsParsed += 1; }
     }
   }
+  // platform/F-87 fix 3 + F-88 fix 2 (v0.7.5): a section SEEN with zero pipe
+  // rows is its own state; an archived run named with --run is read back.
+  let atSectionNoRows = false;
+  if (atSectionsSeen > 0 && atRowsSeen === 0) atSectionNoRows = true;
+  const archivedReported = {};
+  if (runFilter && scopeRun.length === 0) {
+    const arep = stripFencedBlocks(read(rp(join(F.runs_layout.archive_dir, runFilter, 'RUN-REPORT.md'))));
+    const asec = arep.match(atSec);
+    if (asec) for (const line of asec[1].split('\n')) {
+      const m = line.match(atRow);
+      if (m) archivedReported[m[1]] = parseInt(m[2], 10);
+    }
+  }
   for (const [k, cfgT] of Object.entries(t)) {
     if (k.startsWith('$') || typeof cfgT !== 'object' || !cfgT.metric) continue;
     let value = null, note = notes[cfgT.derived_by] || null;
     if (cfgT.derived_by === 'orch') {
       if (k in reported) { value = reported[k]; note = 'read from RUN-REPORT ## audit triggers (F-33)'; }
+      else if (k in archivedReported) { value = archivedReported[k]; note = 'read back from the ARCHIVED run\'s RUN-REPORT §audit triggers (platform/F-88)'; }
       // DEV-R9-09 (v0.7.3 R9): on a repo with no run this diagnostic implied a
       // parse failure the operator should fix — rows-seen/parsed is only said
       // when there was a table to parse.
       else if (scopeRun.length === 0) note = 'no ACTIVE run — the ORCH records it in RUN-REPORT §audit triggers at P4; archived runs are not re-derived (F-36)';
       else if (atSectionsSeen === 0) note = `run has no RUN-REPORT ${t.report_section} section yet — the ORCH records it there at P4 (F-33)`;
+      else if (atSectionNoRows) note = `section present, 0 table rows — triggers are recorded as | AT-n | <int> | rows, not bullets (platform/F-87)`;
       else note = `not parsed from the run RUN-REPORT ## audit triggers table (${atRowsSeen} data row(s) seen, ${atRowsParsed} parsed — a row parses when it starts within 3 spaces of column 0, the AT-id leads cell 1 and an integer leads cell 2; prodsim/F-74)`;
     }
     if (cfgT.derived_by === 'po') {
@@ -450,9 +501,19 @@ function auditTriggers(rs) {
       // was invisible to the tool that reports triggers. A recorded po value
       // is read back; only an UNrecorded one awaits the PO.
       if (k in reported) { value = reported[k]; note = 'PO ruling read from RUN-REPORT §audit triggers (recorded at G4; F-33/F-87e)'; }
+      else if (k in archivedReported) { value = archivedReported[k]; note = 'PO ruling read back from the ARCHIVED run\'s RUN-REPORT (platform/F-88)'; }
+      else if (atSectionNoRows) note = `section present, 0 table rows — a ruling is recorded as a | AT-n | <int> | row (platform/F-87)`;
       else note = 'awaiting PO at G4 — a judgement, never derived';
     }
-    if (k === 'AT-3') value = scopeRun.reduce((a, r) => a + (r.statuses.BLOCKED || 0), 0);
+    if (k === 'AT-3') {
+      // platform/F-88 (v0.7.5): for an ARCHIVED run scopeRun is empty and the
+      // reduce printed a bare 0 beside three triggers that said "not derived"
+      // — one number, three absences, about one run. Read the recorded value
+      // back when the run is archived; derive only from an active run.
+      if (scopeRun.length) value = scopeRun.reduce((a, r) => a + (r.statuses.BLOCKED || 0), 0);
+      else if (k in archivedReported) { value = archivedReported[k]; note = 'read back from the ARCHIVED run\'s RUN-REPORT §audit triggers (platform/F-88)'; }
+      else { value = null; note = 'not derived — no ACTIVE run; archived runs are not re-derived (F-36, platform/F-88)'; }
+    }
     if (k === 'AT-4') {
       value = at4Count();
       if (value === null) note = `${t['AT-4'].source_command[0]} did not run (python3 missing?)`;
@@ -590,6 +651,9 @@ if (i.untested.length) out.push(`  gates with NO negative test (inert-gate risk)
 if (!i.wiringTest) out.push(`  NO wiring test — gate logic is proved, gate wiring is not`);
 out.push(`  hooks in ${i.hooksDir} ${dim('(' + i.hooksWhy + ')')}: ` +
   Object.entries(i.hookState).map(([k, v]) => `${k}=${v}${v === 'FOREIGN' ? ' (a hook exists and it is not ours — a second installer clobbered the WoW hook; run `scripts/wow/gates.sh hooks --install`, it chains; prodsim/F-77)' : v === 'ABSENT' ? ' (no file — a fresh clone? run `scripts/wow/gates.sh hooks --install`)' : ''}`).join('  '));
+// platform/F-96 + prodsim/F-103 (v0.7.5): who classifies ORCH bookkeeping is a
+// config choice; the deriver names it so nobody is asked a question by surprise.
+out.push(dim(`  orch_classification: ${(CFG.orch_classification || 'verifier')} — ${(CFG.orch_classification || 'verifier') === 'po' ? 'the PO classifies ORCH amendments\' findings and DEV-ORCH per item' : 'a fresh-context verifier classifies ORCH bookkeeping; the PO may overrule by row at the gate (FORMATS §7)'}`));
 out.push(dim(`  recovery: max ${i.recovery.max_fix_forward_attempts} fix-forward attempts, then ${i.recovery.then}` +
   (i.recovery.bypass_allowed ? '' : ' — bypass is never allowed')));
 out.push('');
@@ -616,6 +680,7 @@ out.push(B('Runs'));
 for (const rr of data.runs) {
   out.push(`  ${rr.id}${rr.branches ? dim('  branches: ' + rr.branches) : ''}`);
   out.push(`    position: ${rr.position}`);
+  if (rr.reviews !== null) out.push(`    reviews: ${rr.reviews} G2a round(s) recorded in PLAN.md (platform/F-97)`);
   out.push(`    PLAN=${rr.hasPlan ? 'yes' : 'no'}  RUN-REPORT=${rr.hasReport ? 'yes' : 'no'}  ` +
     `reports=${rr.reports}  open constraints=${rr.constraintsOpen}`);
   const idbits = Object.entries(rr.ids).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);

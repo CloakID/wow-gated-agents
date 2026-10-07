@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.4
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.5
 
 ## Prerequisites
 
@@ -43,9 +43,9 @@ Three layers, weakest-to-strongest:
    The hooks fail *open* if `scripts/wow/gates.sh` is absent — a branch predating the install must still be checkoutable — but they say so loudly on stderr rather than passing in silence, and `install.sh --check` and `status.mjs` both report the true hook state.
 
    **Wiring is tested, not assumed.** `scripts/wow/tests/test-gate-*.sh` prove each gate's *logic* by calling `gates.sh` directly. `scripts/wow/tests/test-install.sh` proves the *wiring*: it installs into a throwaway repo — including one configured with `core.hooksPath` and one with a pre-existing hook — and drives real `git commit`s through the real hooks. Every gate can have a passing negative test while nothing calls it; that is the same inert-gate defect one level up.
-3. **Optional hardening (off by default,** per PO "hooks only if absolutely needed"): PreToolUse hook blocking Edit/Write when no active lane context exists (marker file `runs/.active`). Enable per repo only if pilot shows layer 1–2 leakage. SessionStart hook injecting the router line is a cheaper alternative if drift is the observed failure.
+3. ~~Optional hardening~~ — retired 2026-10-06 (audit §6.4/B7): the `hardening` config key had no reader in any engine file and the two hooks it described (a PreToolUse lane guard, a SessionStart router injection) never existed in the package — a doc-named machine behavior with no engine counterpart and no obligation row, the layer-parity rule's own class. If pilot evidence ever shows layer 1–2 leakage, the hooks are registered as an obligation first and built second.
 
-Failure telemetry: gates.sh logs rejections to `runs/.gate-log` — pilot reviews it to decide whether layer 3 is needed. That's the evidence-based version of "assurance all elements are triggered when needed."
+Failure telemetry: gates.sh logs rejections to `<git-common-dir>/wow/gate-log` (one file for every worktree, each line naming the worktree and branch; v0.7.5, prodsim/F-97 — the per-worktree `runs/.gate-log` is retired and the installer names a stale one for deletion) — pilot reviews it to decide whether layer 3 is needed. That's the evidence-based version of "assurance all elements are triggered when needed."
 
 **Running the gates by hand** (the playbooks name these; hooks call the first three for you):
 
@@ -61,6 +61,11 @@ scripts/wow/gates.sh gate-9  --gate G2 --run <id>  # gate close: the record is R
 scripts/wow/gates.sh gate-10 --run <id> --gate G2  # gate open: divergence diff
 scripts/wow/gates.sh sweep --run <id>            # every gate sweep
 scripts/wow/gates.sh sweep --p5 --run <id>       # P5: the sweep plus GATE-7
+scripts/wow/gates.sh check-id <run-id> --base <ref>   # run open (P3): the base carries the plan (prodsim/F-65)
+scripts/wow/gates.sh hooks --install             # fresh clone / clobbered hook: self-heal (DEV-R11-02)
+scripts/wow/gates.sh verify-cmd <task-id>        # the RUNNABLE Verify of a task (prodsim/F-111)
+scripts/wow/gates.sh history --run <id>          # wave boundary: refuse a rewritten unit branch (prodsim/F-99)
+scripts/wow/gates.sh gate-8 --run <id> --boundary <wave>   # wave boundary: ORCH-owned inputs exist on int (prodsim/F-108)
 ```
 
 ## Coexistence with GSD (per-repo adoption, no forced migration)
@@ -88,6 +93,26 @@ Everything install.sh writes is **repo-scoped** (CLAUDE.md markers, docs/process
 | `status.mjs: NO decision surface: N open record(s)` | the debug lane's PO page is a formats entry (prodsim/F-80) | write `runs/debug/classification-request.md` per LANES |
 | `GATE-7 --p5: … a registry row's proof has been deleted` | GC once deleted cited files (platform/F-80) | restore from history, or repoint the citation if the file MOVED (`git log --follow`) |
 | `install.sh: REFUSED CLAUDE.md wow-v2 section` | the section carries a real repo-local edit | move it below the closing marker; formatter output alone no longer trips this |
+
+**What goes red on an existing v0.7.4 repo after the v0.7.5 upgrade, and the one-line remedy:**
+
+| You will see | Why | Do |
+|---|---|---|
+| `GATE-2: … declares requirements: … not the empty-set sentinel` on an audit spec | an id-less declaration is read as a typo unless it is `none`/`[]` (platform/F-100) | write `requirements: none — <why>` |
+| `GATE-8: … names path '…' which exists nowhere the wave order can deliver` / `… names PARK-… and nothing … allocates it` at G2 | the reads-vs-declarations lint (platform/F-97) — G2-only in effect: on a SIGNED, committed plan only rows added or changed since the signing commit are linted (DEV-R12-09) | declare the path (`owns:`/`inputs:`), name an existing file, or accept with `lint-ok: <reason>` in the cell |
+| `GATE-9: … AM-<nn> count did not grow` on a document whose only AM text is citations | records, not tokens (platform/F-103) | add an `AM-<nn> — <date> — …` record line |
+| `GATE-13: task … Verify matches inert idiom` on a SIGNED plan | rows added by amendments are linted now (prodsim/F-107); `\|\|` is no longer a merge-base guard (platform/F-86) | fix the amended row, or `lint-ok: <reason>` |
+| `GATE-7: … uses shorthand CV-<nn> for CV-…, which is marked discharged WITHOUT an ev:` | shorthands now honour in-run discharges and demand their evidence (prodsim/F-102) | cite the closing event on the `discharged:` line |
+| `GATE-7: … needs an OPEN docs/GAPS.md row naming BOTH AT-n and the run …` | a hit's record names the run (prodsim/F-98) | put the run id in the row |
+| `GATE-7: VF-… is DEFINED in 2 report files` | one id, two findings (prodsim/F-105) — a definition is the id heading a heading or list item in a `*-verify.md`; RUN-REPORT rows and closure tables are references (DEV-R12-03) | renumber the SECOND verifier's finding: an amendment verifier allocates `VF-AM<nn>-<nn>`, a unit's verifier continues its own segment |
+| `GATE-7: … records AT-2 = N without an ev:cmd{…} citation on the row` | the AT-2 figure must be re-derivable from a runnable command (prodsim/F-91, ADV-R12-18) | cite the command and range that produced the count |
+| `GATE-7: runs/quick/<YYMMDD>-…/NOTE.md has an empty result and is N days old — stale stub` on stubs that were green before | age is now the directory date, not the mtime (prodsim/F-114) | fill the `result`, or confirm deletion at P5 step 4 |
+| `GATE-5: … cites ev:file{…} — GONE …` / `… no heading slugs to '…' and the text '…' appears nowhere` (durable docs only — `docs/**`, never a run's own documents; blocking when the doc is in this commit/run, advisory otherwise) | bare and anchored citations are preflighted (prodsim/F-112); an anchor resolves as a heading slug or as a token/row id in the target (ADV-R12-05) | re-point into `runs/archive/<id>/`, or fix the anchor — the message lists the target's headings |
+| `GATE-3: … attest in a ruling column … carries no question` | rulings quote the question (prodsim/F-110) | `ev:attest{PO: Q "…" A "…" @<date>}` |
+| `GATE-3: … pasted fence differs from its capture …` | you added a `capture:` line and the formatter rewrote the paste (prodsim/F-96) | re-paste from the capture (and keep the formatter off it next time: `<!-- prettier-ignore-start/end -->` around the fence — that prevents the next rewrite, it does not repair this one) |
+| `gate-3 does not read --spec` (any gate, any unread flag) | flags a gate ignores are refused (prodsim/F-94) | drop the flag |
+| `PARITY: package-owned file(s) modified since install` (advisory) | you edited an engine file in the consumer (platform/F-92) | file it upstream; the next install overwrites it |
+| `status.mjs` AT-3 on an archived run reads a number instead of `0` | read back from the archived RUN-REPORT (platform/F-88) | nothing — it is now the recorded value |
 
 ## Migration (per repo, at pilot start)
 

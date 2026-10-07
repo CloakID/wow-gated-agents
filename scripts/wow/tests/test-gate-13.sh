@@ -200,7 +200,44 @@ owns:
 |---|---|
 | AC-1 | 260824-x-r1.T01 |
 P
-assert_accepts "signed plan is frozen — no retroactive reds" "$FIX" gate-13 --run 260824-x-r1
+# prodsim/F-107 (v0.7.5): the freeze is the SIGNING COMMIT's. An uncommitted
+# signature line freezes nothing — the row below is linted and refused.
+assert_rejects "a signature not yet committed freezes nothing (prodsim/F-107)" "$FIX" \
+  "inert idiom" gate-13 --run 260824-x-r1
+( cd "$FIX" && git add -A >/dev/null && git commit -qm "sign [WOW:publish]" )
+assert_output "signed plan: rows signed at G2 are frozen — no retroactive reds, zero subject" "$FIX" \
+  "signed, nothing amended" gate-13 --run 260824-x-r1
+assert_accepts "signed plan with nothing amended passes" "$FIX" gate-13 --run 260824-x-r1
+# a row ADDED after signing is linted (its Verify is `true`, the canonical inert form)
+plan <<'P'
+# PLAN — 260824-x-r1
+spec: docs/spec/SPEC-x-v1.md
+signed: 2026-08-24 ev:jira{WOW-42}
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means |
+|---|---|---|---|
+| 260824-x-r1.T01 | do a | `set -e; ! grep bad out.txt` | clean |
+| 260824-x-r1.T07 | added by PAM-01 | `set -e; ! grep worse out.txt` | always |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260824-x-r1.T01 |
+P
+assert_rejects "a task row ADDED to a signed plan by an amendment is linted (prodsim/F-107)" "$FIX" \
+  "task 260824-x-r1.T07 Verify matches inert idiom" gate-13 --run 260824-x-r1
+OUT107="$(cd "$FIX" && bash scripts/wow/gates.sh gate-13 --run 260824-x-r1 2>&1)" || true
+if printf '%s' "$OUT107" | grep -q "T01" ; then
+  echo "  FAIL the frozen G2 row T01 was linted retroactively (F-107)"; FAIL=$((FAIL+1))
+else
+  echo "  ok   the frozen G2 row stays frozen while the amended row is linted (F-107)"; PASS=$((PASS+1))
+fi
 
 
 # F-13's founding failure at full strength (engine round 6, OBL-PKG-20):
@@ -412,4 +449,68 @@ owns:
 P
 assert_accepts "TOKENIZER/CREDIT are not credentials (ADV-R10-06)" \
   "$FIX" gate-13 --run 260824-x-r1
+# ---- platform/F-86 (v0.7.5): `||` is not a merge-base guard
+FIX86="$(setup_fixture_repo)"
+mkdir -p "$FIX86/runs/260925-mb-r1" "$FIX86/docs/spec"
+printf '# SPEC\n' > "$FIX86/docs/spec/SPEC-m-v1.md"
+cat > "$FIX86/runs/260925-mb-r1/PLAN.md" <<'P'
+# PLAN — 260925-mb-r1
+spec: docs/spec/SPEC-m-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260925-mb-r1.T01 | order | `git merge-base --is-ancestor $(git log -1 --format=%H -- p) HEAD \|\| echo NOT-ANCESTOR` | ordered | MANUAL |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260925-mb-r1.T01 |
+P
+assert_rejects "'|| echo' after merge-base collapses exit 128/129 into the verdict — not a guard (platform/F-86)" "$FIX86" \
+  "inert idiom 'unguarded-merge-base'" gate-13 --run 260925-mb-r1
+sed -i 's/HEAD \\|\\| echo NOT-ANCESTOR/HEAD; rc=$?; case $rc in 0\\|1) echo $rc;; *) exit 2;; esac/' "$FIX86/runs/260925-mb-r1/PLAN.md"
+assert_accepts "capturing the exit code on the same line IS a guard (F-86 control)" "$FIX86" gate-13 --run 260925-mb-r1
+# ---- prodsim/F-111 (v0.7.5): verify-cmd prints the RUNNABLE Verify
+cat > "$FIX86/runs/260925-mb-r1/PLAN.md" <<'P'
+# PLAN — 260925-mb-r1
+spec: docs/spec/SPEC-m-v1.md
+
+## Units
+
+### U1 — first
+owns:
+- src/a.py
+
+| Task | Action | Verify | Done-means | Non-vacuity |
+|---|---|---|---|---|
+| 260925-mb-r1.T31 | count | `printf 'a\|b' \| grep -c a` | one | MANUAL |
+
+## Coverage matrix
+| AC | Tasks |
+|---|---|
+| AC-1 | 260925-mb-r1.T31 |
+P
+VC="$( cd "$FIX86" && bash scripts/wow/gates.sh verify-cmd 260925-mb-r1.T31 2>&1 )"
+if [ "$VC" = "printf 'a|b' | grep -c a" ]; then
+  echo "  ok   verify-cmd prints the Verify with its escapes removed (prodsim/F-111)"; PASS=$((PASS+1))
+else
+  echo "  FAIL verify-cmd printed: $VC (prodsim/F-111)"; FAIL=$((FAIL+1))
+fi
+VR="$( cd "$FIX86" && bash -c "$(bash scripts/wow/gates.sh verify-cmd 260925-mb-r1.T31)" 2>&1 )"
+[ "$VR" = "1" ] && { echo "  ok   the printed command runs and gives the signed result (F-111)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL running the printed command gave '$VR' (F-111)"; FAIL=$((FAIL+1)); }
+( cd "$FIX86" && bash scripts/wow/gates.sh verify-cmd 260925-mb-r1.T99 >/dev/null 2>&1 ) \
+  && { echo "  FAIL verify-cmd on an unknown task exited 0 (F-111)"; FAIL=$((FAIL+1)); } \
+  || { echo "  ok   verify-cmd on an unknown task is refused (F-111)"; PASS=$((PASS+1)); }
+# ---- R12b: ADV-R12-17 — verify-cmd strips the lint-ok marker
+sed -i 's#| `printf .a\\|b. \\| grep -c a` |#| `printf '"'"'a\\|b'"'"' \\| grep -c a` lint-ok: deliberate |#' "$FIX86/runs/260925-mb-r1/PLAN.md"
+VC2="$( cd "$FIX86" && bash scripts/wow/gates.sh verify-cmd 260925-mb-r1.T31 2>&1 )"
+[ "$VC2" = "printf 'a|b' | grep -c a" ] && { echo "  ok   verify-cmd drops the lint-ok marker (ADV-R12-17)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL verify-cmd kept the marker: $VC2 (ADV-R12-17)"; FAIL=$((FAIL+1)); }
 finish

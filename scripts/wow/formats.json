@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.4-draft",
+  "version": "0.7.5-draft",
   "schema_version": "1",
   "$schema_version_comment": "platform/F-76 (v0.7.4): this file is consumed as an API and was versioned as if internal — a key changed type (regex→template) and another was removed between releases, and two consumer checks broke silently, one reporting PASS while grading nothing. schema_version is bumped whenever a key is REMOVED or CHANGES TYPE; a consumer asserts the value it was written against and fails loudly on upgrade. Additive keys and value changes do not bump it. The $removed block below keeps the removal trace.",
   "$removed": {
@@ -17,9 +17,10 @@
     "deviation": "^DEV-(U[1-9][0-9]*|ORCH)-[0-9]{2}$",
     "$deviation_comment": "prodsim/F-66 (v0.7.3): the ORCH is not a unit and owns decisions no unit can deviate from (branch model, cascade rule, wave boundaries) — a playbook deviation had NO expressible id and was guaranteed to end as prose no gate reads. DEV-ORCH-<nn> is ORCH-allocated (single-threaded per run, so the F-17 allocator argument holds trivially); the PO classifies it at the next gate, mirroring §7's ORCH-authored clause.",
     "park": "^PARK-U[1-9][0-9]*-[0-9]{2}$",
-    "verifier_finding": "^VF-U[1-9][0-9]*-[0-9]{2}$",
+    "verifier_finding": "^VF-(?:U[1-9][0-9]*|AM[0-9]{2})-[0-9]{2}$",
+    "$verifier_finding_comment": "platform/F-93 + prodsim/F-105 (v0.7.5): the unit segment IS the allocator (F-17) — and a plan amendment's delta verifier (P3 §4) belongs to no unit, so it borrowed one and collided with that unit's own verifier (two VF-U3-07 in one run; six reports partitioning one segment by forward notes). An amendment verifier allocates in the AMENDMENT's segment, VF-AM<nn>-<nn>, unique by construction because amendments are numbered. Its report lives at plan_schema.delta_verifier_paths.",
     "plan_defect": "^DEF-plan-[0-9]{2}$",
-    "cannot_validate": "^CV-{run_core}-(?:U[1-9][0-9]*-)?[0-9]{2}$",
+    "cannot_validate": "^CV-{run_core}-(?:(?:U[1-9][0-9]*|AM[0-9]{2})-)?[0-9]{2}$",
     "requirement": "^REQ-[0-9]{3}$",
     "assumption": "^A-[0-9]{2}$",
     "acceptance_criterion": "^AC-[0-9]{1,3}$",
@@ -30,7 +31,11 @@
     "obligation": "^OBL-[A-Z0-9]+-[0-9]{2,}$",
     "$obligation_comment": "F-55 (v0.7.2): the two-digit ceiling expired silently the day a pilot passed OBL-*-99 (they are at 134) — no id is parsed positionally, so the bound bought nothing. {2,} keeps the alignment minimum. The key now HAS a consumer: _gap_rows validates every OBL- row id against it, so the declaration can no longer be wrong and inert at once.",
     "amendment": "^AM-[0-9]{2}$",
+    "amendment_record": "^\\s*(?:[-*]\\s+|[0-9]+\\.\\s+|#{1,6}\\s+|\\|\\s*)?[*_`]*(AM-[0-9]{2})[*_`]*\\s*(?:[—–-]|\\|)\\s*[*_`]*[0-9]{4}-[0-9]{2}-[0-9]{2}\\b",
+    "$amendment_record_comment": "platform/F-103 + prodsim/F-106 (v0.7.5): GATE-9 counted every AM-<nn> TOKEN in the document, unanchored — a plan citing its spec's AM-01..AM-29 had to number its own first amendment AM-30, and the string PAM-01 satisfied the check. The count is of RECORD LINES: a line (optionally a list item, heading or table row) opening with the id and the FORMATS §1 block form `AM-<nn> — <date> — …`. Citations of other documents' amendments neither satisfy nor block the gate; each document numbers its own from AM-01. Decoration, a numbered-list head and the table form `| AM-02 | 2026-09-22 | …` are admitted (ADV-R12-11). Read by gates.py (GATE-9); status.mjs does not count amendments.",
     "cannot_validate_short": "^CV-[0-9]{2}$",
+    "cannot_validate_short_token": "(?<![\\w-])CV-[0-9]{2}(?![\\w-]|\u2026|\\.\\.\\.)",
+    "$cv_short_token_comment": "prodsim/F-89 (v0.7.5, five recurrences): cannot_validate_short is the ANCHORED shape of a shorthand; this is the form the escrow DISCOVERS it with in free text — a whole token, never the head of a longer one (a truncated full id `CV-2609…`, a placeholder-suffixed id, a subject cut at 150 chars all start with two digits). Read by gates.py (the escrow); status.mjs counts full ids only and never scans for shorthands.",
     "$cv_short_comment": "OBL-PKG-13 (v0.7.0): the shorthand CV-<nn> is legal INSIDE its own run's artifacts and resolves to the run's full id; every durable home (GAPS.md) carries the full form — it is the id that outlives the run. The escrow resolves shorthands and demands the full row; real reports write the short form (frisbii's CV-01..05 were invisible to the long regex).",
     "run_date": "[0-9]{6}",
     "run_slug": "[a-z0-9][a-z0-9-]{0,47}",
@@ -47,9 +52,9 @@
       "task": "^[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*\\.T[0-9]{2}[a-z]?$",
       "deviation": "^DEV-(U[1-9][0-9]*|ORCH)-[0-9]{2}$",
       "park": "^PARK-U[1-9][0-9]*-[0-9]{2}$",
-      "verifier_finding": "^VF-U[1-9][0-9]*-[0-9]{2}$",
+      "verifier_finding": "^VF-(?:U[1-9][0-9]*|AM[0-9]{2})-[0-9]{2}$",
       "plan_defect": "^DEF-plan-[0-9]{2}$",
-      "cannot_validate": "^CV-[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*-(?:U[1-9][0-9]*-)?[0-9]{2}$",
+      "cannot_validate": "^CV-[0-9]{6}-[a-z0-9][a-z0-9-]{0,47}-r[1-9][0-9]*-(?:(?:U[1-9][0-9]*|AM[0-9]{2})-)?[0-9]{2}$",
       "requirement": "^REQ-[0-9]{3}$",
       "assumption": "^A-[0-9]{2}$",
       "acceptance_criterion": "^AC-[0-9]{1,3}$",
@@ -59,7 +64,9 @@
       "debug_file": "^[a-z0-9][a-z0-9-]*\\.md$",
       "obligation": "^OBL-[A-Z0-9]+-[0-9]{2,}$",
       "amendment": "^AM-[0-9]{2}$",
+      "amendment_record": "^\\s*(?:[-*]\\s+|[0-9]+\\.\\s+|#{1,6}\\s+|\\|\\s*)?[*_`]*(AM-[0-9]{2})[*_`]*\\s*(?:[—–-]|\\|)\\s*[*_`]*[0-9]{4}-[0-9]{2}-[0-9]{2}\\b",
       "cannot_validate_short": "^CV-[0-9]{2}$",
+      "cannot_validate_short_token": "(?<![\\w-])CV-[0-9]{2}(?![\\w-]|…|\\.\\.\\.)",
       "run_date": "[0-9]{6}",
       "run_slug": "[a-z0-9][a-z0-9-]{0,47}",
       "run_iter": "r[1-9][0-9]*",
@@ -77,6 +84,8 @@
     "adr_dir": "docs/adr",
     "runs_dir": "runs",
     "gate_log": "runs/.gate-log",
+    "gate_log_common": "wow/gate-log",
+    "$gate_log_comment": "prodsim/F-97 (v0.7.5): gate rejections are logged to <git-common-dir>/wow/gate-log — one file shared by every worktree of the repository, surviving worktree removal (the per-worktree runs/.gate-log was deleted with the worktree at P5, and an audit could not count the audited run's P3/P4 rejections). Each line: <stamp>\t<gate>\t<worktree path>\t<branch>\t<message>. `gate_log` is the retired per-worktree path, kept so an old .gitignore entry still means something; nothing writes it since v0.7.5.",
     "spec_reference": "docs/spec/(SPEC-[a-z0-9-]+-v[0-9]+\\.md)",
     "gaps_file": "docs/GAPS.md"
   },
@@ -118,7 +127,7 @@
         "pattern": "\\[T:({run_core})\\]",
         "resolves": "run_dir_exists",
         "doc_literal": "[T:",
-        "staged_scope": ["runs/{run_id}/**", "runs/archive/{run_id}/**", "runs/quick/jira-queue.md", "runs/.gate-log", "scripts/wow/wow.config.json", "docs/spec/**", "docs/REQUIREMENTS.md", "docs/GAPS.md", "docs/adr/**", "docs/codebase/**", "docs/deps/**", "scripts/wow/permissions-policy.json", "docs/PUBLISH-*.md"],
+        "staged_scope": ["runs/{run_id}/**", "runs/archive/{run_id}/**", "runs/quick/jira-queue.md", "scripts/wow/wow.config.json", "docs/spec/**", "docs/REQUIREMENTS.md", "docs/GAPS.md", "docs/adr/**", "docs/codebase/**", "docs/deps/**", "scripts/wow/permissions-policy.json", "docs/PUBLISH-*.md"],
         "$staged_scope_comment": "platform/F-72 (v0.7.4): GATE-1 validated the trailer's SHAPE and never looked at the staged set, so a phase-artifact trailer rode a commit full of task output and the lane answer in git log became self-reported metadata. The bare form may stage only phase artifacts — the places P0/P1/P4/P5 name. Task work uses the fully-qualified [T:<run-id>.T<nn>] form, whose ownership the plan declares. The fnmatch list is the phase-artifact map; a repo needing more names them in wow.config.json run_staged_scope_extra.",
         "$comment": "F-08/F-10 (v0.6.3): P1 and P4 artifacts had no trailer that resolves — the spec a PO signs at G1 and the reconciled spec/divergence/RUN-REPORT at G4 sat outside git at the moment of signing, and the improvisation pressure (borrow a task id, fake a publish) is the class PR-4 existed to stop. The bare form [T:<run-id>] (no .Tnn suffix) resolves to the run DIRECTORY, which may exist before its plan. Phase-level artifacts of a run commit under it; task work still requires the fully-qualified form."
       }
@@ -130,6 +139,9 @@
     "unit": "^wow/{run_core}/U[1-9][0-9]*$",
     "integration": "^wow/{run_core}/int$",
     "base_ref": "wow/{run_id}/base",
+    "int_ref": "wow/{run_id}/int",
+    "history_rewrite_entry": "^(reset:|rebase|commit \\(amend\\)|branch: Reset to|update-ref)",
+    "$history_comment": "prodsim/F-99 (v0.7.5): reflog subject prefixes that mean a unit branch's history was rewritten after it was cut — `gates.sh history --run <id>` refuses them before the wave-boundary merge. Local to the checkout holding the branches; P5 never archives a reflog.",
     "$base_ref_comment": "GATE-2 and GATE-5 use this to answer 'what did this run modify?': the diff from the run base to HEAD, plus the working tree. Absent base branch -> the run's own commits cannot be isolated and the modified set degrades to staged + unstaged changes.",
     "main_candidates": [
       "origin/main",
@@ -209,6 +221,9 @@
       "State",
       "Result"
     ],
+    "walkable_statuses": ["FAILED", "BLOCKED", "PARKED"],
+    "walkable_defect_statuses": ["OPEN"],
+    "$walkable_comment": "platform/F-98 (v0.7.5): the statuses whose RUN-REPORT rows the G4 walk enrols (gate-2 --close). A DEF-plan id is a walk item only from the FIRST cell of such a row (ranges expanded), or from prose when NO row anywhere carries it.",
     "$status_columns_comment": "When a scanned table has a header row naming one of these, only that column is status-checked. Checking every cell made 'OK' and 'PASS' in a Done-means or Verify column read as forbidden synonyms. A table with no header row is still checked in full.",
     "status_prefix": "\\b(status|result)\\s*:\\s*([A-Za-z][A-Za-z-]*)",
     "cell_decoration": "[*`_]",
@@ -221,6 +236,16 @@
       "Grade",
       "Verdict"
     ],
+    "ruling_columns": ["Decision", "Ruling"],
+    "$ruling_columns_comment": "prodsim/F-110 (v0.7.5): a table column under one of these headers holds rulings; an ev:attest there must carry the Q/A form (evidence.attest_ruling).",
+    "closure_columns": [
+      "Closure",
+      "Outcome",
+      "Fix outcome"
+    ],
+    "closure_vocab": ["CLOSED", "REPAIRED", "WITHDRAWN", "SUPERSEDED"],
+    "$closure_vocab_comment": "ADV-R12-03 (R12b): only these words are exempt in a closure column; a status word there (COMPLETED, Done, Success) is still graded — the column is not an escape, the vocabulary is.",
+    "$closure_columns_comment": "prodsim/F-94 item 4 (v0.7.5): verifiers tabulate the closure of earlier findings and a bare CLOSED in any cell was refused as a forbidden synonym. A column under one of these headers records what became of a finding, not the status of work: it is not status-checked. Any other column of the same table still is.",
     "verdict_reference_required": {
       "FAIL": "verifier_finding",
       "PASS-with-carry-forwards": "cannot_validate"
@@ -239,8 +264,9 @@
   },
   "evidence": {
     "$comment": "FORMATS §3. ENFORCED subset — GATE-3 requires one of these alongside an evidence-required status or a done-word, AND requires it to be well formed per types below.",
-    "any": "ev:(cmd|file|commit|jira|url|attest)\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
-    "kind": "ev:(cmd|file|commit|jira|url|attest)\\{((?:[^{}]|\\{[^{}]*\\})+)\\}",
+    "any": "ev:(cmd|file|commit|jira|url|attest)\\{(?:'[^'{}\\n]*\\{[^'\\n]*'|\"[^\"{}\\n]*\\{[^\"\\n]*\"|[^{}]|\\{[^{}]*\\})+\\}",
+    "kind": "ev:(cmd|file|commit|jira|url|attest)\\{((?:'[^'{}\\n]*\\{[^'\\n]*'|\"[^\"{}\\n]*\\{[^\"\\n]*\"|[^{}]|\\{[^{}]*\\})+)\\}",
+    "$quoted_body_comment": "prodsim/F-94 item 3 (v0.7.5): a cmd body that greps for a citation opener (`grep -c 'ev:file{' PLAN.md`) carries an UNBALANCED brace inside a quoted string, so the one-level-braces body could not be read and the inner opener was reported as a malformed citation of its own — an executor had to substitute a `.` for the brace to cite the command it actually ran. A single- or double-quoted string inside the body may now hold an unbalanced `{` (no newline, no nested quote); the opener inside it is TEXT. Both engines read these keys.",
     "types": {
       "cmd": "ev:cmd\\{.+?=>.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^{}]|\\{[^{}]*\\})*\\}",
       "file": "ev:file\\{(?:[^{}]|\\{[^{}]*\\})+\\}",
@@ -249,6 +275,10 @@
       "url": "ev:url\\{https?://(?:[^{}]|\\{[^{}]*\\})+\\}",
       "attest": "ev:attest\\{[^{}:]+:\\s*.+?@[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[^{}]|\\{[^{}]*\\})*\\}"
     },
+    "capture_line": "^\\s*capture:\\s*(\\S+)\\s*$",
+    "$capture_comment": "prodsim/F-96 (v0.7.5): a repo's formatter runs AFTER the paste and rewrites pasted evidence (`*` → `_`, trailing whitespace stripped in fences, `\\*` escapes) silently — the file passes prettier because prettier wrote it, GATE-3 passes because the citation's form is unchanged. A fenced paste preceded by a `capture: <path>` line names its capture file; GATE-3 compares the fence body with that file byte for byte at the sweep, after any formatter has run, so a rewrite fails loudly. The path is repo-relative, or relative to the citing document's directory.",
+    "attest_ruling": "ev:attest\\{[^{}:]+:\\s*Q\\s+\"[^\"{}]+\"\\s+A\\s+\"[^\"{}]+\"\\s*@[0-9]{4}-[0-9]{2}-[0-9]{2}",
+    "$attest_ruling_comment": "prodsim/F-110 (v0.7.5): an attest records a CLAIM, not the question put and the answer given — a PO's 'not intended' was captured beside the wrong question and read as a ruling on the reverse case; a seam decision rested on it for a day. A RULING (a decision between options) quotes both halves: ev:attest{PO: Q \"<question as put>\" A \"<words as given>\" @<date>}. GATE-3 requires this form for an attest in a table column headed by one of status_vocab.ruling_columns; the plain form stays valid everywhere else.",
     "validate_shape": true,
     "$validate_shape_comment": "GATE-3 once accepted ev:cmd{i ran it and it was fine} because only `any` was applied. A citation that cites nothing checkable satisfies the letter of the gate and defeats its purpose, so each occurrence is now matched against its own type pattern.",
     "file_line_citation": "ev:file\\{([^#}]+):([0-9]+)\\}",
@@ -264,9 +294,13 @@
       "docs/spec/*.md",
       "runs/*/RUN-REPORT.md",
       "runs/*/reports/*.md",
+      "runs/*/FINDINGS.md",
+      "runs/*/findings/*.md",
+      "runs/*/walk-G4.md",
       "runs/quick/*/NOTE.md",
       "docs/GAPS.md"
-    ]
+    ],
+    "$gated_docs_comment": "prodsim/F-94 items 1–2 (v0.7.5): the scan set predated FORMATS §13's audit verdict table (FINDINGS.md, findings/*.md) — two GATE-3 violations sat committed in a findings file until someone happened to name it with --paths, and an AC saying 'GATE-3 passes the file at sweep' was graded by a sweep that never read the file. `gate-3 --run <id>` additionally scans EVERY .md under that run's directory (active or archived)."
   },
   "citation_scan_exclude": [
     "runs/archive/**",
@@ -343,7 +377,13 @@
     ],
     "section_heading": "^##\\s*{name}\\s*$",
     "spec_header": "^spec:\\s*(\\S+)",
-    "preamble_fields": ["spec", "run", "date", "author", "status", "story-continuity", "run-base", "tier"],
+    "preamble_fields": ["spec", "run", "date", "author", "status", "story-continuity", "run-base", "tier", "reviews"],
+    "$reviews_comment": "platform/F-97 fix 3 (v0.7.5): `reviews: <n>` in the plan preamble records the G2a adversarial-review rounds the plan went through, in a field the deriver reads (status.mjs prints it) — 7 of 14 pilot plans retained no review record and an audit had to reconstruct rounds from prose.",
+    "reads_lint": {
+      "path_token": "(?<![\\w/.$-])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+)(?![\\w/])",
+      "id_kinds": ["park", "plan_defect", "amendment", "cannot_validate"],
+      "$comment": "platform/F-97 (v0.7.5): adversarial review rounds measurably do not catch plan clauses that point at nothing — 9 of 11 traced defects survived every round, in runs with 5 and 7 rounds, and every survivor was decidable from the plan text. GATE-8 extracts every repo path a task's Action/Verify names (a token with a `/` whose first segment is a directory in the tree) and refuses the plan unless the path is tracked at HEAD, under the unit's own owns:, under a lower-wave unit's owns:, declared in inputs:, or the unit's own reports/evidence files; and every PARK-/DEF-plan-/AM-/CV- id a clause names must be allocated somewhere outside that cell. F-58's rule extended from declared inputs to used ones. The visible escape is the same `lint-ok: <reason>` marker GATE-13 honours."
+    },
     "$preamble_fields_comment": "platform/F-70 + ADV-R9-05 + ADV-R10-05 (v0.7.3): the F-28 scan exempts plan-preamble header fields by NAME, not by shape — 'story-continuity: …never declined…' is schema and must pass, while 'constraint: executors must never…' is a rule wearing a key: value costume and must fail (it reaches no executor). An unlisted descriptive field carrying a normative word is a false red whose remedy is adding the field here (a package change, deliberately — the exemption list is part of the plan schema).",
     "unit_heading": "^###\\s+(U[1-9][0-9]*)\\s+—\\s+(.+)$",
     "list_field": "^{name}:\\s*$((?:\\s*-\\s*.+\\n?)+)",
@@ -388,6 +428,11 @@
         "required": false,
         "kind": "path-list"
       },
+      "dispatched_at_wave": {
+        "required": false,
+        "kind": "integer",
+        "$comment": "prodsim/F-104 (v0.7.5): `wave:` is where a unit's outputs first become available (what the F-58 input rule reads). A unit RE-DISPATCHED at a later boundary (P3 step 10 amendment) records that boundary here; its declared inputs may then come from any wave strictly below it, and the value must exceed wave:."
+      },
       "governs": {
         "required": false,
         "kind": "text-list"
@@ -427,12 +472,19 @@
       "runs/*/PLAN.md",
       "runs/*/RUN-REPORT.md",
       "runs/*/HANDOFF.md",
-      "runs/*/jira-queue.md"
+      "runs/*/jira-queue.md",
+      "runs/*/walk-G4.md",
+      "runs/*/orch/*"
     ],
+    "$orch_paths_comment": "prodsim/F-108 (v0.7.5): LANES names runs/<id>/orch/* as ORCH-owned run bookkeeping and FORMATS §9 did not list it, so a unit could claim it and could NOT declare it as an input (GATE-8 refused an input no unit owns). An input under an ORCH-owned glob is accepted at G2 with no producer unit; its existence on int is checked at the wave boundary (gate-8 --boundary <wave>).",
     "agent_writable_paths": [
       "runs/*/reports/U*.md",
       "runs/*/reports/U*-verify.md"
     ],
+    "delta_verifier_paths": [
+      "runs/*/reports/AM-*-verify.md"
+    ],
+    "$delta_verifier_comment": "platform/F-95 + F-93 (v0.7.5): P3 §4 creates a delta verifier for an ORCH-authored plan amendment and no schema named its report's path or owner, so every run-wide ownership check went red on the amendment machinery working as designed. The report lives at reports/AM-<nn>-verify.md, allocates VF-AM<nn>-<nn>, and is NOBODY's unit output: it is deliberately not in agent_writable_paths, so a unit still cannot claim it in owns:.",
     "unit_body_end": "^##\\s",
     "$unit_body_end_comment": "A unit's body ends at the next level-2 section. Without this the last unit swallowed the Coverage matrix, whose rows name task ids and were read as task rows.",
     "non_vacuity_column": "Non-vacuity",
@@ -471,6 +523,8 @@
     "$updated_comment": "GATE-2 says 'updated technical-status row', not 'a row exists'. A REQ whose row predates the run and was never touched is exactly the phase-close failure the gate is for, so the row must appear in the run's diff.",
     "$row_comment": "PF-d (pilot #2, v0.6.0): {req} is substituted with the EFFECTIVE requirement id pattern — wow.config.json `requirement_id` if set, else ids.requirement. A brownfield repo with stable non-REQ identities (e.g. PLAT-M3-nn) configures the pattern instead of renumbering or running a permanently-vacuous GATE-2. Rows whose first cell is id-shaped but unreadable by the effective pattern FAIL GATE-2 loudly (FR-1's rule applied here). Dual consumers: gates.py and status.mjs.",
     "spec_declaration": "^requirements:\\s*(.+)$",
+    "empty_declaration": "^(?:none\\b|\\[\\])",
+    "$empty_declaration_comment": "platform/F-100 + prodsim/F-90 (v0.7.5): `requirements: none — <why>` (or `[]`) declares the EMPTY set — an audit spec delivers findings, not product capability. A present declaration is the obligation set even when it names nothing; the text-scan fallback applies only when NO declaration line exists. A declaration that yields no id and is not this sentinel is refused loudly (a typo is never read as none).",
     "$declaration_comment": "F-17 (v0.6.4, frisbii): GATE-2's obligation set was a literal text scan, so a range (REQ-059 … REQ-063) enrolled two of five rows, and any scanned doc that DISCUSSED an id adopted it — a repo's own record of its gate defects was unwritable. When the spec header carries a 'requirements:' line or any unit declares 'governs:', those declarations ARE the set (mention ≠ claim — the move _governing_sources already made). With no declaration anywhere, the legacy scan applies, with an advisory nudge."
   },
   "jira_mapping": {
@@ -566,7 +620,10 @@
     "debug_decision": "runs/debug/classification-request.md",
     "$debug_decision_comment": "prodsim/F-80 (v0.7.4): the debug lane put the PO's decision at the BOTTOM of the implementer's investigation and had no batch surface — four well-formed 100-line records were together undecidable ('I will not examine the records and the repo'). This is the lane-level decision surface: one page, one table, one row per open record (what is true · severity · act now? · ORCH's PROPOSED disposition · what happens if deferred), a blanket-approval clause, what approval does NOT cover, a decision line. The PO decides from it without reading a record; status.mjs names it when open records exist and reports its absence, and never counts it as an open record. It commits under the debug lane as [D:classification-request] (the file exists under runs/debug/, so the trailer resolves; DEV-R11-05).",
     "walk": "runs/{run_id}/walk-G4.md",
-    "$walk_comment": "prodsim/F-86 (v0.7.4): P3 gives an executor a park for findings it does not own and a wave boundary to batch them at; P4's walk had neither, so a mid-walk finding had exactly one move — raise it now — and two of twenty items ate a context window before the walk was enumerated. The walk artifact is the P4 equivalent of the park: one row per RUN-REPORT failed/blocked/parked/defect item with its classification; findings surfaced mid-walk land here and are disposed of TOGETHER at G4. GATE-10 at G4 refuses close when an item the RUN-REPORT carries is absent from it.",
+    "walk_classes": ["fix-iteration", "spec-wrong", "defer", "accept-as-gap", "resolved-in-run"],
+    "walk_resolved_class": "resolved-in-run",
+    "$walk_classes_comment": "platform/F-98 (v0.7.5): P4 step 2's four classes had no answer for a plan defect repaired at G2a before execution, so the walk pushed closed records into the registry F-51 keeps for open obligations. `resolved-in-run` routes nowhere and must cite the repairing commit or amendment in the same walk row (gate-2 --close refuses it uncited). The class list is the P4 vocabulary; the engine gates only the resolved class's citation.",
+    "$walk_comment": "prodsim/F-86 (v0.7.4): P3 gives an executor a park for findings it does not own and a wave boundary to batch them at; P4's walk had neither, so a mid-walk finding had exactly one move — raise it now — and two of twenty items ate a context window before the walk was enumerated. The walk artifact is the P4 equivalent of the park: one row per RUN-REPORT failed/blocked/parked/defect item with its classification; findings surfaced mid-walk land here and are disposed of TOGETHER at G4. `gate-2 --close` at G4 refuses close when an item the RUN-REPORT carries is absent from it (moved from GATE-10 in R11b, ADV-R11-04; audit 2026-10-06 B2 corrected this comment).",
     "archive": "runs/archive/{run_id}/",
     "archive_dir": "runs/archive",
     "active_marker": ".active",
@@ -619,14 +676,18 @@
   "audit_triggers": {
     "$comment": "P4. Counters derived by status.mjs; any hit schedules an audit phase before new feature work.",
     "AT-1": {
-      "metric": "mocks_fixtures_committed_this_run",
+      "metric": "stand_ins_for_real_systems_committed_this_run",
       "threshold": 3,
       "comparator": ">",
       "derived_by": "orch",
+      "$definition": "prodsim/F-100 (v0.7.5): ONE definition, the ROLE — code or data that replaces a real system on the path of a product AC, surviving in the tree at run end (BASE vs TIP stand-in inventory). NOT a stand-in: non-vacuity controls (F-47), parser/formatter inputs whose tests assert parsed values, synthetic data labelled as such, trimmed captures of real responses used as test input. The old metric name (mocks_fixtures_committed_this_run) and P4's `git diff -- fixtures/` example taught a path count: 126 where the inventory read 0.",
       "$comment": "F-47 (v0.7.2): the count EXCLUDES artifacts serving as non-vacuity controls — negative tests, mutants, planted violations, subject-absent probes. The framework DEMANDS those (GATE-13, the two-negative-tests rule), so a counter that reads them as mock drift fires hardest on the healthiest runs: two firings, zero audits, both waived (pilot #2). AT-1 is orch-recorded judgment; the recorded number is committed-mocks-and-fixtures-standing-in-for-real-systems, and a control that proves a check can fail is not one. F-40 (v0.7.1): counts artifacts that SURVIVE the run — committed under the repo, or referenced by something that is. A falsification audit's throwaway scratch fixtures are not fixtures the next run inherits, and the old bare count fired at 90x threshold on a run that added ZERO fixtures to the codebase — hardest on exactly the class of run the trigger most wants to encourage. Created-but-destroyed counts are reported in prose if worth noting; they are never the trigger."
     },
+    "runnable_citation_required": ["AT-2"],
+    "$runnable_comment": "prodsim/F-91 fix 2 (R12b): the escrow refuses a recorded AT-2 row whose ev cell carries no ev:cmd{…} — the count is reproducible only from a runnable command over a stated range.",
     "AT-2": {
       "metric": "remediation_cycles_since_last_audit",
+      "$definition": "platform/F-101 + prodsim/F-91 (v0.7.5): one cycle = one TRIGGER (a park, a gate rejection, a verifier report whose findings forced a fix wave, a review round that did) with every commit answering it; a commit answering two triggers belongs to both; PO-authored plan amendments do not count, unit fix waves and ORCH fix-forward amendments do; window = this run's P1–P4 plus repairs made after the row was recorded (re-recorded into THIS run's figure); r>1 of the same spec continues the count; the row's citation is a runnable command over a stated range.",
       "threshold": 5,
       "comparator": ">",
       "derived_by": "orch"
@@ -658,9 +719,11 @@
     },
     "$derived_by_comment": "status = status.mjs computes it from the repo. orch = recorded by the orchestrator in RUN-REPORT; not derivable from files alone. po = a judgment call recorded at G4. AT-4 was previously annotated 'derived by gates.sh gate-5 sweep' while no such counter existed in the engine — status.mjs now derives it directly, using the same citation rules gates.sh applies.",
     "report_section": "audit triggers",
-    "section_heading": "^#{1,6}\\s*{name}\\s*$([\\s\\S]*?)(?=^#|$(?![\\s\\S]))",
+    "section_heading": "^#{1,6}\\s*{name}\\b[^\\n]*$([\\s\\S]*?)(?=^#|$(?![\\s\\S]))",
+    "$heading_suffix_comment": "platform/F-87 fix 1 (v0.7.5): `\\s*$` right after the name made ANY suffix on the heading ('## audit triggers — recorded at P4') hide the section from both consumers — 4 of 14 pilot RUN-REPORTs. A word boundary then anything to end of line.",
     "$section_heading_comment": "ADV-R9-07 (v0.7.3 R9): the escrow located this section via the ##-only handoff template while status.mjs used an INLINED #+ regex — '### audit triggers' gave one recorded value two consumers and opposite answers (a hit derived by status, no escrow row demanded by gate-7). One any-level regex, both consumers, filled with {name}=report_section.",
-    "report_row": "^\\s{0,3}\\|\\s*(AT-[0-9]+)\\b[^|]*\\|\\s*([0-9]+)\\b",
+    "report_row": "^\\s{0,3}\\|[\\s*_]*(AT-[0-9]+)\\b[^|]*\\|[\\s*_]*([0-9]+)\\b",
+    "$row_decoration_comment": "platform/F-87 fix 2 (v0.7.5): a bold id (`| **AT-1** |`) or a bold integer (`| **0 — NOT HIT** |`) did not parse because `*` is not whitespace — 2 more of 14 pilot sections parsed nothing, and a dated PO ruling on AT-5 read back as 'awaiting PO'. Bold/underscore decoration is tolerated before the id and before the integer — never a backtick: a backticked id is a MENTION (PF-a), and a threshold-documentation row written as `AT-5` | `1` must not parse as a recorded value (ADV-R12-06; the escrow and the deriver read the same row).",
     "$report_row_comment": "prodsim/F-74 (v0.7.3): the strict id-alone/integer-alone shape rejected every row a person would naturally write (metric name beside the id, verdict beside the number) and the deriver then said 'not recorded' about a recorded table. The id anchors the row; the integer must LEAD the value cell — '| AT-1 | see AT-2, was 4 |' and threshold-documentation rows must NOT parse, because this pattern is a dual consumer and a false parse in the escrow is a phantom trigger hit (ADV-6). Dialect-portable; P4 carries a literal example row. ADV-R9-12 (R9): up to three leading spaces are CommonMark-legal table indentation, so the anchor allows them — an indented but perfect table used to yield '0 parsed' under a message that never named the column-0 requirement.",
     "$orch_comment": "F-33 (v0.6.4): derived_by 'orch' means READ IT FROM THE DURABLE HOME — the run's RUN-REPORT '## audit triggers' table (| AT-n | value | ...) — never 'give up'. Three of five triggers rendered 'not derived' against numbers that were derived, recorded and cited: PF-03's founding gap recurring in the file that fixed it. AT-5 is a genuine PO judgement and stays null, saying so."
   },
@@ -678,6 +741,8 @@
       "scripts/wow/tests"
     ],
     "config_file": "scripts/wow/wow.config.json",
+    "digest_manifest": "scripts/wow/package-digests.json",
+    "$digest_manifest_comment": "platform/F-92 fix 2 (v0.7.5): install.sh records sha256 of every package-owned file (engine_files + engine_dirs) here at install; check-parity reports any package-owned file whose digest differs as modified-since-install — advisory by default (layer_notes), blocking when wow.config.json sets package_integrity_check: \"block\". Manufacture stays possible (the manifest is a file too); it stops being invisible.",
     "hooks": [
       "commit-msg",
       "pre-commit"
@@ -733,7 +798,7 @@
     "$seed_comment": "F-06 (v0.6.3): which commands THIS repo's verify steps may run is repo-local truth by definition (a k8s platform needs kubectl, a Java service gradle) — shipping it in engine_files meant --check reported the repo's own policy as DRIFTED and the next upgrade overwrote it (observed: 18 designed vs 234 accreted, overlap zero). Seeded once from the package template, then owned by the repo, like wow.config.json; --check reports MISSING but never drift."
   },
   "gates": {
-    "$subject_comment": "prodsim/F-70 fix 2 (v0.7.3): a sweep that reports verdicts without subject counts cannot be told apart from a vacuous one — the pilot ORCH recorded 6/6 passed as a green check over an EMPTY set, on the wrong branch, and it survived two wave boundaries. Gates with a subject label report their count in the PASS output; zero says vacuous, loudly. install-vacuity promoted from a migration document to standing engine behavior. Always-one-subject gates (GATE-1, GATE-9, GATE-11) carry no label by design (ADV-12).",
+    "$subject_comment": "prodsim/F-70 fix 2 (v0.7.3): a sweep that reports verdicts without subject counts cannot be told apart from a vacuous one — the pilot ORCH recorded 6/6 passed as a green check over an EMPTY set, on the wrong branch, and it survived two wave boundaries. Gates with a subject label report their count in the PASS output; zero says vacuous, loudly. install-vacuity promoted from a migration document to standing engine behavior. Always-one-subject gates carry no label by design (ADV-12): GATE-1 (one commit), GATE-11 (one staged set), and GATE-9 in its --gate form only (platform/F-85, v0.7.5: the unscoped form every sweep runs iterates a glob-derived list and IS labelled). platform/F-83 (v0.7.5): a label here is a PROMISE the engine keeps — check-parity fails when a labelled gate has no _subject_note(\"<id>\" call site or a call site has no label (four labelled gates emitted nothing for two releases).",
     "GATE-1": {
       "where": "commit-msg",
       "blocks": "commit",
@@ -749,10 +814,11 @@
       "blocks": "gate",
       "inert_when": null
     },
-    "GATE-4": {
+    "GATE-4": {"subject": "run invariant(s)",
       "where": "sweep",
       "blocks": "gate",
-      "inert_when": null
+      "inert_when": null,
+      "$comment": "platform/F-84 (v0.7.5): two arms — the package inventory (never empty) and the per-run `invariant:` markers (empty in 14 of 14 pilot runs, and nothing said so). The label is the per-run arm's; the inventory is reported on its own line so a green inventory cannot stand in for a graded run."
     },
     "GATE-5": {"subject": "file(s)", 
       "where": "pre-commit+sweep",
@@ -778,10 +844,11 @@
       "blocks": "review",
       "inert_when": null
     },
-    "GATE-9": {
+    "GATE-9": {"subject": "signed artifact(s)",
       "where": "sweep",
       "blocks": "gate-close",
-      "inert_when": null
+      "inert_when": null,
+      "$comment": "platform/F-85 (v0.7.5): the label applies to the unscoped (sweep) form; `--gate G<n>` checks one closure record against one artifact and prints no subject line (ADV-12)."
     },
     "GATE-10": {"subject": "divergence row(s)", 
       "where": "gate-open",
@@ -888,7 +955,8 @@
       "jq-default-on-absent-key": "\\bjq\\b.*(?<!:)//",
       "length-on-object": "\\blength\\s*>\\s*0",
       "jq-index-on-array": "\\bjq\\b.*\\bindex\\(",
-      "unguarded-merge-base": "(?s)^(?=[\\s\\S]*\\bgit merge-base\\b)(?![\\s\\S]*(?:rev-parse\\s+--verify|\\|\\|))"
+      "unguarded-merge-base": "(?s)^(?=[\\s\\S]*\\bgit merge-base\\b)(?![\\s\\S]*(?:rev-parse\\s+--verify|;\\s*rc=\\$\\?))",
+      "$merge_base_comment": "platform/F-86 (v0.7.5): `||` was an accepted guard, and `||` is exactly the form that collapses a harness fault (git exits 128/129 when the operand is empty or unresolvable) into the verdict exit 1 'not an ancestor'. Accepted guards: the operand is resolved first (rev-parse --verify), or the exit code is captured on the same line (`; rc=$?`) so 0/1 can be told from 128/129 in a case statement."
     },
     "accept_marker": "lint-ok:"
   },

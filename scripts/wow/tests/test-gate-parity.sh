@@ -139,4 +139,33 @@ json.load(open(p))
 PY
 assert_rejects "a stale ids_expanded entry fails parity (platform/F-76)" "$FIXX" \
   "ids_expanded.run is stale" parity
+# ---- platform/F-83 (v0.7.5): a subject label is a promise the engine keeps
+FIX83="$(setup_fixture_repo)"
+rows_1_12 > "$FIX83/scripts/wow/GATES-SPEC.md"
+mkdir -p "$FIX83/docs/process"
+printf 'Lane refs: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX83/docs/process/LANES.md"
+printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX83/CLAUDE.md"
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); s = open(p).read()
+s = s.replace('"GATE-1": {', '"GATE-1": {"subject": "commit(s)", ', 1)
+open(p, 'w').write(s); json.load(open(p))
+PY
+assert_rejects "a label with no _subject_note call site fails parity and NAMES the gate (platform/F-83)" "$FIX83" \
+  "GATE-1 declares a subject label" parity
+cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
+sed -i 's/_subject_note("GATE-3", scanned)/[]/' "$FIX83/scripts/wow/gates.py"
+assert_rejects "a call site removed from a labelled gate fails parity and names GATE-3 (F-83)" "$FIX83" \
+  "GATE-3 declares a subject label" parity
+cp "$WOW_DIR/gates.py" "$FIX83/scripts/wow/gates.py"
+assert_accepts "registry and call sites agree (F-83 control)" "$FIX83" parity
+# ---- platform/F-92 fix 1 (v0.7.5): an ownership list may not cover its own home
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace('"agent_writable_paths": [', '"agent_writable_paths": ["scripts/wow/*", ', 1)
+open(p, 'w').write(s); json.load(open(p))
+PY
+assert_rejects "agent_writable_paths covering scripts/wow/** is self-licensing — parity fails naming the key (platform/F-92)" "$FIX83" \
+  "plan_schema.agent_writable_paths contains 'scripts/wow/*'" parity
 finish

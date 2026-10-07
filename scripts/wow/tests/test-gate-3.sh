@@ -286,4 +286,118 @@ raise SystemExit(0 if pats and all(p == pats[0] for p in pats) and '*' in pats[0
 PY
 then echo "  ok   per-line and doc-wide masks share one pattern (F-75 parity)"; PASS=$((PASS+1))
 else echo "  FAIL the two mask implementations drifted apart again (F-75)"; FAIL=$((FAIL+1)); fi
+# ---- prodsim/F-94 item 1 (v0.7.5): --run scans the run's own findings files
+FIX94="$(setup_fixture_repo)"
+mkdir -p "$FIX94/runs/260925-aud-r1/findings"
+printf '# RUN-REPORT\n' > "$FIX94/runs/260925-aud-r1/RUN-REPORT.md"
+printf '| id | Status |\n|---|---|\n| AQ-1 | COMPLETED |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-1.md"
+assert_rejects "gate-3 --run <id> reads the run's findings/*.md (prodsim/F-94 item 1)" "$FIX94" \
+  "findings/AQ-1.md:3 status COMPLETED without" gate-3 --run 260925-aud-r1
+assert_rejects "a default sweep scan also reads runs/*/findings/*.md (F-94 item 2)" "$FIX94" \
+  "findings/AQ-1.md:3" gate-3
+assert_rejects "--run naming no run directory is refused, never a silent pass (F-94)" "$FIX94" \
+  "names no directory" gate-3 --run 260999-ghost-r1
+assert_rejects "a flag the gate does not read is refused before the gate runs (F-94 amendment)" "$FIX94" \
+  "gate-3 does not read --spec" gate-3 --spec x.md
+printf '| id | Status |\n|---|---|\n| AQ-1 | COMPLETED ev:commit{abc1234} |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-1.md"
+( cd "$FIX94" && git add -A >/dev/null && git commit -qm "f [WOW:publish]" )
+GOOD94="$( cd "$FIX94" && git rev-parse --short=7 HEAD )"
+printf '| id | Status |\n|---|---|\n| AQ-1 | COMPLETED ev:commit{%s} |\n' "$GOOD94" > "$FIX94/runs/260925-aud-r1/findings/AQ-1.md"
+assert_accepts "a cited findings row passes under --run (F-94 control)" "$FIX94" gate-3 --run 260925-aud-r1
+# ---- prodsim/F-94 item 3: a citation opener inside a QUOTED cmd body is text
+printf '| id | Status | ev |\n|---|---|---|\n| AQ-2 | COMPLETED | ev:cmd{grep -c '"'"'ev:file{'"'"' PLAN.md => 3 @2026-09-25T10:00:00Z} |\n' \
+  > "$FIX94/runs/260925-aud-r1/findings/AQ-2.md"
+assert_accepts "an opener inside a quoted string in a cmd body is text, not a citation (F-94 item 3)" "$FIX94" \
+  gate-3 --paths runs/260925-aud-r1/findings/AQ-2.md
+printf '| id | Status | ev |\n|---|---|---|\n| AQ-2 | COMPLETED | ev:cmd{grep -c ev:file{ PLAN.md => 3 @2026-09-25T10:00:00Z} |\n' \
+  > "$FIX94/runs/260925-aud-r1/findings/AQ-2.md"
+assert_rejects "an UNQUOTED unbalanced brace is still unexpressible (F-94 item 3 control)" "$FIX94" \
+  "cannot be expressed" gate-3 --paths runs/260925-aud-r1/findings/AQ-2.md
+# ---- prodsim/F-94 item 4: CLOSED under a Closure/Outcome header is not a status
+printf '| finding | Closure | note |\n|---|---|---|\n| VF-U1-01 | CLOSED | fixed in wave 2 |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-3.md"
+assert_accepts "CLOSED in a Closure column is a record of a finding, not a status (F-94 item 4)" "$FIX94" \
+  gate-3 --paths runs/260925-aud-r1/findings/AQ-3.md
+printf '| finding | note | result |\n|---|---|---|\n| VF-U1-01 | fixed | CLOSED |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-3.md"
+assert_rejects "CLOSED in a Status/Result column is still refused (F-94 item 4 control)" "$FIX94" \
+  "'CLOSED' is not in the status vocabulary" gate-3 --paths runs/260925-aud-r1/findings/AQ-3.md
+# ---- platform/F-102 (v0.7.5): a contracted reading word in a headerless counts table
+printf '## counts\n\n| live | 12 |\n| spent | 3 |\n| cannot-be-told | 1 |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-4.md"
+assert_accepts "a headerless counts table with a lowercase 'live' cell passes (platform/F-102)" "$FIX94" \
+  gate-3 --paths runs/260925-aud-r1/findings/AQ-4.md
+printf '| 260925-aud-r1.T14 | LIVE | deployed |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-4.md"
+assert_rejects "a task row with status LIVE is still refused (F-102 control)" "$FIX94" \
+  "'LIVE' is not in the status vocabulary" gate-3 --paths runs/260925-aud-r1/findings/AQ-4.md
+printf '| id | Status |\n|---|---|\n| x | live |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-4.md"
+assert_rejects "a lowercase synonym in a NAMED status column is still refused (F-102 control 2)" "$FIX94" \
+  "'live' is not in the status vocabulary" gate-3 --paths runs/260925-aud-r1/findings/AQ-4.md
+# ---- platform/F-91 (v0.7.5): a verdict refusal names the HEADER, once per table
+printf '| id | grade |\n|---|---|\n| T1 | survived every round |\n| T2 | survived every round |\n| T3 | mostly |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-5.md"
+OUT91="$(cd "$FIX94" && bash scripts/wow/gates.sh gate-3 --paths runs/260925-aud-r1/findings/AQ-5.md 2>&1)" || true
+if printf '%s' "$OUT91" | grep -q "column 'grade' is a verdict column (status_vocab.verdict_columns)" \
+   && [ "$(printf '%s\n' "$OUT91" | grep -c 'verdict column')" = "1" ]; then
+  echo "  ok   verdict refusal names the header and the key, once per table (platform/F-91)"; PASS=$((PASS+1))
+else
+  echo "  FAIL verdict refusal did not name the header once"; printf '%s\n' "$OUT91" | head -5; FAIL=$((FAIL+1))
+fi
+# ---- prodsim/F-113 case o (v0.7.5): a TILDE fence is a fence in the line loop
+printf 'Pasted:\n\n~~~text\n| T1 | COMPLETED |\n~~~\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-6.md"
+assert_accepts "a status row inside a tilde fence is a mention (prodsim/F-113 case o)" "$FIX94" \
+  gate-3 --paths runs/260925-aud-r1/findings/AQ-6.md
+printf 'Pasted:\n\n~~~text\n```\n~~~\n| T1 | COMPLETED |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-6.md"
+assert_rejects "a backtick line inside a tilde fence does not close it; the row after the fence is a claim (F-113)" "$FIX94" \
+  "AQ-6.md:6 status COMPLETED without" gate-3 --paths runs/260925-aud-r1/findings/AQ-6.md
+# ---- prodsim/F-110 (v0.7.5): a ruling quotes the question it answered
+printf '| id | Decision | note |\n|---|---|---|\n| D4 | ev:attest{PO: not intended @2026-10-03} | canvas variation |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-7.md"
+assert_rejects "an attest in a Decision column without the question is refused (prodsim/F-110)" "$FIX94" \
+  "carries no question" gate-3 --paths runs/260925-aud-r1/findings/AQ-7.md
+printf '| id | Decision | note |\n|---|---|---|\n| D4 | ev:attest{PO: Q "is per-origin canvas variation intended?" A "Yes intended" @2026-10-04} | canvas variation |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-7.md"
+assert_accepts "the Q/A form passes in a Decision column (F-110 control)" "$FIX94" \
+  gate-3 --paths runs/260925-aud-r1/findings/AQ-7.md
+printf '| id | Status | note |\n|---|---|---|\n| D4 | COMPLETED ev:attest{PO: not intended @2026-10-03} | not a ruling column |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-7.md"
+assert_accepts "the plain attest stays valid outside a ruling column (F-110 control 2)" "$FIX94" \
+  gate-3 --paths runs/260925-aud-r1/findings/AQ-7.md
+# ---- prodsim/F-96 (v0.7.5): a `capture:` fence is compared with its file byte for byte
+mkdir -p "$FIX94/runs/260925-aud-r1/evidence/U1"
+printf 'line one \nline *two*\n' > "$FIX94/runs/260925-aud-r1/evidence/U1/paste1.txt"
+printf 'Evidence:\n\ncapture: runs/260925-aud-r1/evidence/U1/paste1.txt\n\n```text\nline one \nline *two*\n```\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-8.md"
+assert_accepts "a paste identical to its capture passes (F-96 control)" "$FIX94" gate-3 --paths runs/260925-aud-r1/findings/AQ-8.md
+printf 'Evidence:\n\ncapture: runs/260925-aud-r1/evidence/U1/paste1.txt\n\n```text\nline one\nline _two_\n```\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-8.md"
+assert_rejects "a formatter-rewritten paste (trailing space stripped, * → _) is refused (prodsim/F-96)" "$FIX94" \
+  "pasted fence differs from its capture runs/260925-aud-r1/evidence/U1/paste1.txt at paste line 1" gate-3 --paths runs/260925-aud-r1/findings/AQ-8.md
+printf 'capture: runs/260925-aud-r1/evidence/U1/missing.txt\n\n```text\nx\n```\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-8.md"
+assert_rejects "a capture: naming no file is refused (F-96)" "$FIX94" "names no file" gate-3 --paths runs/260925-aud-r1/findings/AQ-8.md
+# ---- R12b: ADV-R12-02 / DEV-R12-01 — --run scans the run's GATED documents only
+printf '# PLAN\n| Task | Action | Verify | Done-means |\n|---|---|---|---|\n| 260925-aud-r1.T01 | run tests | `pytest` | PASS |\n' > "$FIX94/runs/260925-aud-r1/PLAN.md"
+printf '| Item | Git | Jira | Classification |\n|---|---|---|---|\n| REQ-001 | COMPLETED | Done | |\n' > "$FIX94/runs/260925-aud-r1/divergence-G2.md"
+rm -f "$FIX94/runs/260925-aud-r1/findings/AQ-"*.md
+assert_accepts "PLAN.md and divergence records are not GATE-3 subjects under --run (ADV-R12-02, DEV-R12-01)" "$FIX94" gate-3 --run 260925-aud-r1
+mkdir -p "$FIX94/runs/archive/260801-old-r1"
+printf '| T1 | COMPLETED |\n' > "$FIX94/runs/archive/260801-old-r1/RUN-REPORT.md"
+assert_output "--run naming an ARCHIVED run adds nothing and says so (platform/F-65)" "$FIX94" \
+  "is ARCHIVED — graded at its own publish" gate-3 --run 260801-old-r1
+# ---- R12b: ADV-R12-03 — a closure column exempts only the closure vocabulary
+printf '| Task | Outcome | notes |\n|---|---|---|\n| 260925-aud-r1.T02 | COMPLETED | no evidence here |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-9.md"
+assert_rejects "COMPLETED under an Outcome header is still a status without evidence (ADV-R12-03)" "$FIX94" \
+  "status COMPLETED without an ev: citation" gate-3 --paths runs/260925-aud-r1/findings/AQ-9.md
+printf '| Task | Outcome | notes |\n|---|---|---|\n| VF-U1-01 | CLOSED | see U1 |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-9.md"
+assert_accepts "CLOSED under Outcome is the closure vocabulary (ADV-R12-03 control)" "$FIX94" gate-3 --paths runs/260925-aud-r1/findings/AQ-9.md
+# ---- R12b: ADV-R12-08 — an AC-/U-keyed row is status-shaped
+printf '| item | verdict-ish |\n|---|---|\n| AC-3 | Passed |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-9.md"
+assert_rejects "a Title-case synonym on an AC-keyed row is still refused (ADV-R12-08)" "$FIX94" \
+  "'Passed' is not in the status vocabulary" gate-3 --paths runs/260925-aud-r1/findings/AQ-9.md
+# ---- R12b: DEV-R12-13 — the ruling check reads the whole row
+printf '| id | Decision | ev |\n|---|---|---|\n| D-9 | keep the sample | ev:attest{PO: accepted the sample @2026-09-18} |\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-9.md"
+assert_rejects "an attest in the ev cell of a row with a Decision column needs the Q/A form (DEV-R12-13)" "$FIX94" \
+  "carries no question" gate-3 --paths runs/260925-aud-r1/findings/AQ-9.md
+# ---- R12b: ADV-R12-10 / DEV-R12-04 — capture: inside a fence is a mention; the path resolves through the archive
+printf 'Template:\n\n```text\ncapture: <path-to-capture>\n```\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-9.md"
+assert_accepts "a capture: line inside a fence is a template, not a claim (ADV-R12-10)" "$FIX94" gate-3 --paths runs/260925-aud-r1/findings/AQ-9.md
+mkdir -p "$FIX94/runs/archive/260926-cap-r1/evidence/U1" "$FIX94/runs/archive/260926-cap-r1/reports"
+printf 'one\n' > "$FIX94/runs/archive/260926-cap-r1/evidence/U1/p.txt"
+printf 'capture: runs/260926-cap-r1/evidence/U1/p.txt\n\n```text\none\n```\n' > "$FIX94/runs/archive/260926-cap-r1/reports/U1.md"
+assert_accepts "a repo-relative capture path resolves through the archive rewrite after P5 (DEV-R12-04)" "$FIX94" \
+  gate-3 --paths runs/archive/260926-cap-r1/reports/U1.md
+# ---- R12b: ADV-R12-15 — a ``` line inside a ```` fence is content
+printf 'Example of a fence:\n\n````md\n```\n| T1 | COMPLETED |\n```\n````\n' > "$FIX94/runs/260925-aud-r1/findings/AQ-9.md"
+assert_accepts "a 3-backtick line does not close a 4-backtick fence (ADV-R12-15)" "$FIX94" gate-3 --paths runs/260925-aud-r1/findings/AQ-9.md
 finish

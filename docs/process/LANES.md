@@ -1,8 +1,8 @@
-# LANES — quick & debug playbooks + precedence — DRAFT v0.7.4
+# LANES — quick & debug playbooks + precedence — DRAFT v0.7.5
 
 ## Lane refs (GATE-1) **[ORCH]**
 
-Every commit carries exactly one lane ref; GATE-1 (commit-msg hook) blocks the rest. Trailers in backticks or fenced/indented blocks are mentions and do not count (F-07) — a commit about lane behaviour can name the trailers it discusses. The full set — this list and `formats.json commit_trailers` are two declarations of the same set, and the parity sweep compares them both ways (v0.6.1, PF-b):
+Every commit carries exactly one lane ref; GATE-1 (commit-msg hook) blocks the rest. Every gate rejection is logged to `<git-common-dir>/wow/gate-log` — one file for all worktrees of the repository, each line naming the worktree and branch it came from (v0.7.5, prodsim/F-97; the per-worktree `runs/.gate-log` is retired). Trailers in backticks or fenced/indented blocks are mentions and do not count (F-07) — a commit about lane behaviour can name the trailers it discusses. The full set — this list and `formats.json commit_trailers` are two declarations of the same set, and the parity sweep compares them both ways (v0.6.1, PF-b):
 
 - `[T:<run-id>.T<nn>]` — main lane; must resolve to a task **row** in that run's `PLAN.md`.
 - `[T:<run-id>]` — bare form (v0.6.3, F-08/F-10): a run's **phase-level artifacts and ORCH-owned run bookkeeping at ANY phase** (P1 spec + HANDOFF, mid-P3 HANDOFF updates and `runs/<id>/orch/*` records, P4 reconciled spec / divergence / RUN-REPORT — clarified v0.7.2 per the F-08 addendum: a pilot improvised a `T00` task row and then a faked publish trailer because the wording read as P1/P4-only; the mechanism always resolved the run directory, so the bare form IS the lane for ORCH bookkeeping whenever it happens); resolves to the run directory, which may exist before its plan. Task work still uses the fully-qualified form — a borrowed task id on phase work is the improvisation this form exists to end.
@@ -24,7 +24,7 @@ Every commit carries exactly one lane ref; GATE-1 (commit-msg hook) blocks the r
 
 Criteria (all): **≤2 files the change chooses, plus any co-edit an existing gate or check makes mandatory** (v0.7.2, platform/F-64: a suite with a denominator sentinel FORCES a third file per added check — counting forced co-edits priced a one-check change at a full main-lane run, which is the shape that gets rules quietly bent; the mechanical test that stops the exception becoming a loophole: make the change alone, run the gate set, and the files it turns red are the co-edits — anything else is scope and reroutes as before) · no interface/schema change · reversible · no new dependency · no prod config.
 Steps: create `runs/quick/<YYMMDD>-<slug>/NOTE.md` → sections: `what` / `why` / `verify` (an `ev:cmd` you will run) / `result`. Implement. Run the verify command; record `ev:`. Commit with `[Q:…]`. Done — no other artifacts, no Jira item (unless the change touches a tracked story; then comment on it).
-A NOTE.md with empty `result` older than 7 days is a stale stub — GC'd at next PUBLISH (listed, PO confirms deletion).
+A NOTE.md with empty `result` older than 7 days is a stale stub — GC'd at next PUBLISH (listed, PO confirms deletion). **The age is the stub directory's `YYMMDD` date** (v0.7.5, prodsim/F-114 — never the file's mtime, which a fresh clone or CI checkout resets to now, exactly where GC is most likely to run); the machine home is `formats.json` `runs_layout.quick_stale_days`, and P5 step 4 points here.
 
 ## Debug lane **[ORCH]**
 

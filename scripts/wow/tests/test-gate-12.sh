@@ -169,4 +169,11 @@ $HDR
 G
 assert_rejects "OBL- id the pattern cannot read is loud, not silently non-blocking (F-55)" "$FIX" \
   "does not match ids.obligation" gate-12 --kind feature
+# ---- platform/F-83 (v0.7.5): GATE-12 states its subject
+gaps << G
+$HDR
+| OBL-T-01 | impl_gap | m | advisory | run | lands | ev:commit{abc1234} |
+G
+assert_output "a readable registry states its row count (platform/F-83)" "$FIX" \
+  "subject: 1 registry row(s)" gate-12 --kind feature
 finish
