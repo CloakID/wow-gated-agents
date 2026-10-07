@@ -1,4 +1,4 @@
-# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.7.5
+# WoW v2 — CLAUDE.md section (thin router) — DRAFT v0.7.5.1
 
 > Drop this section into your repo's CLAUDE.md (or equivalent agent memory file). Target ≤60 lines resident; everything else loads on phase entry.
 
@@ -27,6 +27,7 @@ Each `/wow-*` command loads its playbook from `docs/process/`. Do not execute a 
 5. **PO gates leave a record.** G1/G2/G4 close = Jira transition + mirrored `signed: <date> ev:jira{…}` line in the governing artifact (GATE-9). Gate failures: fix-forward ≤2 attempts, then park (FORMATS §7). Gates are never bypassed or weakened mid-run.
 6. **A rule that matters is a gate, not a sentence.** Mechanical rules live once in `scripts/wow/GATES-SPEC.md` + `formats.json` (consumed by gates.sh **and** status.mjs); each gate ships with its non-vacuity proof, and the gate set ships with a wiring test that commits through the real hooks.
 7. **INVESTIGATE-THEN-ASK.** Findings are investigated (facts + impact captured), classified by the PO, then scoped — in that order.
+8. **The ORCH is a router, not a reader.** Any step whose input is a report body, a finding list, evidence, a review, or a sweep's failure list is delegated to a fresh-context AGENT with a closed manifest and consumed through the report's bounded `## hand-back` (verdict · ids · pointers · parked — GATE-15 refuses a report without one, or one that contradicts its rows; delegates write `runs/<id>/orch/<role>-<n>.md`). The ORCH itself reads hand-backs, HANDOFF, plan headers and `sweep --summary` lines — nothing longer. Before every delegation batch it writes `## resume` in HANDOFF with `clears: <n>` (forced restarts inside a phase; AT-6 fires above 2 and the hit names the step that ate the context). Per-phase delegation table: FORMATS §14.
 
 ### Paths
 

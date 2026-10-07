@@ -14,7 +14,7 @@ printf 'Lane refs: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/docs/proce
 printf '## Way of Working\nTrailers: [T: [Q: [D: [WOW:publish] [WOW:migrate]\n' > "$FIX/CLAUDE.md"
 
 spec() { cat > "$FIX/scripts/wow/GATES-SPEC.md"; }
-rows_1_12() { for n in $(seq 1 14); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }  # through 14 since v0.6.4
+rows_1_12() { for n in $(seq 1 15); do printf '| GATE-%s | check | where | block |\n' "$n"; done; }  # through 15 since v0.7.5.1
 
 # Subject-absent: no spec side at all.
 assert_rejects "no GATES-SPEC.md anywhere" "$FIX" "not a pass" parity
@@ -24,13 +24,13 @@ rows_1_12 | spec
 assert_accepts "spec table == engine registry" "$FIX" parity
 
 # The founding failure: a spec-only gate with no marker and no obligation.
-{ rows_1_12; printf '| GATE-15 | imaginary | nowhere | nothing |\n'; } | spec
+{ rows_1_12; printf '| GATE-16 | imaginary | nowhere | nothing |\n'; } | spec
 assert_rejects "spec-only gate, no marker" "$FIX" "no engine counterpart" parity
 
 # Marked, with the obligation OPEN: legal spec-first change.
 mkdir -p "$FIX/docs"
 printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-08 | impl_gap | m | advisory | run | lands | ev:commit{abc1234} |\n' > "$FIX/docs/GAPS.md"
-{ rows_1_12; printf '| GATE-15 | [DESIGNED-NOT-IMPLEMENTED — OBL-T-08] imaginary | nowhere | nothing |\n'; } | spec
+{ rows_1_12; printf '| GATE-16 | [DESIGNED-NOT-IMPLEMENTED — OBL-T-08] imaginary | nowhere | nothing |\n'; } | spec
 assert_accepts "spec-only gate, marked, obligation open" "$FIX" parity
 
 # Marked, but the obligation is NOT open: a marker pointing at nothing.
@@ -159,6 +159,57 @@ assert_rejects "a call site removed from a labelled gate fails parity and names 
   "GATE-3 declares a subject label" parity
 cp "$WOW_DIR/gates.py" "$FIX83/scripts/wow/gates.py"
 assert_accepts "registry and call sites agree (F-83 control)" "$FIX83" parity
+# ---- v0.7.5.1: a registry row that says "sweep" runs in a sweep list, and vice versa
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["sweep"]["always"] = [g for g in d["sweep"]["always"] if g != "gate-15"]
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a sweep-'where' gate missing from sweep.always fails parity and names it (v0.7.5.1)" "$FIX83" \
+  "GATE-15 says \`where: sweep + agent self-check (--paths)\` in formats.json and is not in sweep.always" parity
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["sweep"]["p5_only"].append("gate-15")
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a wave-boundary sweep gate parked in p5_only alone is NOT in a sweep list that counts (ADV-R13-08)" "$FIX83" \
+  "GATE-15 says \`where: sweep + agent self-check (--paths)\` in formats.json and is not in sweep.always" parity
+cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["sweep"]["always"].append("gate-7")
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a gate in both lists is refused (ADV-R13-08)" "$FIX83" \
+  "gate-7 is in BOTH sweep lists" parity
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["sweep"]["always"] = [g for g in d["sweep"]["always"] if g != "gate-7"]; d["sweep"]["p5_only"] = []
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a P5-sweep gate missing from p5_only is refused (ADV-R13-08)" "$FIX83" \
+  "GATE-7 says \`where: p5 sweep\` in formats.json and is not in sweep.p5_only" parity
+cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["sweep"]["always"].append("gate-8")
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a sweep-list entry whose registry row does not say sweep fails parity (v0.7.5.1)" "$FIX83"   "GATE-8 is in a sweep list but its registry row says" parity
+python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["sweep"]["always"] = [g for g in d["sweep"]["always"] if g != "gate-8"] + ["gate-99"]
+json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+PY
+assert_rejects "a sweep-list entry with no registry gate fails parity (v0.7.5.1)" "$FIX83"   "sweep list names gate-99 and the registry has no such gate" parity
+cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
+assert_accepts "sweep lists and registry where-cells agree (v0.7.5.1 control)" "$FIX83" parity
 # ---- platform/F-92 fix 1 (v0.7.5): an ownership list may not cover its own home
 python3 - "$FIX83/scripts/wow/formats.json" <<'PY'
 import json, sys

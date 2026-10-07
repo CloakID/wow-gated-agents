@@ -119,6 +119,51 @@ function blankIndentedCode(t) {
   return out.join('\n');
 }
 
+// v0.7.5.1 R13b: the `## resume` section and its `clears:` line, located on
+// fence-stripped text; the resume text is the first line that is not the
+// clears line; the LAST clears line wins (HANDOFF is overwritten, and an
+// appended resume is the likely shape).
+function resumeOf(handoff) {
+  const clean = stripFencedBlocks(handoff);
+  const m = clean.match(new RegExp(fill(F.runs_layout.handoff_section_heading, { name: F.runs_layout.handoff_resume_section }), 'm'));
+  if (!m) return { text: null, clears: null };
+  const clearsRe = new RegExp(F.runs_layout.handoff_clears_field, 'i');
+  let clears = null; let text = null;
+  for (const ln of m[1].split('\n')) {
+    if (!ln.trim()) continue;
+    const c = ln.match(clearsRe);
+    if (c) { clears = parseInt(c[1], 10); continue; }
+    if (text === null) text = ln.trim();
+  }
+  return { text: text === null ? '(empty)' : text, clears };
+}
+
+// v0.7.5.1 R13b (ADV-R13-11): a report "opens with ## hand-back" by the same
+// predicate GATE-15 grades — heading on fence-stripped text within the first
+// lines, every required field present — not by the heading occurring anywhere.
+// Delegate reports (FORMATS §14, `handback.delegate_roles`) are counted too.
+function handbacksOf(rd) {
+  const hb = F.handback;
+  const files = lsdir(join(rd, 'reports')).filter(f => f.endsWith('.md')).map(f => join(rd, 'reports', f));
+  for (const f of lsdir(join(rd, 'orch'))) {
+    if (f.endsWith('.md') && hb.delegate_roles.some(r => f.startsWith(r + '-'))) files.push(join(rd, 'orch', f));
+  }
+  const head = new RegExp(hb.heading_pattern, 'i');
+  const opens = (p) => {
+    const lines = stripFencedBlocks(read(p)).split('\n');
+    let above = 0, start = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (head.test(lines[i])) { start = i; break; }
+      if (lines[i].trim()) above++;
+    }
+    if (start < 0 || above >= hb.must_start_within_lines) return false;
+    const body = [];
+    for (let i = start + 1; i < lines.length && !/^#{1,6}\s/.test(lines[i]); i++) body.push(lines[i]);
+    return hb.required_fields.every(f => body.some(ln => new RegExp(fill(hb.field_pattern, { name: f }), 'i').test(ln)));
+  };
+  return { reports: files.length, withHandback: files.filter(opens).length };
+}
+
 function installation() {
   const inst = F.install;
   const want = {};
@@ -333,6 +378,14 @@ function runs() {
       hasPlan: existsSync(rp(fill(F.plan_schema.file, { run_id: d }))),
       // platform/F-97 fix 3 (v0.7.5): review rounds live in a field the deriver reads
       reviews: (read(rp(fill(F.plan_schema.file, { run_id: d }))).match(/^reviews:\s*(\S+)/m) || [])[1] || null,
+      // v0.7.5.1: the resume point a fresh ORCH restarts from, and the clears
+      // count — read INSIDE the `## resume` section of the fence-stripped
+      // HANDOFF, last `clears:` wins (R13b, ADV-R13-05/06, DEV-R13-09: a
+      // fenced template beat the real section; a `clears:` under
+      // `## position` counted; the bullet/bold spellings read UNRECORDED).
+      resume: resumeOf(handoff).text,
+      clears: resumeOf(handoff).clears,
+      handbacks: handbacksOf(rd),
       hasReport: !!report,
       missingReportSections: report ? missingSections : [],
       constraintsOpen: (handoff.match(new RegExp(rl.open_checkbox, 'gm')) || []).length,
@@ -514,6 +567,20 @@ function auditTriggers(rs) {
       else if (k in archivedReported) { value = archivedReported[k]; note = 'read back from the ARCHIVED run\'s RUN-REPORT §audit triggers (platform/F-88)'; }
       else { value = null; note = 'not derived — no ACTIVE run; archived runs are not re-derived (F-36, platform/F-88)'; }
     }
+    if (k === 'AT-6' && !(k in reported)) {
+      // v0.7.5.1 (PO trait, router-not-reader): the ORCH's context clears this
+      // run — a SELF-REPORT (ADV-R13-09, DEV-R13-11): the RUN-REPORT row once
+      // recorded at P4 (the orch branch above), else HANDOFF `## resume`
+      // `clears: <n>` (inside the section, last wins — R13b); an archived run
+      // reads back its row; a HANDOFF with no clears line is UNRECORDED.
+      if (scopeRun.length) {
+        const r = scopeRun[scopeRun.length - 1];
+        const c = resumeOf(read(rp(fill(F.runs_layout.handoff, { run_id: r.id })))).clears;
+        if (c !== null) { value = c; note = 'read from HANDOFF ## resume `clears:` — the ORCH\'s own count of forced restarts inside a phase (self-reported; a phase entry in a new session is not a clear)'; }
+        else { value = null; note = 'HANDOFF `## resume` carries no `clears: <n>` line — the ORCH writes it before every delegation batch (FORMATS §8, v0.7.5.1); unrecorded is not zero, and GATE-7 refuses a publish without the row'; }
+      } else if (k in archivedReported) { value = archivedReported[k]; note = 'read back from the ARCHIVED run\'s RUN-REPORT §audit triggers'; }
+      else { value = null; note = 'no ACTIVE run'; }
+    }
     if (k === 'AT-4') {
       value = at4Count();
       if (value === null) note = `${t['AT-4'].source_command[0]} did not run (python3 missing?)`;
@@ -681,6 +748,9 @@ for (const rr of data.runs) {
   out.push(`  ${rr.id}${rr.branches ? dim('  branches: ' + rr.branches) : ''}`);
   out.push(`    position: ${rr.position}`);
   if (rr.reviews !== null) out.push(`    reviews: ${rr.reviews} G2a round(s) recorded in PLAN.md (platform/F-97)`);
+  out.push(rr.resume !== null ? `    resume: ${rr.resume}  (clears: ${rr.clears === null ? 'UNRECORDED — write clears: <n> under ## resume' : rr.clears})`
+                              : `    resume: NO ## resume section in HANDOFF — a fresh ORCH has nowhere to restart from (FORMATS §8, v0.7.5.1)`);
+  if (rr.handbacks.reports) out.push(`    hand-backs: ${rr.handbacks.withHandback}/${rr.handbacks.reports} agent report(s) open with a ## hand-back carrying all four fields (GATE-15 grades the rest)`);
   out.push(`    PLAN=${rr.hasPlan ? 'yes' : 'no'}  RUN-REPORT=${rr.hasReport ? 'yes' : 'no'}  ` +
     `reports=${rr.reports}  open constraints=${rr.constraintsOpen}`);
   const idbits = Object.entries(rr.ids).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);

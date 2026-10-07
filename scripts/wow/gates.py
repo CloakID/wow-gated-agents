@@ -2192,6 +2192,251 @@ def gate_14(paths=None, staged=False):
 
 
 # --------------------------------------------------------------------------
+# GATE-15 — agent-report hand-back (v0.7.5.1: the ORCH is a router, not a reader)
+# --------------------------------------------------------------------------
+def _blank_html_comments(t):
+    """ADV-R13-13 (v0.7.5.1 R13b): a `<!-- … -->` block renders as nothing and
+    is a mention channel like a fence; blanked with line structure kept."""
+    out, inside = [], False
+    for ln in t.split("\n"):
+        cur = ln
+        if not inside:
+            if "<!--" in cur and "-->" not in cur[cur.index("<!--"):]:
+                inside = True
+                out.append(cur[:cur.index("<!--")])
+                continue
+            out.append(re.sub(r"<!--.*?-->", "", cur))
+        else:
+            if "-->" in cur:
+                inside = False
+                out.append(cur[cur.index("-->") + 3:])
+            else:
+                out.append("")
+    return "\n".join(out)
+
+
+def _handback_targets(hb, paths, run_id, p5):
+    """The files GATE-15 grades: --paths as named; --run the named run's
+    `handback.files` (ARCHIVED: graded from the archive at --p5 — the publish
+    sweep is the one that runs after P5 step 3 moved it, DEV-R13-13 — and
+    exempt otherwise, platform/F-65); unscoped, every active run's."""
+    if paths:
+        return list(paths), None, False
+    globs = list(hb["files"])
+    if run_id:
+        rdir = rp(P["runs_dir"], run_id)
+        if not os.path.isdir(rdir):
+            adir = os.path.join(rp(F["runs_layout"]["archive_dir"]), run_id)
+            if os.path.isdir(adir):
+                if p5:
+                    arch = os.path.relpath(F["runs_layout"]["archive_dir"], P["runs_dir"])
+                    globs = [g.replace("*/", "%s/%s/" % (arch, run_id), 1) for g in globs]
+                    return matching_docs(globs), None, True
+                return [], ["--run %s is ARCHIVED — graded at its last sweep before archival and "
+                            "at its own `sweep --p5 --run` (platform/F-65, DEV-R13-13); nothing "
+                            "to check outside --p5" % run_id], False
+            return None, ["--run %s names no directory under %s/ — a scan over a missing run "
+                          "judges nothing, and that is not a pass (ADV-R9-06)"
+                          % (run_id, P["runs_dir"])], False
+        globs = [g.replace("*/", run_id + "/", 1) for g in globs]
+    return matching_docs(globs), None, False
+
+
+def _handback_section(raw_lines, hb):
+    """Locate the hand-back on text with fences and HTML comments blanked
+    (ADV-R13-13); position counts NON-BLANK lines after a leading front-matter
+    block (ADV-R13-12); the section ends at the next heading (ATX or setext)
+    or at the first blank line not followed by another field or list line
+    (DEV-R13-01 — the conventional report shape puts a table right after the
+    fields). Returns (start_index, end_index, near_miss_line) on the RAW lines;
+    start is None when there is no heading."""
+    clean = _blank_html_comments(_strip_fenced_blocks("\n".join(raw_lines))).split("\n")
+    head_re = re.compile(hb["heading_pattern"], re.I)
+    near_re = re.compile(hb["heading_near_miss"], re.I)
+    start = next((i for i, ln in enumerate(clean) if head_re.match(ln)), None)
+    near = next((i for i, ln in enumerate(clean) if near_re.match(ln)), None) if start is None else None
+    if start is None:
+        return None, None, near
+    field_re = re.compile(fill(hb["field_pattern"], name="[a-z-]+"), re.I)
+    list_re = re.compile(r"^\s*(?:[-*]\s+|[0-9]+\.\s+)")
+    end = len(raw_lines)
+    i = start + 1
+    while i < len(raw_lines):
+        ln = raw_lines[i]
+        if re.match(r"^#{1,6}\s", ln):
+            end = i
+            break
+        if i + 1 < len(raw_lines) and ln.strip() and re.match(r"^\s{0,3}(=+|-+)\s*$", raw_lines[i + 1]):
+            end = i   # setext heading: its text line is not part of the section
+            break
+        if not ln.strip():
+            nxt = next((raw_lines[j] for j in range(i + 1, len(raw_lines)) if raw_lines[j].strip()), None)
+            if nxt is None or not (field_re.match(nxt) or list_re.match(nxt)):
+                end = i
+                break
+        i += 1
+    return start, end, None
+
+
+def _handback_position(raw_lines, start):
+    """Non-blank lines above the heading, a leading `---` front-matter block
+    counted as none (ADV-R13-12)."""
+    i = 0
+    if raw_lines and raw_lines[0].strip() == "---":
+        j = next((k for k in range(1, len(raw_lines)) if raw_lines[k].strip() == "---"), None)
+        if j is not None and j < start:
+            i = j + 1
+    return sum(1 for ln in raw_lines[i:start] if ln.strip())
+
+
+def gate_15(paths=None, run_id=None, p5=False):
+    """v0.7.5.1 (PO trait, router-not-reader): the ORCH consumes an agent's
+    report through a BOUNDED hand-back section — verdict, ids, pointers,
+    parked — and never reads the body; evidence and pastes live below for the
+    verifier. A report without the section, over the bound, missing a field,
+    or carrying a paste in it is refused. R13b: the hand-back must also be
+    FAITHFUL to the rows beneath it (ADV-R13-01, DEV-R13-03): every id the
+    body defines is in `ids:`, every id `ids:` names is in the body, a FAIL
+    grade or a FAILED/BLOCKED/PARKED status row is named in `verdict:`; the
+    bound is bytes as well as lines (ADV-R13-02); field values are read, not
+    only their presence (ADV-R13-04). Scope: the named run's reports and
+    delegate files; with no --run, every active run's; --paths names files
+    directly (the agent's self-check)."""
+    hb = F["handback"]
+    msgs = []
+    targets, note, from_archive = _handback_targets(hb, paths, run_id, p5)
+    if targets is None:
+        return False, note
+    if note:
+        return True, note + _subject_note("GATE-15", 0)
+    scanned = 0
+    fam = {k: re.compile(F["ids_expanded"][k].strip("^$")) for k in hb["id_families"]}
+    any_id = re.compile(r"(?<![\w-])(" + "|".join(v.pattern for v in fam.values()) + r")(?![\w-])")
+    idish = re.compile(hb["id_shaped_token"])
+    defn = re.compile(r"^\s*(?:#{1,6}\s+|[-*]\s+|[0-9]+\.\s+|\|\s*)[*_`]*(" +
+                      "|".join(v.pattern for v in fam.values()) + r")(?![\w-])")
+    vcols = [c.lower() for c in F["status_vocab"]["verdict_columns"]]
+    scols = [c.lower() for c in F["status_vocab"]["status_columns"]]
+    fail_verdict = hb["verdict_must_name"]["verdict"]
+    fail_status = hb["verdict_must_name"]["status"]
+    empty = hb["empty_value"]
+    for p in targets:
+        if (excluded(p) and not from_archive) or not os.path.isfile(rp(p)):
+            continue
+        scanned += 1
+        lines = lines_of(rp(p))
+        start, end, near = _handback_section(lines, hb)
+        if start is None:
+            msgs.append("%s has no `## %s` section%s — the ORCH reads an agent report THROUGH its "
+                        "hand-back (%s), never the body; open the report with one, ≤%d lines "
+                        "(FORMATS §4, v0.7.5.1 router-not-reader)"
+                        % (p, hb["heading"],
+                           " (line %d `%s` resembles one but does not match `%s`)"
+                           % (near + 1, lines[near].strip(), hb["heading_pattern"]) if near is not None else "",
+                           " · ".join(hb["required_fields"]), hb["max_lines"]))
+            continue
+        above = _handback_position(lines, start)
+        if above >= hb["must_start_within_lines"]:
+            msgs.append("%s:%d `## %s` is not at the top — %d non-blank line(s) precede it and at most %d "
+                        "may (a title line; front matter does not count), so the ORCH reads nothing "
+                        "before it" % (p, start + 1, hb["heading"], above, hb["must_start_within_lines"] - 1))
+        body = lines[start + 1:end]
+        content = [ln for ln in body if ln.strip()]
+        if len(content) > hb["max_lines"]:
+            msgs.append("%s hand-back is %d non-blank line(s), over the %d-line bound — a hand-back "
+                        "is a summary the ORCH can afford to read; the material belongs below it, "
+                        "after a blank line or under a heading"
+                        % (p, len(content), hb["max_lines"]))
+        nbytes = len("\n".join(body).encode("utf-8"))
+        if nbytes > hb["max_chars"]:
+            msgs.append("%s hand-back is %d bytes, over the %d-byte bound — twenty long lines are a "
+                        "body with a heading on it (ADV-R13-02)" % (p, nbytes, hb["max_chars"]))
+        if any(_FENCE_OPEN.match(ln) for ln in body):
+            msgs.append("%s hand-back carries a fenced block — pastes and evidence live in the body, "
+                        "below the hand-back; the ORCH must not have to read a paste to route"
+                        % p)
+        # ADV-R13-03 (indented code as a paste) is unreachable here by
+        # construction since the DEV-R13-01 end rule: an indented block needs a
+        # blank line before it, and a blank line not followed by a field or
+        # list line ENDS the section — the paste is body, below the hand-back.
+        values = {}
+        for fld in hb["required_fields"]:
+            fp = re.compile(fill(hb["field_pattern"], name=re.escape(fld)) + r"\s*(.*)$", re.I)
+            hit = next((fp.match(ln) for ln in body if fp.match(ln)), None)
+            if hit is None:
+                msgs.append("%s hand-back has no `%s:` line (write `%s: %s` when there is "
+                            "nothing) — the ORCH routes on these four fields and reads no other"
+                            % (p, fld, fld, empty))
+                continue
+            val = hit.group(1).strip().strip("*_ ").strip()
+            values[fld] = val
+            if not val:
+                msgs.append("%s hand-back `%s:` is empty — write `%s: %s` when there is nothing "
+                            "(ADV-R13-04)" % (p, fld, fld, empty))
+        # ADV-R13-04: ids and parked are id lists or `none`, not prose
+        for fld, fams in (("ids", list(fam)), ("parked", hb["parked_families"])):
+            val = values.get(fld)
+            if not val or val.lower() == empty:
+                continue
+            toks = [m_.group(0) for m_ in any_id.finditer(val)]
+            ok_fams = [k for k in fams if any(fam[k].fullmatch(t) for t in toks)]
+            bad = [m_.group(0) for m_ in idish.finditer(val)
+                   if not any(v.fullmatch(m_.group(0)) for v in fam.values())]
+            if not ok_fams:
+                msgs.append("%s hand-back `%s:` names no %s id (%s) — write `%s: %s` or the full ids "
+                            "(ADV-R13-04)" % (p, fld, "/".join(fams), val[:60], fld, empty))
+            if bad:
+                msgs.append("%s hand-back `%s:` carries id-shaped token(s) that match no id family: %s "
+                            "— shorthands and placeholders are not ids (ADV-R13-04)"
+                            % (p, fld, ", ".join(sorted(set(bad)))))
+        # ADV-R13-01 / DEV-R13-03: fidelity to the rows beneath
+        rest = _claim_text("\n".join(lines[end:]))
+        # rows that sit INSIDE the section (no blank line before a table) are
+        # still rows: definitions and grade/status cells are scanned from the
+        # heading down, while "listed id occurs in the body" reads below the
+        # section only (else the ids: line satisfies itself).
+        below_heading = _claim_text("\n".join(lines[start + 1:]))
+        defined = set()
+        for ln in below_heading.split("\n"):
+            m = defn.match(ln)
+            if m:
+                defined.add(m.group(1))
+        listed = (set(m_.group(0) for m_ in any_id.finditer(values.get("ids", "")))
+                  if values.get("ids", "").lower() != empty else set())
+        for i_ in sorted(defined - listed):
+            msgs.append("%s body defines %s and the hand-back `ids:` does not name it — the ORCH "
+                        "routes on `ids:` and never sees the body; every id this report allocates "
+                        "goes there (ADV-R13-01)" % (p, i_))
+        body_text = rest
+        for i_ in sorted(listed):
+            if not re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(i_), body_text):
+                msgs.append("%s hand-back `ids:` names %s and the body never carries it — a hand-back "
+                            "summarises the rows below it, it does not allocate (ADV-R13-01)" % (p, i_))
+        verdict = values.get("verdict", "")
+        need = set()
+        for kind, cells, colmap, header in _table_scan(below_heading.split("\n")):
+            if kind != "row":
+                continue
+            for c in colmap:
+                if c in vcols:
+                    cell = cells[colmap[c]].strip("*_` ") if colmap[c] < len(cells) else ""
+                    for w in fail_verdict:
+                        if cell.split(" ")[0] == w:
+                            need.add(w)
+                if c in scols:
+                    cell = cells[colmap[c]].strip("*_` ") if colmap[c] < len(cells) else ""
+                    for w in fail_status:
+                        if re.match(r"^%s\b" % w, cell):
+                            need.add(w)
+        for w in sorted(need):
+            if not re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(w), verdict):
+                msgs.append("%s body carries a %s row and the hand-back `verdict:` (%s) does not say %s — "
+                            "a hand-back that contradicts its rows routes the ORCH wrong (ADV-R13-01, "
+                            "DEV-R13-03)" % (p, w, verdict[:60] or "empty", w))
+    return (len(msgs) == 0), msgs + _subject_note("GATE-15", scanned)
+
+
+# --------------------------------------------------------------------------
 # GATE-7 — P5 sweep
 # --------------------------------------------------------------------------
 def _quick_stub_age_days(slug, note):
@@ -2693,6 +2938,20 @@ def gate_7(p5=False, run_id=None):
         # RUN-REPORT is an obligation — the audit it schedules must have a
         # durable row, or the hit retires with the archived run.
         sec = at_sec.search(sec_text)   # ADV-R10-03: fenced '#' is not a heading
+        # ADV-R13-06 (R13b): an UNRECORDED trigger was the green direction at
+        # publish — a RUN-REPORT with no AT-6 row, or no table at all, blocked
+        # nothing. Every trigger the registry declares needs a row at P5
+        # (P4 step 5 records them all; the deriver prints each one).
+        wanted = [k for k, v in F["audit_triggers"].items()
+                  if isinstance(v, dict) and "threshold" in v] if p5 else []
+        recorded = set(am.group(1) for am in at_row.finditer(sec.group(1))) if sec else set()
+        for at_id in wanted:
+            if at_id not in recorded:
+                msgs.append("%s records no %s row in its `## %s` table%s — every registered trigger "
+                            "is recorded at P4 step 5 (an unrecorded trigger is not a miss; it is "
+                            "unrecorded, ADV-R13-06)"
+                            % (rr_rel, at_id, F["audit_triggers"]["report_section"],
+                               "" if sec else " (no such section)"))
         if sec:
             for am in at_row.finditer(sec.group(1)):
                 at_id, val = am.group(1), int(am.group(2))
@@ -3734,6 +3993,7 @@ GATE_FLAGS = {
     "gate-8": {"--run", "--boundary"}, "gate-9": {"--paths", "--gate", "--run", "--spec"},
     "gate-10": {"--run", "--gate"}, "gate-11": {"--staged", "--paths"},
     "gate-12": {"--kind", "--ref"}, "gate-13": {"--run"}, "gate-14": {"--paths", "--staged"},
+    "gate-15": {"--paths", "--run", "--p5"},
     "parity": set(),
 }
 
@@ -3775,6 +4035,9 @@ def run_gate(name, args):
         return gate_13(run_id=_opt(args, "--run"))
     if name == "gate-14":
         return gate_14(paths=(_list_opt(args, "--paths") or None), staged=("--staged" in args))
+    if name == "gate-15":
+        return gate_15(paths=(_list_opt(args, "--paths") or None), run_id=_opt(args, "--run"),
+                       p5="--p5" in args)
     if name == "gate-8":
         return gate_8(_opt(args, "--run"), boundary=_opt(args, "--boundary"))
     if name == "gate-9":
@@ -3909,6 +4172,35 @@ def check_parity():
     for gid in sorted(engine - set(spec_rows.keys())):
         msgs.append("%s is in the engine registry but has no GATES-SPEC row — the two "
                     "declarations of the gate set disagree" % gid)
+    # ---- v0.7.5.1: a gate whose registry row says "sweep" runs in one. The
+    # sweep lists and the `where` cells are two declarations of the same fact;
+    # GATE-15 landed in the registry with "sweep" in its cell, and dropping it
+    # from sweep.always was invisible to every test (M203 survived).
+    # ADV-R13-08 (R13b): the union was checked, so a gate moved from `always` to
+    # `p5_only` passed while being vacuous on the run being published. "P5
+    # sweep" ⇒ p5_only; any other "sweep" ⇒ always; the lists are disjoint.
+    always, p5only = set(F["sweep"]["always"]), set(F["sweep"]["p5_only"])
+    for key in sorted(always & p5only):
+        msgs.append("%s is in BOTH sweep lists — it would run twice at P5 and the row's `where` can "
+                    "name only one (ADV-R13-08)" % key)
+    for gid in sorted(engine, key=lambda g: int(g.split("-")[1])):
+        where = str(F["gates"][gid].get("where", "")).lower()
+        key = gid.lower()
+        wants_p5 = "p5" in where and "sweep" in where
+        wants_always = "sweep" in where and not wants_p5
+        if wants_p5 and key not in p5only:
+            msgs.append("%s says `where: %s` in formats.json and is not in sweep.p5_only — a gate "
+                        "nothing calls is inert (v0.7.5.1, ADV-R13-08)" % (gid, where))
+        if wants_always and key not in always:
+            msgs.append("%s says `where: %s` in formats.json and is not in sweep.always — a gate "
+                        "nothing calls at the wave boundary is inert there (v0.7.5.1, ADV-R13-08)"
+                        % (gid, where))
+        if "sweep" not in where and key in (always | p5only):
+            msgs.append("%s is in a sweep list but its registry row says `where: %s` — the two "
+                        "declarations disagree (v0.7.5.1)" % (gid, where))
+    for key in sorted(always | p5only):
+        if key.upper() not in engine:
+            msgs.append("sweep list names %s and the registry has no such gate (v0.7.5.1)" % key)
     # ---- platform/F-83 (v0.7.5): a subject label is a promise the engine keeps
     # Four gates declared a label and never emitted it, for two releases; the
     # registry and the call sites are two files the package owns, so their
@@ -4078,7 +4370,7 @@ def check_parity():
                 msgs.append("formats.json version %r != CHANGELOG top entry v%s — the single "
                             "version authority (CHANGELOG preamble)" % (F.get("version"), top))
             hdr_re = re.compile(r"DRAFT\s+v([0-9][^\s]*)")
-            title_re = re.compile(r"\bv?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-draft)?)\b")
+            title_re = re.compile(r"\bv?([0-9]+\.[0-9]+(?:\.[0-9]+){0,2}(?:-draft)?)\b")
             globs = [d for d in F["parity"]["versioned_docs"] if "*" in d]
             names = [d for d in F["parity"]["versioned_docs"] if "*" not in d and os.path.isfile(rp(d))]
             for doc in sorted(set(matching_docs(globs) + names)):
@@ -4133,34 +4425,49 @@ def check_parity():
 
 
 def sweep(args):
+    """The sweep. `--summary` (v0.7.5.1 R13b, DEV-R13-02): the ORCH is a
+    router, not a reader — a red sweep's failure list is exactly the text it
+    must NOT load, and the sweep had no form that withheld it. With --summary
+    only the PASS/FAIL line and the subject note of each gate are printed; the
+    full output is written to `<git-common-dir>/wow/sweep-<run|all>-<stamp>.log`
+    (`paths.sweep_log_dir`) and the path is printed for the triage delegate's
+    manifest (FORMATS §14)."""
     run_id = _opt(args, "--run")
+    summary = "--summary" in args
     gates = list(F["sweep"]["always"])
     if "--p5" in args:
         gates += F["sweep"]["p5_only"]
     failed, total, vacuous = [], 0, 0
+    full = []
+
+    def emit(line, keep):
+        full.append(line)
+        if not summary or keep:
+            print(line)
+
     ok, msgs = check_parity()
     total += 1
-    print("%s %s" % ("PASS" if ok else "FAIL", "parity"))
+    emit("%s %s" % ("PASS" if ok else "FAIL", "parity"), True)
     for m in msgs:
-        print("     %s" % m)
+        emit("     %s" % m, False)
     if not ok:
         failed.append("parity")
         log_rejection("PARITY", msgs)
     for g in gates:
         a = []
-        if run_id and g in ("gate-2", "gate-3", "gate-4", "gate-5", "gate-7"):
+        if run_id and g in ("gate-2", "gate-3", "gate-4", "gate-5", "gate-7", "gate-15"):
             a = ["--run", run_id]
         if g == "gate-5":
             a = ["--sweep"] + a
-        if g == "gate-7" and "--p5" in args:
+        if g in ("gate-7", "gate-15") and "--p5" in args:
             a = ["--p5"] + a
         if g == "gate-2" and "--p5" in args:
             a = ["--close"] + a   # F-09: at publish the work has happened; the close form binds
         ok, msgs = run_gate(g, a)
         total += 1
-        print("%s %s" % ("PASS" if ok else "FAIL", g))
+        emit("%s %s" % ("PASS" if ok else "FAIL", g), True)
         for m in msgs:
-            print("     %s" % m)
+            emit("     %s" % m, "subject:" in m)
         if ok and any("VACUOUS" in m or "nothing to check" in m for m in msgs):
             vacuous += 1
         if not ok:
@@ -4169,10 +4476,22 @@ def sweep(args):
     # DEV-R9-10 (v0.7.3 R9): the summary line is the one a human reads, and it
     # said exactly the sentence F-70 mocks — '6/6 passed' over an empty set —
     # while the vacuity markers sat above it, per gate, unaggregated.
-    print("\nsweep%s: %d/%d passed%s" % (" (P5)" if "--p5" in args else "",
-                                         total - len(failed), total,
-                                         " (%d vacuous — green over an empty set)" % vacuous
-                                         if vacuous else ""))
+    emit("\nsweep%s: %d/%d passed%s" % (" (P5)" if "--p5" in args else "",
+                                        total - len(failed), total,
+                                        " (%d vacuous — green over an empty set)" % vacuous
+                                        if vacuous else ""), True)
+    if summary:
+        lp = os.path.join(os.path.dirname(gate_log_path()),
+                          fill(P.get("sweep_log_name", "sweep-{scope}-{stamp}.log"),
+                               scope=run_id or "all", stamp=time.strftime("%Y%m%dT%H%M%S")))
+        try:
+            os.makedirs(os.path.dirname(lp), exist_ok=True)
+            with open(lp, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(full) + "\n")
+            print("full output: %s%s" % (lp, " — hand this PATH to a triage delegate; do not read "
+                                              "it (FORMATS §14)" if failed else ""))
+        except Exception as e:
+            print("full output: could not write %s (%s)" % (lp, e))
     return 1 if failed else 0
 
 
@@ -4182,8 +4501,8 @@ def main(argv):
         argv = [a for a in argv if a != "--quiet"]
     if not argv or argv[0] in ("-h", "--help", "help"):
         print(__doc__)
-        print("usage: gates.sh <gate-1..gate-14 [--run <id>] [--paths …] [--staged] [--close] "
-              "[--gate G<n>] [--spec <file>] | sweep [--p5] [--run <id>] | parity | list | "
+        print("usage: gates.sh <gate-1..gate-15 [--run <id>] [--paths …] [--staged] [--close] "
+              "[--gate G<n>] [--spec <file>] | sweep [--p5] [--run <id>] [--summary] | parity | list | "
               "check-id <run-id> [--base <ref>] | verify-cmd <task-id> [--run <id>] | "
               "history --run <id> | hooks --install|--check | formats-expand "
               "(package repo only — rewrites formats.json)>")

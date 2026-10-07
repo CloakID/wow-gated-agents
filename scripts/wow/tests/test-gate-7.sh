@@ -137,6 +137,7 @@ assert_accepts "the same record with evidence is closed (F-51)" "$FIX" gate-7
 ( cd "$FIX" && git checkout -qb wow/260816-y-r1/int && git checkout -q - )
 mkdir -p "$FIX/runs/archive/260816-y-r1"
 printf 'archived\n' > "$FIX/runs/archive/260816-y-r1/RUN-REPORT.md"
+at_table_all >> "$FIX/runs/260816-x-r1/RUN-REPORT.md"   # ADV-R13-06: every trigger recorded at --p5
 ( cd "$FIX" && git add -A >/dev/null && git commit -qm "archive [WOW:publish]" )
 assert_rejects "archived run with surviving branch refs blocks publish (F-63)" "$FIX" \
   "branch refs survive" gate-7 --p5
@@ -176,7 +177,7 @@ FIX7="$(setup_fixture_repo)"
 mkdir -p "$FIX7/runs/260903-pub-r1" "$FIX7/runs/260903-other-r1" "$FIX7/docs"
 printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n' > "$FIX7/docs/GAPS.md"
 printf '## new-gaps\nCV-260903-other-r1-01: cannot validate X\n' > "$FIX7/runs/260903-other-r1/RUN-REPORT.md"
-printf '## completed\nall done ev:commit{abc1234}\n' > "$FIX7/runs/260903-pub-r1/RUN-REPORT.md"
+{ printf '## completed\nall done ev:commit{abc1234}\n'; at_table_all; } > "$FIX7/runs/260903-pub-r1/RUN-REPORT.md"
 assert_accepts "escrow scoped to the published run — another run's CV is not this publish's debt (F-36)" \
   "$FIX7" gate-7 --run 260903-pub-r1
 assert_rejects "the other run still owes its escrow when IT publishes (control)" "$FIX7" "escrow" \
@@ -423,6 +424,14 @@ FIXP="$(setup_fixture_repo)"
 ( cd "$FIXP" && git branch -M main ) >/dev/null 2>&1
 mkdir -p "$FIXP/runs/archive/260921-pub-r1"
 printf '# RUN-REPORT\n\n## completed\n| id | status | ev |\n|---|---|---|\n| T01 | COMPLETED | ev:jira{WOW-1} |\n' \
+  > "$FIXP/runs/archive/260921-pub-r1/RUN-REPORT.md"
+assert_rejects "a RUN-REPORT recording no trigger rows is refused at --p5 — unrecorded is not the green direction (ADV-R13-06)" "$FIXP" \
+  "records no AT-1 row in its \`## audit triggers\` table (no such section)" gate-7 --p5 --run 260921-pub-r1
+{ printf '# RUN-REPORT\n\n## completed\n| id | status | ev |\n|---|---|---|\n| T01 | COMPLETED | ev:jira{WOW-1} |\n'; at_table_all | grep -v 'AT-6 '; } \
+  > "$FIXP/runs/archive/260921-pub-r1/RUN-REPORT.md"
+assert_rejects "one trigger missing from an otherwise complete table is named (ADV-R13-06)" "$FIXP" \
+  "records no AT-6 row in its \`## audit triggers\` table —" gate-7 --p5 --run 260921-pub-r1
+{ printf '# RUN-REPORT\n\n## completed\n| id | status | ev |\n|---|---|---|\n| T01 | COMPLETED | ev:jira{WOW-1} |\n'; at_table_all; } \
   > "$FIXP/runs/archive/260921-pub-r1/RUN-REPORT.md"
 assert_accepts "P5 sweep grades the just-archived named run and passes clean (F-77/F-88)" "$FIXP" \
   gate-7 --p5 --run 260921-pub-r1

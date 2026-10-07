@@ -29,6 +29,21 @@ setup_fixture_repo() {
   echo "$FIX"
 }
 
+# at_table_all — a complete `## audit triggers` section with a NOT-HIT row for
+# every trigger the fixture's formats.json registers (ADV-R13-06, v0.7.5.1: the
+# P5 escrow refuses a RUN-REPORT that records fewer). Reads the registry so a
+# new trigger never leaves the fixtures short.
+at_table_all() {
+  printf '\n## audit triggers\n\n'
+  python3 - "$WOW_DIR/formats.json" <<'PY'
+import json, sys
+F = json.load(open(sys.argv[1]))
+for k, v in F["audit_triggers"].items():
+    if isinstance(v, dict) and "threshold" in v:
+        print("| %s %s | 0 — NOT HIT | ev:cmd{true => 0 @2026-10-07} |" % (k, v["metric"]))
+PY
+}
+
 # assert_rejects <label> <workdir> <expected-substring> <args...>
 #
 # The expected substring is not decoration. A gate that rejects the fixture for

@@ -50,7 +50,7 @@ printf '# RUN-REPORT\nno invariant declared here\n' > "$FIX/runs/260925-empty-r1
 assert_output "a run with zero invariant: markers prints subject 0 — VACUOUS (platform/F-84)" "$FIX" \
   "subject: 0 run invariant(s) — VACUOUS" gate-4 --run 260925-empty-r1
 assert_output "the inventory arm reports on its own line (F-84 fix 2)" "$FIX" \
-  "inventory: 14/14 gate(s)" gate-4 --run 260925-empty-r1
+  "inventory: 15/15 gate(s)" gate-4 --run 260925-empty-r1
 assert_output "a run with one proven invariant prints subject 1 (F-84 control)" "$FIX" \
   "subject: 1 run invariant(s)" gate-4 --run 260813-x-r1
 finish

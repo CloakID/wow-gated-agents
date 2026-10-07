@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.5
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.5.1
 
 ## Prerequisites
 
@@ -113,6 +113,16 @@ Everything install.sh writes is **repo-scoped** (CLAUDE.md markers, docs/process
 | `gate-3 does not read --spec` (any gate, any unread flag) | flags a gate ignores are refused (prodsim/F-94) | drop the flag |
 | `PARITY: package-owned file(s) modified since install` (advisory) | you edited an engine file in the consumer (platform/F-92) | file it upstream; the next install overwrites it |
 | `status.mjs` AT-3 on an archived run reads a number instead of `0` | read back from the archived RUN-REPORT (platform/F-88) | nothing — it is now the recorded value |
+
+**What goes red on an existing v0.7.5 repo after the v0.7.5.1 upgrade, and the one-line remedy** (the router-not-reader trait, non-negotiable #8):
+
+| You will see | Why | Do |
+|---|---|---|
+| `GATE-15: runs/<id>/reports/U<n>.md has no "## hand-back" section` on the next sweep of a run that was ACTIVE across the upgrade | every agent report now opens with a bounded hand-back the ORCH reads instead of the body (FORMATS §4) | finish the run on v0.7.5 before upgrading (upgrades are between runs), or have each unit's executor/verifier add its hand-back in a fix wave — `## hand-back` under the title, `verdict:` · `ids:` · `pointers:` · `parked:` (`none` when empty), then a BLANK LINE or a heading before the body (DEV-R13-01), ≤20 lines, no paste; `gate-15 --paths <report>` checks it, including that it agrees with the rows below — the ORCH does not write an agent's report; the reconciler's notes go on RUN-REPORT rows |
+| `GATE-15: … body carries a FAIL row and the hand-back verdict … does not say FAIL` / `… body defines VF-… and the hand-back ids: does not name it` | the hand-back is checked against the rows beneath it (R13b, ADV-R13-01) | fix the hand-back, not the rows |
+| `GATE-7: … records no AT-6 row in its "## audit triggers" table` at the next P5 (and `no AT-1 row … (no such section)` on a RUN-REPORT that never had the table) | every registered trigger needs a row at publish — unrecorded was the green direction (R13b, ADV-R13-06) | record all six at P4 step 5 (`AT-6` from HANDOFF `## resume` `clears:`) |
+| `status.mjs: … resume: NO ## resume section in HANDOFF`, and `AT-6 … not derived` in the text view (`null` in `--json`) with the unrecorded-is-not-zero note | HANDOFF gained a `## resume` section with `clears: <n>` (FORMATS §8); unrecorded is not zero | write `## resume` before the next delegation batch, with `clears: 0` if this ORCH has not been forced to restart inside the phase (a planned phase-entry session is not a clear) |
+| the resident CLAUDE.md section is replaced on install | non-negotiable #8 was added (and FORMATS §14 with it) | nothing — unless the section carries repo-local edits, which the installer refuses as before |
 
 ## Migration (per repo, at pilot start)
 

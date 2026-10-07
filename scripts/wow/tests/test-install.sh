@@ -690,6 +690,49 @@ C_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260920-old-r1 | py
 printf '# PLAN\nspec: x\nreviews: 3\n' > "$TA/runs/260921-at-r1/PLAN.md"
 R_OUT="$(cd "$TA" && node scripts/wow/status.mjs 2>&1)"
 case "$R_OUT" in *"reviews: 3 G2a round(s)"*) echo "  ok   review rounds are read from the plan's reviews: field (platform/F-97)"; PASS=$((PASS+1)) ;; *) echo "  FAIL reviews: not rendered (F-97)"; FAIL=$((FAIL+1)) ;; esac
+# ---- v0.7.5.1 (router-not-reader): AT-6 from HANDOFF `## resume` `clears:`; resume + hand-back rendering
+printf '# HANDOFF\n\n## position\nwave 2 open\n\n## resume\nwave 2: U3 verifier in flight (manifest: reports/U3.md) — expected hand-back: grade\nclears: 3\n' > "$TA/runs/260921-at-r1/HANDOFF.md"
+mkdir -p "$TA/runs/260921-at-r1/reports"
+printf '# U1\n## hand-back\nverdict: all COMPLETED\nids: none\npointers: body\nparked: none\n\n## body\n' > "$TA/runs/260921-at-r1/reports/U1.md"
+printf '# U2\n\n## tasks\n| T2 | COMPLETED | ev:commit{%s} |\n' "$ASHA" > "$TA/runs/260921-at-r1/reports/U2.md"
+H_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; d=json.load(sys.stdin); a=d['auditTriggers']['AT-6']; r=[x for x in d['runs'] if x['id']=='260921-at-r1'][0]; print(a['value'], a['hit'], r['clears'], r['handbacks']['withHandback'], r['handbacks']['reports'])")"
+[ "$H_OUT" = "3 True 3 1 2" ] \
+  && { echo "  ok   AT-6 reads clears: from HANDOFF ## resume (3 > 2 is a HIT); hand-backs counted 1/2 (v0.7.5.1)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL AT-6/hand-back derivation: got '$H_OUT', want '3 True 3 1 2' (v0.7.5.1)"; FAIL=$((FAIL+1)); }
+H_TXT="$(cd "$TA" && node scripts/wow/status.mjs 2>&1)"
+case "$H_TXT" in *"resume: wave 2: U3 verifier in flight"*"(clears: 3)"*) echo "  ok   status renders the resume line with its clears count"; PASS=$((PASS+1)) ;; *) echo "  FAIL resume line not rendered (v0.7.5.1)"; FAIL=$((FAIL+1)) ;; esac
+case "$H_TXT" in *"hand-backs: 1/2 agent report(s) open with a ## hand-back carrying all four fields (GATE-15 grades the rest)"*) echo "  ok   status renders the hand-back count per run"; PASS=$((PASS+1)) ;; *) echo "  FAIL hand-back count not rendered (v0.7.5.1)"; FAIL=$((FAIL+1)) ;; esac
+printf '# HANDOFF\n\n## position\nwave 2 open\n' > "$TA/runs/260921-at-r1/HANDOFF.md"
+U_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; d=json.load(sys.stdin); a=d['auditTriggers']['AT-6']; print(a['value'], a['hit'], 'unrecorded is not zero' in a['note'])")"
+[ "$U_OUT" = "None None True" ] \
+  && { echo "  ok   a HANDOFF without clears: reads UNRECORDED (null, hit null), never 0"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL unrecorded AT-6: got '$U_OUT', want 'None None True' (v0.7.5.1)"; FAIL=$((FAIL+1)); }
+U_TXT="$(cd "$TA" && node scripts/wow/status.mjs 2>&1)"
+case "$U_TXT" in *"resume: NO ## resume section in HANDOFF"*) echo "  ok   a HANDOFF without ## resume is named as such"; PASS=$((PASS+1)) ;; *) echo "  FAIL missing resume section not named (v0.7.5.1)"; FAIL=$((FAIL+1)) ;; esac
+printf '# RUN-REPORT\n\n## audit triggers\n\n| AT-6 orch context clears | 4 — threshold >2, HIT | ev:commit{%s} |\n' "$ASHA" > "$TA/runs/archive/260920-old-r1/RUN-REPORT.md"
+V_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260920-old-r1 | python3 -c "import json,sys; a=json.load(sys.stdin)['auditTriggers']['AT-6']; print(a['value'], a['hit'])")"
+[ "$V_OUT" = "4 True" ] \
+  && { echo "  ok   an archived run's AT-6 is read back from its RUN-REPORT"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL archived AT-6 read-back: got '$V_OUT', want '4 True' (v0.7.5.1)"; FAIL=$((FAIL+1)); }
+# ---- R13b (ADV-R13-05/06/11, DEV-R13-09): clears INSIDE ## resume, last wins, tolerant spelling; hand-backs by predicate
+printf '# HANDOFF\n\n## position\nwave 1\nclears: 9\n\n```\n## resume\nclears: 7\n```\n\n## resume\n- **clears:** 1\nwave 2: next = dispatch U3\n- Clears: 2\n' > "$TA/runs/260921-at-r1/HANDOFF.md"
+W_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in d['runs'] if x['id']=='260921-at-r1'][0]; print(d['auditTriggers']['AT-6']['value'], r['clears'], r['resume'])")"
+[ "$W_OUT" = "2 2 wave 2: next = dispatch U3" ] \
+  && { echo "  ok   clears: is read inside ## resume only (not under position, not in a fence), last wins, bullet/bold/case tolerated; resume text skips the clears line (R13b)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL R13b clears scoping: got '$W_OUT', want '2 2 wave 2: next = dispatch U3'"; FAIL=$((FAIL+1)); }
+printf '# U1\n\n```\n## hand-back\n```\nverdict: x\nids: none\npointers: x\nparked: none\n' > "$TA/runs/260921-at-r1/reports/U1.md"
+mkdir -p "$TA/runs/260921-at-r1/orch"
+printf '# triage\n## hand-back\nverdict: 2 failures\nids: none\npointers: x\nparked: none\n' > "$TA/runs/260921-at-r1/orch/triage-1.md"
+printf '# cascade\nU3 waits\n' > "$TA/runs/260921-at-r1/orch/cascade-1.md"
+X_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in d['runs'] if x['id']=='260921-at-r1'][0]; print(r['handbacks']['withHandback'], r['handbacks']['reports'])")"
+[ "$X_OUT" = "1 3" ] \
+  && { echo "  ok   a fenced heading is no hand-back; a delegate report under orch/<role>-n.md counts, an ORCH record does not (ADV-R13-11)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL R13b hand-back predicate: got '$X_OUT', want '1 3'"; FAIL=$((FAIL+1)); }
+printf '# RUN-REPORT\n\n## audit triggers\n\n| AT-6 orch context clears | 5 — HIT | ev:commit{%s} |\n' "$ASHA" > "$TA/runs/260921-at-r1/RUN-REPORT.md"
+Y_OUT="$(cd "$TA" && node scripts/wow/status.mjs --json --run 260921-at-r1 | python3 -c "import json,sys; print(json.load(sys.stdin)['auditTriggers']['AT-6']['value'])")"
+[ "$Y_OUT" = "5" ] \
+  && { echo "  ok   once the ORCH records the AT-6 row at P4, the RUN-REPORT row wins over HANDOFF (derived_by: orch, DEV-R13-11)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL R13b AT-6 row precedence: got '$Y_OUT', want '5'"; FAIL=$((FAIL+1)); }
 # ---- R12b: DEV-R12-07 / DEV-R12-14 / DEV-R12-23d — installer messages a consumer can act on
 TS="$(new_target seeds)"
 ( cd "$PKG_DIR" && bash install.sh "$TS" >/dev/null 2>&1 )
