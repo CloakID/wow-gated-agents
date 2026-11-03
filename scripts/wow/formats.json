@@ -1,6 +1,6 @@
 {
   "$comment": "Single machine home for WoW v2 formats. Consumed by gates.sh AND status.mjs. If docs/process/FORMATS.md disagrees with this file, this file wins and the disagreement is a defect. Nothing in gates.py or status.mjs may inline a pattern, a path or a vocabulary word that belongs here.",
-  "version": "0.7.5-draft",
+  "version": "0.7.6-draft",
   "schema_version": "1",
   "$schema_version_comment": "platform/F-76 (v0.7.4): this file is consumed as an API and was versioned as if internal — a key changed type (regex→template) and another was removed between releases, and two consumer checks broke silently, one reporting PASS while grading nothing. schema_version is bumped whenever a key is REMOVED or CHANGES TYPE; a consumer asserts the value it was written against and fails loudly on upgrade. Additive keys and value changes do not bump it. The $removed block below keeps the removal trace.",
   "$removed": {

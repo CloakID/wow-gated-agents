@@ -526,7 +526,7 @@ FIXQ="$(setup_fixture_repo)"
 mkdir -p "$FIXQ/runs/quick/260701-cited" "$FIXQ/runs/quick/260701-orphan" "$FIXQ/runs/260922-q-r1"
 printf '## what\nx\n## result\n\n' > "$FIXQ/runs/quick/260701-cited/NOTE.md"
 printf '## what\nx\n## result\n\n' > "$FIXQ/runs/quick/260701-orphan/NOTE.md"
-touch -d '60 days ago' "$FIXQ/runs/quick/260701-cited/NOTE.md" "$FIXQ/runs/quick/260701-orphan/NOTE.md"
+backdate_file "$FIXQ/runs/quick/260701-cited/NOTE.md" 60; backdate_file "$FIXQ/runs/quick/260701-orphan/NOTE.md" 60
 printf '# RUN-REPORT\n' > "$FIXQ/runs/260922-q-r1/RUN-REPORT.md"
 printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| OBL-T-80 | x | PO | advisory | s | d | ev:file{runs/quick/260701-cited/NOTE.md} |\n' > "$FIXQ/docs/GAPS.md"
 assert_rejects "an UNCITED stale stub is still listed for deletion (DEV-R11-09 control)" "$FIXQ" \
@@ -564,7 +564,7 @@ printf 'Carried: CV-260903-sh-r1-07 stays open.\n' > "$FIX89/runs/260903-sh-r1/r
 printf '| id | tag | owner | effect | successor | discharge | ev |\n|---|---|---|---|---|---|---|\n| CV-260903-sh-r1-07 | env_unverified | PO | advisory | later | replayed | ev:commit{abc1234} |\n' > "$FIX89/docs/GAPS.md"
 assert_accepts "shorthand of a record discharged in-run WITH evidence passes (prodsim/F-102)" "$FIX89" \
   gate-7 --run 260903-sh-r1
-sed -i 's/  discharged: 2026-10-03 ev:cmd{node probe.mjs => 200 @2026-10-03T10:00:00Z}/  discharged: 2026-10-03/' "$FIX89/runs/260903-sh-r1/reports/U3-verify.md"
+replace_in_file "$FIX89/runs/260903-sh-r1/reports/U3-verify.md" '  discharged: 2026-10-03 ev:cmd{node probe.mjs => 200 @2026-10-03T10:00:00Z}' '  discharged: 2026-10-03'
 assert_rejects "shorthand of an UNEVIDENCED in-run discharge stays demanded (F-102/F-51)" "$FIX89" \
   "uses shorthand CV-13 for CV-260903-sh-r1-U3-13, which is marked discharged WITHOUT" gate-7 --run 260903-sh-r1
 # ---- prodsim/F-105 + platform/F-93 (v0.7.5): one VF id defined in two reports
@@ -611,7 +611,7 @@ assert_accepts "a backticked threshold-documentation row does not parse as a rec
 # ---- R12b: ADV-R12-12 — an invalid directory date falls back to mtime, never a negative age
 mkdir -p "$FIX114/runs/quick/261399-bad-date"
 printf '## what\nx\n## result\n\n' > "$FIX114/runs/quick/261399-bad-date/NOTE.md"
-touch -d '60 days ago' "$FIX114/runs/quick/261399-bad-date/NOTE.md"
+backdate_file "$FIX114/runs/quick/261399-bad-date/NOTE.md" 60
 assert_rejects "an unparseable directory date falls back to the mtime (ADV-R12-12)" "$FIX114" \
   "261399-bad-date/NOTE.md has an empty result and is 60 days old" gate-7 --run 260922-q2-r1
 finish

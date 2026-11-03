@@ -1,4 +1,4 @@
-# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.5
+# INSTALL — packaging, entry reliability, migration — DRAFT v0.7.6
 
 ## Prerequisites
 
@@ -11,7 +11,7 @@ Checked by `install.sh` before it writes anything; a missing required tool abort
 | **python3** | 3.6+ | `gates.py` (the engine behind `gates.sh`), and the in-place CLAUDE.md section rewrite | install aborts — **no gates at all** |
 | **node** | 18+ | `status.mjs` | *optional.* Derived status is unavailable; enforcement is unaffected, and `install.sh` only prints a note |
 
-Nothing else is assumed — no npm, no package manager, no CI service. Where a hash is needed the test suite uses whichever of `sha256sum`, `shasum` or `python3` the machine has, so the package runs unchanged on macOS and Linux.
+Nothing else is assumed — no npm, no package manager, no CI service. Where a hash is needed the test suite uses whichever of `sha256sum`, `shasum` or `python3` the machine has, and every shell-tool fixture edit or back-dating goes through python3 helpers (`scripts/wow/tests/lib.sh`), so the package — engine, installer AND self-test suite — is written to run unchanged on macOS (BSD userland, stock bash 3.2) and Linux (GNU); the CHANGELOG entry of each release states which of the two it was measured on. Since v0.7.6 the wiring suite refuses a listed set of GNU-only command forms (`sed` with an `-i` flag and no suffix, `touch -d`, `date -d`, `stat -c`, `readlink -f`, `grep -P`, `xargs -r`, `find -printf`, … — a blocklist, not a grammar) in the suite, `install.sh` and `gates.sh` (advisor/F-200 — v0.7.5's suite built twelve fixtures with `sed -i '…'` and `touch -d`, which BSD rejects, so on macOS four gates could not be confirmed by their own negative tests while the gates themselves were correct). Python ≥3.12 is covered too: a docstring escape that raised a SyntaxWarning on 3.12+ and failed two assertions is fixed.
 
 ## Canonical home & install path
 

@@ -474,7 +474,7 @@ owns:
 P
 assert_rejects "'|| echo' after merge-base collapses exit 128/129 into the verdict — not a guard (platform/F-86)" "$FIX86" \
   "inert idiom 'unguarded-merge-base'" gate-13 --run 260925-mb-r1
-sed -i 's/HEAD \\|\\| echo NOT-ANCESTOR/HEAD; rc=$?; case $rc in 0\\|1) echo $rc;; *) exit 2;; esac/' "$FIX86/runs/260925-mb-r1/PLAN.md"
+replace_in_file "$FIX86/runs/260925-mb-r1/PLAN.md" 'HEAD \|\| echo NOT-ANCESTOR' 'HEAD; rc=$?; case $rc in 0\|1) echo $rc;; *) exit 2;; esac'
 assert_accepts "capturing the exit code on the same line IS a guard (F-86 control)" "$FIX86" gate-13 --run 260925-mb-r1
 # ---- prodsim/F-111 (v0.7.5): verify-cmd prints the RUNNABLE Verify
 cat > "$FIX86/runs/260925-mb-r1/PLAN.md" <<'P'
@@ -509,7 +509,10 @@ VR="$( cd "$FIX86" && bash -c "$(bash scripts/wow/gates.sh verify-cmd 260925-mb-
   && { echo "  FAIL verify-cmd on an unknown task exited 0 (F-111)"; FAIL=$((FAIL+1)); } \
   || { echo "  ok   verify-cmd on an unknown task is refused (F-111)"; PASS=$((PASS+1)); }
 # ---- R12b: ADV-R12-17 — verify-cmd strips the lint-ok marker
-sed -i 's#| `printf .a\\|b. \\| grep -c a` |#| `printf '"'"'a\\|b'"'"' \\| grep -c a` lint-ok: deliberate |#' "$FIX86/runs/260925-mb-r1/PLAN.md"
+replace_in_file "$FIX86/runs/260925-mb-r1/PLAN.md" "| \`printf 'a\\|b' \\| grep -c a\` |" "| \`printf 'a\\|b' \\| grep -c a\` lint-ok: deliberate |"
+grep -q 'lint-ok: deliberate' "$FIX86/runs/260925-mb-r1/PLAN.md" \
+  && { echo "  ok   the lint-ok marker is in the cell before verify-cmd reads it (ADV-R14-04: the next assertion passes without it)"; PASS=$((PASS+1)); } \
+  || { echo "  FAIL the lint-ok marker never landed in the PLAN (ADV-R14-04)"; FAIL=$((FAIL+1)); }
 VC2="$( cd "$FIX86" && bash scripts/wow/gates.sh verify-cmd 260925-mb-r1.T31 2>&1 )"
 [ "$VC2" = "printf 'a|b' | grep -c a" ] && { echo "  ok   verify-cmd drops the lint-ok marker (ADV-R12-17)"; PASS=$((PASS+1)); } \
   || { echo "  FAIL verify-cmd kept the marker: $VC2 (ADV-R12-17)"; FAIL=$((FAIL+1)); }

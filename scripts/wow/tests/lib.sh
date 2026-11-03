@@ -16,6 +16,55 @@ PKG_DIR="$(cd "$WOW_DIR/../.." && pwd)"
 GATES="$WOW_DIR/gates.sh"
 PASS=0; FAIL=0; SKIP=0
 
+# ---- portable fixture edits (v0.7.6, advisor/F-200) ---------------------------
+# The fixtures used `sed -i '…'` (no suffix) and `touch -d '60 days ago'`, both
+# GNU-only: BSD sed reads the expression as the backup suffix and the file as
+# the script, BSD touch has no -d. On macOS the scenario was never built and 12
+# assertions checked the wrong thing. python3 is already a prerequisite, so
+# these helpers replace every shell-tool fixture edit (python3 heredoc blocks
+# that rewrite a fixture stay as they are — they were never the problem); a
+# tripwire in test-install.sh refuses the GNU forms it lists.
+#
+# A helper whose edit does not land COUNTS AS A FAILED ASSERTION (ADV-R14-01):
+# a silent no-op is how the defect hid, and a stderr line nobody reads is still
+# a no-op — the suite's exit code must move.
+#
+# replace_in_file FILE OLD NEW   — literal, every occurrence; OLD must occur
+# resub_in_file   FILE REGEX REPL — python re.sub, MULTILINE; REPL is a python
+#                                  replacement (\g<0> for the match, real \n ok)
+# backdate_file   FILE DAYS      — set mtime (and atime) DAYS days into the past
+replace_in_file() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+p, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(p, encoding="utf-8").read()
+if old not in s:
+    sys.stderr.write("replace_in_file: %r not found in %s\n" % (old, p)); sys.exit(1)
+open(p, "w", encoding="utf-8").write(s.replace(old, new))
+PY
+  [ $? -eq 0 ] || { echo "  FAIL fixture edit did not land (replace_in_file on $1) — the scenario below is not built"; FAIL=$((FAIL+1)); return 1; }
+}
+resub_in_file() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import re, sys
+p, pat, rep = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(p, encoding="utf-8").read()
+out, n = re.subn(pat, rep, s, flags=re.M)
+if n == 0:
+    sys.stderr.write("resub_in_file: %r matched nothing in %s\n" % (pat, p)); sys.exit(1)
+open(p, "w", encoding="utf-8").write(out)
+PY
+  [ $? -eq 0 ] || { echo "  FAIL fixture edit did not land (resub_in_file on $1) — the scenario below is not built"; FAIL=$((FAIL+1)); return 1; }
+}
+backdate_file() {
+  python3 - "$1" "$2" <<'PY'
+import os, sys, time
+t = time.time() - int(sys.argv[2]) * 86400
+os.utime(sys.argv[1], (t, t))
+PY
+  [ $? -eq 0 ] || { echo "  FAIL fixture back-dating did not land (backdate_file on $1)"; FAIL=$((FAIL+1)); return 1; }
+}
+
 setup_fixture_repo() {
   FIX="$(mktemp -d)"
   ( cd "$FIX" \

@@ -154,7 +154,7 @@ PY
 assert_rejects "a label with no _subject_note call site fails parity and NAMES the gate (platform/F-83)" "$FIX83" \
   "GATE-1 declares a subject label" parity
 cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
-sed -i 's/_subject_note("GATE-3", scanned)/[]/' "$FIX83/scripts/wow/gates.py"
+replace_in_file "$FIX83/scripts/wow/gates.py" '_subject_note("GATE-3", scanned)' '[]'
 assert_rejects "a call site removed from a labelled gate fails parity and names GATE-3 (F-83)" "$FIX83" \
   "GATE-3 declares a subject label" parity
 cp "$WOW_DIR/gates.py" "$FIX83/scripts/wow/gates.py"
@@ -221,7 +221,8 @@ assert_rejects "a four-component version is refused in both authorities even whe
   "CHANGELOG top entry '0.7.5.1-draft' is not a supported version shape" parity
 assert_rejects "… and formats.json is named too" "$FIX83" \
   "formats.json version '0.7.5.1-draft' is not a supported version shape" parity
-printf '# Changelog\n\n## v0.7.5-draft — 2026-10-07\n- x\n' > "$FIX83/CHANGELOG.md"
+PKG_VER="$(python3 -c "import json;print(json.load(open('$WOW_DIR/formats.json'))['version'])")"
+printf '# Changelog\n\n## v%s — 2026-10-07\n- x\n' "$PKG_VER" > "$FIX83/CHANGELOG.md"   # derived, never restated (v0.7.6: the control pinned 0.7.5 and broke on the bump)
 cp "$WOW_DIR/formats.json" "$FIX83/scripts/wow/formats.json"
 assert_accepts "x.y.z-draft in both authorities passes (control)" "$FIX83" parity
 rm -f "$FIX83/CHANGELOG.md"

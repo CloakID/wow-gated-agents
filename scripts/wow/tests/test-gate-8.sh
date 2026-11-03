@@ -880,10 +880,10 @@ autonomy: decide-and-log
 P
 assert_accepts "a wave-1 unit re-dispatched at wave 4 may read a wave-3 output (prodsim/F-104)" "$FIX" \
   gate-8 --run 260813-x-r1
-sed -i 's/^dispatched_at_wave: 4$/dispatched_at_wave: 3/' "$FIX/runs/260813-x-r1/PLAN.md"
+resub_in_file "$FIX/runs/260813-x-r1/PLAN.md" '^dispatched_at_wave: 4$' 'dispatched_at_wave: 3'
 assert_rejects "re-dispatched at wave 3 it cannot read a wave-3 output (F-104 control)" "$FIX" \
   "consuming at wave 3) declares input 'src/a.py' produced by U1 (wave 3) — not a STRICTLY LOWER" gate-8 --run 260813-x-r1
-sed -i 's/^dispatched_at_wave: 3$/dispatched_at_wave: 1/' "$FIX/runs/260813-x-r1/PLAN.md"
+resub_in_file "$FIX/runs/260813-x-r1/PLAN.md" '^dispatched_at_wave: 3$' 'dispatched_at_wave: 1'
 assert_rejects "dispatched_at_wave not later than wave is refused (F-104)" "$FIX" \
   "not LATER than its wave" gate-8 --run 260813-x-r1
 # ---- prodsim/F-108 (v0.7.5): ORCH-owned records are declarable inputs
@@ -948,7 +948,7 @@ autonomy: decide-and-log
 P
 assert_rejects "a unit cannot CLAIM an orch/ path (F-108)" "$FIX" "claims ORCH-owned path" gate-8 --run 260813-x-r1
 # ---- platform/F-95 (v0.7.5): a delta verifier's report is nobody's unit output
-sed -i 's#^- runs/260813-x-r1/orch/notes.md#- runs/260813-x-r1/reports/AM-01-verify.md#' "$FIX/runs/260813-x-r1/PLAN.md"
+resub_in_file "$FIX/runs/260813-x-r1/PLAN.md" '^- runs/260813-x-r1/orch/notes\.md' '- runs/260813-x-r1/reports/AM-01-verify.md'
 assert_rejects "a unit cannot claim reports/AM-01-verify.md either (platform/F-95)" "$FIX" \
   "not an AGENT-writable path" gate-8 --run 260813-x-r1
 # ---- platform/F-97 (v0.7.5): reads-vs-declarations — a clause pointing at nothing
@@ -981,12 +981,12 @@ autonomy: decide-and-log
 P
 assert_rejects "a Verify naming an ORCH-owned file that does not exist during P3 is refused at G2 (platform/F-97, DEF-plan-02 replay)" "$FIX" \
   "names path 'runs/260813-x-r1/RUN-REPORT.md' which exists nowhere" gate-8 --run 260813-x-r1
-sed -i 's#`diff runs/260813-x-r1/RUN-REPORT.md src/a.py`#`diff runs/260813-x-r1/evidence/U1/out.txt src/a.py`#' "$FIX/runs/260813-x-r1/PLAN.md"
+replace_in_file "$FIX/runs/260813-x-r1/PLAN.md" '`diff runs/260813-x-r1/RUN-REPORT.md src/a.py`' '`diff runs/260813-x-r1/evidence/U1/out.txt src/a.py`'
 assert_accepts "a path under the unit's own evidence dir is the unit's to write (F-97 control)" "$FIX" gate-8 --run 260813-x-r1
-sed -i 's#`diff runs/260813-x-r1/evidence/U1/out.txt src/a.py`#`test -f src/ghost.py \&\& echo PARK-U1-01`#' "$FIX/runs/260813-x-r1/PLAN.md"
+replace_in_file "$FIX/runs/260813-x-r1/PLAN.md" '`diff runs/260813-x-r1/evidence/U1/out.txt src/a.py`' '`test -f src/ghost.py && echo PARK-U1-01`'
 assert_rejects "an untracked, unowned path is refused (F-97)" "$FIX" "names path 'src/ghost.py'" gate-8 --run 260813-x-r1
 assert_rejects "an id no row allocates is refused (F-97 fix 2)" "$FIX" "names PARK-U1-01 and nothing" gate-8 --run 260813-x-r1
-sed -i 's#`test -f src/ghost.py \&\& echo PARK-U1-01`#`test -f src/ghost.py` lint-ok: ghost is created by T31 itself#' "$FIX/runs/260813-x-r1/PLAN.md"
+replace_in_file "$FIX/runs/260813-x-r1/PLAN.md" '`test -f src/ghost.py && echo PARK-U1-01`' '`test -f src/ghost.py` lint-ok: ghost is created by T31 itself'
 assert_accepts "lint-ok accepts the clause deliberately and visibly (F-97 escape)" "$FIX" gate-8 --run 260813-x-r1
 # ---- R12b: ADV-R12-07 — a re-dispatched producer's outputs are available at its dispatched wave
 plan <<'P'
@@ -1055,7 +1055,8 @@ autonomy: decide-and-log
 P
 ( cd "$FIX" && git add -A >/dev/null && git commit -qm "sign [WOW:publish]" --no-verify )
 assert_accepts "a SIGNED and committed plan's rows are frozen for the reads lint (DEV-R12-09)" "$FIX" gate-8 --run 260813-x-r1
-sed -i 's#^| 260813-x-r1.T31 | compare | `diff runs/260813-x-r1/RUN-REPORT.md src/a.py` | same |$#&\n| 260813-x-r1.T32 | added by AM-01 | `cat runs/260813-x-r1/RUN-REPORT.md` | read |#' "$FIX/runs/260813-x-r1/PLAN.md"
+resub_in_file "$FIX/runs/260813-x-r1/PLAN.md" '^\| 260813-x-r1\.T31 \| compare \| `diff runs/260813-x-r1/RUN-REPORT\.md src/a\.py` \| same \|$' '\g<0>\n| 260813-x-r1.T32 | added by AM-01 | `cat runs/260813-x-r1/RUN-REPORT.md` | read |'
+
 assert_rejects "a row ADDED after signing is linted (DEV-R12-09 control)" "$FIX" \
   "task 260813-x-r1.T32 names path 'runs/260813-x-r1/RUN-REPORT.md'" gate-8 --run 260813-x-r1
 # ---- R12b: ADV-R12-09 — prior-run ids resolve in the archive; lower-wave evidence is deliverable

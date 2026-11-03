@@ -860,7 +860,7 @@ def _is_separator(line):
 
 
 def _cells(line):
-    """F-18 (v0.6.4): an escaped pipe `\|` is cell CONTENT anywhere — a field
+    r"""F-18 (v0.6.4): an escaped pipe `\|` is cell CONTENT anywhere — a field
     that carries a shell command must not be delimited by a character shells
     use. This retires FORMATS §12's old 'escape only in the trailing ev cell'
     caveat: earlier-cell escapes no longer shift columns, because the split

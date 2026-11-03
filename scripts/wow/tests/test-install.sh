@@ -453,6 +453,22 @@ if grep -nE '\$\([^)]*<<' "$PKG_DIR/install.sh" >/dev/null 2>&1; then
 else
   echo "  ok   no heredoc inside command substitution in install.sh (bash 3.2, F-78/F-81)"; PASS=$((PASS+1))
 fi
+# ---- advisor/F-200 (v0.7.6): GNU-only command forms are structural, too ------
+# BSD sed reads `sed -i '…'` as a backup suffix plus a script named by the
+# file; BSD touch has no -d. Twelve fixture scenarios were never built on
+# macOS and the assertions after them checked the wrong thing. The class
+# tripwire: no non-comment line of the suite, install.sh or gates.sh uses a
+# GNU-only form from the list below (a blocklist of the forms F-200 found and
+# their common neighbours — not a grammar; ADV-R14-02); fixture edits go
+# through lib.sh's replace_in_file / resub_in_file / backdate_file (python3, a
+# prerequisite already). The only line exempt is the one defining the list.
+GNU_ONLY='(^|[^A-Za-z_.-])(sed([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*i([^.A-Za-z]|$)|sed[[:space:]]+--in-place|sed -r|touch -d|touch --date|date -d|date --|date [^|;]*-d |stat -c|stat --format|readlink -[ef]|grep -[A-Za-z]*P([^A-Za-z]|$)|xargs[^|;]* -r([^A-Za-z]|$)|find [^|;]*-printf|mktemp (-p|--)|sort (-V|--version-sort)|head -n -)'
+GNU_HITS="$( grep -nE "$GNU_ONLY" "$PKG_DIR"/scripts/wow/tests/*.sh "$PKG_DIR/install.sh" "$PKG_DIR/scripts/wow/gates.sh" 2>/dev/null | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' | grep -v "^$PKG_DIR/scripts/wow/tests/test-install.sh:[0-9]*:GNU_ONLY='" )"
+if [ -n "$GNU_HITS" ]; then
+  echo "  FAIL GNU-only command form(s) in the suite or the shell entry points — BSD/macOS builds a different scenario or none (advisor/F-200):"; printf '%s\n' "$GNU_HITS" | sed 's/^/       /'; FAIL=$((FAIL+1))
+else
+  echo "  ok   no GNU-only command form in scripts/wow/tests/*.sh, install.sh, gates.sh (advisor/F-200)"; PASS=$((PASS+1))
+fi
 # ---- prodsim/F-77 (v0.7.4): the sweep asserts the enforcement layer --------
 # A second installer (an old checkout's lifecycle script) clobbers the WoW
 # pre-commit hook; .git/hooks is untracked so nothing else notices. Parity —
